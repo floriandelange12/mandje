@@ -26,8 +26,14 @@ read("assets/icon_b64.txt").split(/\r?\n/).forEach(line => {
 });
 const font = read("assets/font_b64.txt").split(":").slice(1).join(":").trim();
 
+// supabase SDK (ingebakken UMD-bundle — voorkomt runtime CDN-fetch)
+const supabaseSdkPath = path.join(root, "assets/supabase.js");
+const supabaseSdk = fs.existsSync(supabaseSdkPath) ? read("assets/supabase.js") : "";
+const sdkScript = supabaseSdk ? "<script>\n" + supabaseSdk + "\n</script>\n" : "";
+if (!supabaseSdk) console.warn("! assets/supabase.js niet gevonden — Cloud valt terug op runtime CDN-fetch");
+
 // shell vullen
-let html = read("src/shell.html").replace("<!-- __SCRIPT__ -->", "<script>\n" + combined + "\n</script>");
+let html = read("src/shell.html").replace("<!-- __SCRIPT__ -->", sdkScript + "<script>\n" + combined + "\n</script>");
 html = html.replace("__ICON180__", icons.ICON180)
            .replace("__ICON512__", icons.ICON512)
            .replace("__FONT__", font);

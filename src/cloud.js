@@ -68,8 +68,9 @@ var Cloud = {
     Shortcuts.load();
     var params=new URLSearchParams(location.search);
     try{
-      var mod=await loadSupabaseSDK();
-      this.sb=mod.createClient(SUPABASE_URL, SUPABASE_ANON_KEY,
+      var sdk = (typeof window!=="undefined" && window.supabase) ? window.supabase : null;
+      if(!sdk){ console.warn("Mandje: SDK niet ingebakken, val terug op CDN"); sdk = await loadSupabaseSDK(); }
+      this.sb=sdk.createClient(SUPABASE_URL, SUPABASE_ANON_KEY,
         {auth:{persistSession:true, autoRefreshToken:true, storageKey:"mandje.sb.auth"}});
       var s=await this.sb.auth.getSession();
       if(!s.data || !s.data.session){ var r=await this.sb.auth.signInAnonymously(); if(r.error) throw r.error; }
