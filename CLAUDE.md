@@ -5,8 +5,8 @@
 ## Wat dit is
 Mandje is een premium boodschappenlijst-PWA voor iPhone: één self-contained `index.html`
 (HTML + CSS + JS + ingebed icoon/font), met een Supabase-laag voor gedeelde, realtime lijsten.
-- **Live:** https://fl-labs26.github.io/mandje/
-- **Host:** GitHub Pages op repo `FL-labs26/mandje` (branch `main`, root `/`).
+- **Live:** https://floriandelange12.github.io/mandje/
+- **Host:** GitHub Pages op repo `floriandelange12/mandje` (branch `main`, root `/`).
 - **Persoonlijke lijst:** localStorage. **Gedeelde lijsten + items:** Supabase (anonieme auth).
 
 ## Architectuur
@@ -37,7 +37,7 @@ Na deploy: hard verversen op de telefoon (pagina sluiten/heropenen of "Herlaad z
 - **Altijd `npm test` draaien vóór een push.** Niet pushen bij rode tests.
 - **Geen `.env` of geheimen committen.** De Supabase *publishable* key (`sb_publishable_...`) mag wél in de frontend staan: de beveiliging zit in Row Level Security in Supabase.
 - **Niet force-pushen zonder back-up.** Bij twijfel eerst een branch/commit als vangnet.
-- Remotes: `origin` = `FL-labs26/Skedify`-stijl → hier `FL-labs26/mandje`. Back-up-remote indien aanwezig respecteren.
+- Remotes: `origin` = `floriandelange12/mandje`. Backup-remote `fl-labs26` → `FL-labs26/mandje` (de oude host, behouden als vangnet — niet naartoe pushen tenzij gevraagd).
 - Houd de app **single-file** en zonder externe build-tooling (alleen Node voor build+tests).
 
 ## Werkwijze

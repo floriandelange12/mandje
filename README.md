@@ -2,7 +2,7 @@
 
 Premium boodschappenlijst-PWA voor iPhone. Eén self-contained `index.html`, gehost op GitHub Pages, met een Supabase-laag voor gedeelde realtime lijsten.
 
-**Live:** https://fl-labs26.github.io/mandje/
+**Live:** https://floriandelange12.github.io/mandje/
 
 ## Snel
 ```bash
