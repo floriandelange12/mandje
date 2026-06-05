@@ -807,6 +807,7 @@ function switchTab(tab){
   if(tab==="vaste"){ var n=getRecurring().length; $("#subhead").textContent=n?(n+" "+(n===1?"vast product":"vaste producten")):""; }
   if(tab==="meer"){ $("#subhead").textContent=""; }
   renderListSwitch(); renderMembersRow();
+  if(typeof renderShortcutsRow==="function") renderShortcutsRow();
   updateTotals();
 }
 

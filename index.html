@@ -292,6 +292,19 @@
   .code-box .cb-lbl{ font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.1em; color:var(--ink-soft); }
   .code-box .cb-code{ font-family:var(--display); font-size:40px; font-weight:600; letter-spacing:.18em; margin-top:4px; }
 
+  /* ---------- "Stuur naar"-snelkoppelingen ---------- */
+  .shortcuts-row{ margin:-2px -16px 10px; padding:0; }
+  .shortcuts-row.empty{ display:none; }
+  .shortcuts-row .sc-scroll{ display:flex; gap:8px; overflow-x:auto; padding:4px 16px; scroll-snap-type:x proximity; -webkit-overflow-scrolling:touch; }
+  .shortcuts-row .sc-scroll::-webkit-scrollbar{ display:none; }
+  .sc-chip{ flex:0 0 auto; display:inline-flex; align-items:center; gap:7px; background:var(--surface); border:1px solid var(--line); border-radius:var(--r-pill); padding:7px 13px 7px 9px; font-size:14px; font-weight:600; color:var(--ink); box-shadow:var(--shadow-sm); scroll-snap-align:start; transition:transform .12s var(--ease); }
+  .sc-chip:active{ transform:scale(.94); }
+  .sc-dot{ display:inline-block; width:9px; height:9px; border-radius:50%; flex:0 0 auto; }
+  .sc-arrow{ color:var(--ink-faint); font-weight:700; font-size:13px; margin-right:-2px; }
+  .sc-name{ white-space:nowrap; max-width:130px; overflow:hidden; text-overflow:ellipsis; }
+  .sc-plus{ padding:7px 15px; color:var(--green); border-style:dashed; border-color:var(--line-strong); justify-content:center; font-size:17px; font-weight:800; gap:0; }
+  .sc-plus:active{ background:var(--green-2); }
+
   .send-screen{ position:absolute; inset:0; z-index:80; background:var(--bg); display:none; flex-direction:column; padding:calc(var(--safe-t) + 24px) max(20px,env(safe-area-inset-left)) calc(var(--safe-b) + 24px) max(20px,env(safe-area-inset-right)); overflow-y:auto; }
   .send-screen.show{ display:flex; }
   .send-screen .ss-badge{ width:64px; height:64px; border-radius:18px; background:var(--green-2); display:flex; align-items:center; justify-content:center; margin-bottom:18px; }
@@ -343,6 +356,7 @@
         <div class="ac-list" id="ac-list"></div>
       </div>
       </div>
+      <div class="shortcuts-row empty" id="shortcuts-row"></div>
       <div class="members-row empty" id="members-row"></div>
       <div id="due-banner"></div>
       <div id="open-list"></div>
@@ -1208,6 +1222,7 @@ function switchTab(tab){
   if(tab==="vaste"){ var n=getRecurring().length; $("#subhead").textContent=n?(n+" "+(n===1?"vast product":"vaste producten")):""; }
   if(tab==="meer"){ $("#subhead").textContent=""; }
   renderListSwitch(); renderMembersRow();
+  if(typeof renderShortcutsRow==="function") renderShortcutsRow();
   updateTotals();
 }
 
@@ -1347,6 +1362,7 @@ var Cloud = {
   init:async function(){
     if(!this.cfg()) return;
     this.enabled=true; this.loadMe();
+    Shortcuts.load();
     var params=new URLSearchParams(location.search);
     try{
       var mod=await import("https://esm.sh/@supabase/supabase-js@2");
@@ -1367,7 +1383,7 @@ var Cloud = {
         if(act && act!=="local" && this.listById(act)) await this.open(act);
       }
     }catch(e){ console.warn("Cloud init:", e); this.ready=false; }
-    renderListSwitch(); renderMembersRow();
+    renderListSwitch(); renderMembersRow(); renderShortcutsRow();
   },
 
   loadLists:async function(){
@@ -1486,6 +1502,152 @@ var Cloud = {
   shareLink:function(list){ return location.origin+location.pathname+"?join="+list.join_code; },
   sendLink:function(list){ return location.origin+location.pathname+"?send="+list.send_token; }
 };
+
+/* ============================================================
+   SHORTCUTS — "Stuur naar"-snelkoppelingen (lokaal opgeslagen)
+   ============================================================ */
+var Shortcuts = {
+  items:[],
+  load:function(){
+    try{ var raw=localStorage.getItem("mandje.shortcuts"); this.items=raw?JSON.parse(raw):[]; }catch(e){ this.items=[]; }
+    if(!Array.isArray(this.items)) this.items=[];
+  },
+  save:function(){ try{ localStorage.setItem("mandje.shortcuts", JSON.stringify(this.items)); }catch(e){} },
+  byToken:function(t){ for(var i=0;i<this.items.length;i++) if(this.items[i].token===t) return this.items[i]; return null; },
+  byId:function(id){ for(var i=0;i<this.items.length;i++) if(this.items[i].id===id) return this.items[i]; return null; },
+  add:function(name, token, color){
+    var id="sc_"+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+    this.items.push({id:id, name:(name||"Lijst"), token:token, color:color||pickColor(), lastUsed:nowISO()});
+    this.save(); renderShortcutsRow(); return id;
+  },
+  remove:function(id){ this.items=this.items.filter(function(s){return s.id!==id;}); this.save(); renderShortcutsRow(); },
+  rename:function(id, name){ var s=this.byId(id); if(s){ s.name=name; this.save(); renderShortcutsRow(); } },
+  touch:function(id){ var s=this.byId(id); if(s){ s.lastUsed=nowISO(); this.save(); } }
+};
+
+function parseTokenFromInput(input){
+  input=(input||"").trim(); if(!input) return null;
+  try{ var u=new URL(input); var t=u.searchParams.get("send"); if(t) return t; }catch(e){}
+  var m=input.match(/[?&]send=([^&\s#]+)/); if(m){ try{ return decodeURIComponent(m[1]); }catch(e){ return m[1]; } }
+  if(/^[A-Za-z0-9_\-]{8,}$/.test(input)) return input;
+  return null;
+}
+
+function renderShortcutsRow(){
+  var wrap=document.getElementById("shortcuts-row"); if(!wrap) return;
+  if(activeTab!=="lijst" || !Cloud.enabled){ wrap.innerHTML=""; wrap.className="shortcuts-row empty"; return; }
+  wrap.className="shortcuts-row";
+  var sorted=Shortcuts.items.slice().sort(function(a,b){
+    return new Date(b.lastUsed||0).getTime() - new Date(a.lastUsed||0).getTime();
+  });
+  var inner='<div class="sc-scroll">';
+  sorted.forEach(function(s){
+    inner+='<button class="sc-chip" data-id="'+s.id+'">'+
+      '<span class="sc-dot" style="background:'+s.color+'"></span>'+
+      '<span class="sc-arrow">→</span>'+
+      '<span class="sc-name">'+escapeHtml(s.name)+'</span>'+
+    '</button>';
+  });
+  inner+='<button class="sc-chip sc-plus" data-add="1" aria-label="Snelkoppeling toevoegen">+</button>';
+  inner+='</div>';
+  wrap.innerHTML=inner;
+  wrap.querySelectorAll(".sc-chip").forEach(function(b){
+    if(b.dataset.add){
+      b.addEventListener("click", function(){ openAddShortcutSheet(); });
+    } else {
+      var id=b.dataset.id;
+      b.addEventListener("click", function(){ openSendSheet(id); });
+      var lpTimer=null;
+      var startLP=function(){ lpTimer=setTimeout(function(){ vibrate(15); openManageShortcutSheet(id); }, 550); };
+      var clrLP=function(){ if(lpTimer){ clearTimeout(lpTimer); lpTimer=null; } };
+      b.addEventListener("touchstart", startLP, {passive:true});
+      b.addEventListener("touchend", clrLP);
+      b.addEventListener("touchmove", clrLP);
+      b.addEventListener("touchcancel", clrLP);
+    }
+  });
+}
+
+function openSendSheet(scId){
+  var s=Shortcuts.byId(scId); if(!s) return;
+  var sent=[];
+  var html='<div class="grip"></div>'+
+    '<h3 style="display:flex;align-items:center;gap:10px"><span style="display:inline-block;width:14px;height:14px;border-radius:50%;background:'+s.color+';flex:0 0 auto"></span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">Sturen naar '+escapeHtml(s.name)+'</span></h3>'+
+    '<div class="field" style="margin-bottom:6px">'+
+      '<svg class="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>'+
+      '<input class="name" id="sc-input" type="search" enterkeyhint="send" placeholder="Bijv. melk, brood…" autocapitalize="sentences" autocomplete="off" autocorrect="off" spellcheck="false">'+
+      '<button class="addbtn" id="sc-send" aria-label="Stuur"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg></button>'+
+    '</div>'+
+    '<div class="chips" id="sc-sent" style="margin:14px 0 4px"></div>'+
+    '<div class="hint" style="margin:8px 6px 4px">De ander ziet je toevoegingen direct in hun lijst.</div>';
+  var sh=openSheet2(html);
+  var inp=sh.querySelector("#sc-input");
+  var btn=sh.querySelector("#sc-send");
+  function send(){
+    var nm=(inp.value||"").trim(); if(!nm) return;
+    if(!Cloud.sb){ toast("Geen verbinding"); return; }
+    var from=Cloud.myName();
+    Cloud.sb.rpc("add_item_via_token",{p_token:s.token, p_name:nm, p_qty:1, p_note:"", p_from:from}).then(function(r){
+      if(r.error){ toast("Versturen mislukt"); return; }
+      sent.unshift(nm); inp.value="";
+      sh.querySelector("#sc-sent").innerHTML=sent.map(function(n){return '<span class="chip"><span class="emoji">✓</span>'+escapeHtml(n)+'</span>';}).join("");
+      inp.focus();
+      Shortcuts.touch(s.id);
+    },function(){ toast("Versturen mislukt"); });
+  }
+  btn.addEventListener("click", send);
+  inp.addEventListener("keydown", function(e){ if(e.key==="Enter") send(); });
+  setTimeout(function(){ if(inp) inp.focus(); }, 280);
+}
+
+function openAddShortcutSheet(prefilledToken, prefilledName){
+  var html='<div class="grip"></div>'+
+    '<h3>Snelkoppeling toevoegen</h3>'+
+    '<div class="hint" style="margin:0 6px 14px">Plak een stuur-link die je van iemand hebt gekregen. Daarmee kun je items naar hun lijst sturen.</div>'+
+    '<div class="frow"><input class="txt" id="sc-tokin" placeholder="Plak stuur-link" value="'+escapeAttr(prefilledToken||"")+'" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false"></div>'+
+    '<div class="frow"><input class="txt" id="sc-namein" placeholder="Naam, bv. Sasha" value="'+escapeAttr(prefilledName||"")+'" autocapitalize="words"></div>'+
+    '<div class="sheet-actions"><button class="save" id="sc-save-add">Opslaan</button></div>';
+  var sh=openSheet2(html);
+  setTimeout(function(){ var t=sh.querySelector("#sc-tokin"); if(t && !prefilledToken) t.focus(); else { var n=sh.querySelector("#sc-namein"); if(n) n.focus(); } }, 280);
+  sh.querySelector("#sc-save-add").addEventListener("click", function(){
+    var raw=sh.querySelector("#sc-tokin").value;
+    var nm=(sh.querySelector("#sc-namein").value||"").trim();
+    var token=parseTokenFromInput(raw);
+    if(!token){ toast("Deze link werkt niet"); return; }
+    if(Shortcuts.byToken(token)){ toast("Al opgeslagen"); closeSheet2(); return; }
+    function persist(finalName){
+      Shortcuts.add(finalName||"Lijst", token, pickColor());
+      closeSheet2(); toast("Snelkoppeling toegevoegd");
+    }
+    if(Cloud.sb){
+      Cloud.sb.rpc("list_name_by_token",{p_token:token}).then(function(r){
+        if(r.error || !r.data){ toast("Link verlopen of ongeldig"); return; }
+        persist(nm || r.data);
+      }, function(){ persist(nm); });
+    } else {
+      persist(nm);
+    }
+  });
+}
+
+function openManageShortcutSheet(id){
+  var s=Shortcuts.byId(id); if(!s) return;
+  var html='<div class="grip"></div>'+
+    '<h3 style="display:flex;align-items:center;gap:10px"><span style="display:inline-block;width:14px;height:14px;border-radius:50%;background:'+s.color+';flex:0 0 auto"></span><span>'+escapeHtml(s.name)+'</span></h3>'+
+    '<div class="frow"><input class="txt" id="sc-rename" value="'+escapeAttr(s.name)+'" autocapitalize="words"></div>'+
+    '<div class="sheet-actions"><button class="save" id="sc-save-name">Naam opslaan</button><button class="del" id="sc-delete">Verwijder</button></div>';
+  var sh=openSheet2(html);
+  sh.querySelector("#sc-save-name").addEventListener("click", function(){
+    var v=(sh.querySelector("#sc-rename").value||"").trim();
+    if(!v){ toast("Naam mag niet leeg zijn"); return; }
+    Shortcuts.rename(id, v); closeSheet2(); toast("Hernoemd");
+  });
+  sh.querySelector("#sc-delete").addEventListener("click", function(){
+    if(confirm("Snelkoppeling '"+s.name+"' verwijderen?")){
+      Shortcuts.remove(id); closeSheet2(); toast("Verwijderd");
+    }
+  });
+}
 
 /* ============================================================
    CLOUD UI
@@ -1622,6 +1784,8 @@ function openSendScreen(token){
   var scr=$("#send-screen"); scr.classList.add("show");
   var added=[];
   function render(listName){
+    Shortcuts.load();
+    var alreadySaved = !!Shortcuts.byToken(token);
     scr.innerHTML=
       '<div class="ss-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg></div>'+
       '<div class="eyebrow">Stuur naar</div>'+
@@ -1632,7 +1796,9 @@ function openSendScreen(token){
         '<button class="addbtn" id="ss-add" aria-label="Stuur"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>'+
       '</div>'+
       '<div class="frow" style="margin-top:12px"><input class="txt" id="ss-from" placeholder="Je naam (optioneel)" autocapitalize="words" value="'+escapeAttr((Cloud.me&&Cloud.me.display_name)||"")+'"></div>'+
-      '<div class="ss-added"><div class="chips" id="ss-chips"></div></div>';
+      '<div class="ss-added"><div class="chips" id="ss-chips"></div></div>'+
+      '<button class="mbtn" id="ss-remember" style="margin-top:22px;'+(alreadySaved?'opacity:.55;pointer-events:none;':'background:var(--green);color:var(--on-green);border-color:transparent;')+'">'+(alreadySaved?'✓ Al een snelkoppeling':'Onthoud deze lijst als snelkoppeling')+'</button>'+
+      '<div class="hint" style="margin:4px 6px 0">Daarna kun je vanaf je Mandje-hoofdscherm in 1 tap items hierheen sturen.</div>';
     var nameI=scr.querySelector("#ss-name");
     function send(){
       var nm=(nameI.value||"").trim(); if(!nm) return;
@@ -1646,6 +1812,20 @@ function openSendScreen(token){
     }
     scr.querySelector("#ss-add").addEventListener("click",send);
     nameI.addEventListener("keydown",function(e){ if(e.key==="Enter") send(); });
+    var remBtn=scr.querySelector("#ss-remember");
+    if(remBtn && !alreadySaved){
+      remBtn.addEventListener("click", function(){
+        var defaultName=listName||"Lijst";
+        var nm=prompt("Naam voor deze snelkoppeling:", defaultName);
+        if(nm===null) return;
+        nm=(nm||"").trim(); if(!nm) nm=defaultName;
+        Shortcuts.add(nm, token, pickColor());
+        remBtn.textContent="✓ Snelkoppeling opgeslagen";
+        remBtn.style.background=""; remBtn.style.color=""; remBtn.style.borderColor="";
+        remBtn.style.opacity=".55"; remBtn.style.pointerEvents="none";
+        toast("Snelkoppeling opgeslagen");
+      });
+    }
   }
   // lijstnaam ophalen
   if(Cloud.sb){
