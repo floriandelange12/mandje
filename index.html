@@ -95,10 +95,12 @@
   .pad-bottom{ height:calc(var(--tabbar-h) + var(--safe-b) + 24px); }
   .pad-bottom.with-total{ height:calc(var(--tabbar-h) + var(--safe-b) + 132px); }
 
-  .largehead{ padding:calc(var(--safe-t) + 60px) 4px 6px; }
-  .eyebrow{ font-size:12.5px; font-weight:700; letter-spacing:.14em; text-transform:uppercase; color:var(--green); }
-  h1{ font-family:var(--display); font-size:38px; line-height:1.0; font-weight:600; letter-spacing:-.01em; margin:6px 0 3px; }
+  .largehead{ padding:calc(var(--safe-t) + 54px) 4px 6px; }
+  h1{ font-family:var(--display); font-size:31px; line-height:1.06; font-weight:600; letter-spacing:-.01em; margin:2px 0 3px; }
   .subhead{ font-size:14px; color:var(--ink-soft); }
+  .topbar .gear{ position:absolute; right:max(8px, env(safe-area-inset-right)); top:calc(var(--safe-t) + 7px); width:36px; height:36px; border:0; background:transparent; color:var(--ink-soft); display:flex; align-items:center; justify-content:center; border-radius:50%; transition:background .15s ease, color .15s ease; }
+  .topbar .gear svg{ width:23px; height:23px; }
+  .topbar .gear:active{ background:var(--surface-3); }
 
   html,body{ overflow:hidden; }
 
@@ -109,10 +111,12 @@
   .field:focus-within{ border-color:color-mix(in srgb, var(--green) 55%, var(--line)); box-shadow:0 0 0 4px var(--green-2); }
   .field svg.lead{ width:20px; height:20px; color:var(--ink-faint); flex:0 0 20px; margin-right:10px; }
   .field input.name{ flex:1 1 0; min-width:0; border:0; outline:0; background:transparent; font-size:17px; padding:12px 0; -webkit-user-select:text; user-select:text; }
-  .pw{ display:flex; align-items:center; flex:0 0 auto; margin-left:6px; }
-  .pw .vsep{ width:1px; height:22px; background:var(--line); margin-right:8px; }
-  .pw input.pricein{ border:0; outline:0; background:transparent; font-size:15px; font-weight:700; color:var(--amber); width:62px; text-align:right; padding:12px 0; -webkit-user-select:text; user-select:text; }
-  .addbtn{ flex:0 0 42px; width:42px; height:42px; border:0; border-radius:13px; background:var(--green); color:var(--on-green); display:flex; align-items:center; justify-content:center; margin-left:6px; box-shadow:var(--shadow-sm); transition:transform .12s var(--ease), filter .12s ease; }
+  .field input.name::-webkit-search-cancel-button, .field input.name::-webkit-search-decoration{ -webkit-appearance:none; appearance:none; display:none; }
+  .pw{ display:inline-flex; align-items:center; gap:3px; flex:0 0 auto; margin:0 9px; padding:7px 11px; background:var(--surface-3); border-radius:12px; }
+  .pw .cur{ color:var(--ink-soft); font-weight:700; font-size:14px; }
+  .pw input.pricein{ border:0; outline:0; background:transparent; font-size:15px; font-weight:700; color:var(--amber); width:46px; text-align:right; padding:4px 0; -webkit-user-select:text; user-select:text; }
+  .pw input.pricein::placeholder{ color:var(--ink-faint); font-weight:600; }
+  .addbtn{ flex:0 0 42px; width:42px; height:42px; border:0; border-radius:13px; background:var(--green); color:var(--on-green); display:flex; align-items:center; justify-content:center; margin-left:0; box-shadow:var(--shadow-sm); transition:transform .12s var(--ease), filter .12s ease; }
   .addbtn svg{ width:22px; height:22px; }
   .addbtn:active{ transform:scale(.88); filter:brightness(.96); }
 
@@ -255,6 +259,9 @@
   .sheet-actions{ display:flex; gap:10px; margin-top:18px; }
   .sheet-actions .save{ flex:1; border:0; background:var(--green); color:var(--on-green); border-radius:14px; padding:15px; font-size:17px; font-weight:700; }
   .sheet-actions .del{ flex:0 0 auto; border:1px solid var(--line); background:var(--surface); color:var(--red); border-radius:14px; padding:15px 18px; font-size:17px; font-weight:700; }
+  .intro-pt{ display:flex; gap:13px; align-items:flex-start; margin-bottom:15px; font-size:15px; line-height:1.45; color:var(--ink-soft); }
+  .intro-pt .ip-em{ font-size:23px; flex:0 0 auto; line-height:1.2; }
+  .intro-pt b{ color:var(--ink); font-weight:700; }
 
   /* ---------- Toast ---------- */
   .toast{ position:absolute; left:50%; bottom:calc(var(--tabbar-h) + var(--safe-b) + 20px); transform:translateX(-50%) translateY(16px); background:var(--ink); color:var(--bg); padding:11px 18px; border-radius:14px; font-size:14px; font-weight:600; opacity:0; z-index:60; pointer-events:none; box-shadow:var(--shadow-lg); transition:opacity .25s var(--ease), transform .25s var(--ease); white-space:nowrap; }
@@ -312,11 +319,13 @@
 </script>
 <!-- ===================================================================== -->
 <div class="app" id="app">
-  <div class="topbar" id="topbar"><div class="ctitle" id="ctitle">Boodschappen</div></div>
+  <div class="topbar" id="topbar">
+    <div class="ctitle" id="ctitle">Boodschappen</div>
+    <button class="gear" id="gear-btn" aria-label="Instellingen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 8 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H2a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 3.6 8a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H8a1.65 1.65 0 0 0 1-1.51V2a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V8a1.65 1.65 0 0 0 1.51 1H22a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
+  </div>
 
   <main id="main">
     <div class="largehead">
-      <div class="eyebrow" id="eyebrow">Mijn lijst</div>
       <h1 id="title">Boodschappen</h1>
       <div class="subhead" id="subhead"></div>
       <div id="list-switch-wrap"></div>
@@ -328,11 +337,7 @@
         <div class="ac">
         <div class="field">
           <svg class="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
-          <input class="name" id="add-name" type="text" placeholder="Wat heb je nodig?" enterkeyhint="done" autocomplete="off" autocapitalize="sentences" spellcheck="false">
-          <div class="pw" id="add-pw">
-            <span class="vsep"></span>
-            <input class="pricein" id="add-price" type="text" inputmode="decimal" placeholder="€ prijs">
-          </div>
+          <input class="name" id="add-name" type="search" inputmode="text" placeholder="Wat heb je nodig?" enterkeyhint="done" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
           <button class="addbtn" id="add-btn" aria-label="Toevoegen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
         </div>
         <div class="ac-list" id="ac-list"></div>
@@ -377,10 +382,6 @@
     <button class="tab" data-tab="vaste">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 2.1 21 6l-4 3.9"/><path d="M3 11V9.5A3.5 3.5 0 0 1 6.5 6H21"/><path d="M7 21.9 3 18l4-3.9"/><path d="M21 13v1.5a3.5 3.5 0 0 1-3.5 3.5H3"/></svg>
       Vaste
-    </button>
-    <button class="tab" data-tab="meer">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/><circle cx="5" cy="12" r="1.6"/></svg>
-      Meer
     </button>
   </nav>
 
@@ -442,6 +443,20 @@ FLAT_KW.sort(function(a,b){ return b.w.length - a.w.length; });
 
 function norm(s){ return (s||"").toString().trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,""); }
 
+function lev(a,b){
+  var m=a.length,n=b.length; if(Math.abs(m-n)>1) return 2;
+  var prev=[],cur=[],i,j;
+  for(j=0;j<=n;j++) prev[j]=j;
+  for(i=1;i<=m;i++){
+    cur[0]=i;
+    for(j=1;j<=n;j++){
+      var c=a.charAt(i-1)===b.charAt(j-1)?0:1;
+      cur[j]=Math.min(prev[j]+1, cur[j-1]+1, prev[j-1]+c);
+    }
+    for(j=0;j<=n;j++) prev[j]=cur[j];
+  }
+  return prev[n];
+}
 function classify(name){
   var n = norm(name);
   if(!n) return "overig";
@@ -452,6 +467,15 @@ function classify(name){
       if(n.indexOf(w) !== -1) return FLAT_KW[i].cat;
     } else {
       if(words.indexOf(w) !== -1) return FLAT_KW[i].cat;
+    }
+  }
+  // typefout-tolerant: 1 teken verschil op een heel woord (min. 5 tekens)
+  for(var wi=0;wi<words.length;wi++){
+    var word=words[wi]; if(word.length<5) continue;
+    for(var k=0;k<FLAT_KW.length;k++){
+      var kw=FLAT_KW[k].w;
+      if(kw.length<5) continue;
+      if(Math.abs(kw.length-word.length)<=1 && lev(word,kw)<=1) return FLAT_KW[k].cat;
     }
   }
   return "overig";
@@ -466,7 +490,7 @@ var COMMON = ["Melk","Brood","Eieren","Kaas","Boter","Yoghurt","Kwark","Karnemel
 var NS = "mandje.v2";
 var DEFAULTS = {
   version:2,
-  settings:{ theme:"auto", showPrices:true, categoryOrder:CATS.map(function(c){return c.id;}), minPurchases:3, cvThreshold:0.6, dueWindowDays:1 },
+  settings:{ theme:"auto", showPrices:false, seenIntro:false, categoryOrder:CATS.map(function(c){return c.id;}), minPurchases:3, cvThreshold:0.6, dueWindowDays:1 },
   list:[],
   catalog:{}
 };
@@ -883,33 +907,27 @@ function renderMeer(){
   g1.appendChild(themeRow);
 
   var priceRow=el("div","grow");
-  priceRow.innerHTML='<div class="glabel">Prijzen & totaal<div class="gsub">Toon prijsveld en lopend totaal</div></div>';
+  priceRow.innerHTML='<div class="glabel">Prijzen bijhouden<div class="gsub">Toon een prijs per product en een lopend totaal</div></div>';
   var sw=el("button","switch"+(state.settings.showPrices?" on":""));
   sw.addEventListener("click",function(){ state.settings.showPrices=!state.settings.showPrices; save(); applyPriceVisibility(); renderLijst(); renderMeer(); });
   priceRow.appendChild(sw);
   g1.appendChild(priceRow);
   wrap.appendChild(g1);
 
-  // Data
-  wrap.appendChild(el("div","section",'<span>Gegevens</span>'));
-  var exp=el("button","mbtn","Maak back-up (kopieer naar klembord)");
-  exp.addEventListener("click",exportClipboard);
-  wrap.appendChild(exp);
-  var expf=el("button","mbtn","Exporteer als bestand");
+  // Back-up
+  wrap.appendChild(el("div","section",'<span>Back-up</span>'));
+  wrap.appendChild(el("div","hint","Gedeelde lijsten staan veilig in de cloud. Je persoonlijke lijst staat op dit toestel — exporteer 'm af en toe als back-up, of zet 'm terug op een nieuw toestel."));
+  var expf=el("button","mbtn","Exporteer mijn lijst (bestand)");
   expf.addEventListener("click",exportFile);
   wrap.appendChild(expf);
-
-  var ta=el("textarea","io"); ta.id="io-area"; ta.placeholder="Plak hier een back-up om te herstellen…"; ta.spellcheck=false;
-  wrap.appendChild(ta);
-  var imp=el("button","mbtn","Herstel uit geplakte back-up");
-  imp.addEventListener("click",importFromText);
-  wrap.appendChild(imp);
-  wrap.appendChild(el("div","hint","Je gegevens staan alleen op dit toestel. Maak af en toe een back-up zodat je niets kwijtraakt."));
+  var impf=el("button","mbtn","Importeer uit bestand");
+  impf.addEventListener("click",importFromFile);
+  wrap.appendChild(impf);
 
   var reset=el("button","mbtn danger","Alles wissen");
   reset.addEventListener("click",function(){
     if(confirm("Weet je zeker dat je alle lijsten, vaste boodschappen en geschiedenis wilt wissen?")){
-      state=deepClone(DEFAULTS); save(); applyTheme(); applyPriceVisibility();
+      state=deepClone(DEFAULTS); state.settings.seenIntro=true; save(); applyTheme(); applyPriceVisibility();
       renderLijst(); renderDueBanner(); renderVaste(); renderMeer(); toast("Alles gewist");
     }
   });
@@ -920,14 +938,7 @@ function renderMeer(){
   wrap.appendChild(el("div","hint","Mandje kent inmiddels "+n+" "+(n===1?"product":"producten")+" uit jouw geschiedenis. Hoe vaker je afrondt, hoe slimmer de vaste boodschappen worden."));
 }
 
-/* ---------- Export / import ---------- */
-function exportClipboard(){
-  var txt=JSON.stringify(state);
-  if(navigator.clipboard && navigator.clipboard.writeText){
-    navigator.clipboard.writeText(txt).then(function(){ toast("Back-up gekopieerd"); },function(){ fallbackCopy(txt); });
-  } else fallbackCopy(txt);
-}
-function fallbackCopy(txt){ var ta=$("#io-area"); if(ta){ ta.value=txt; ta.focus(); ta.select(); toast("Selecteer & kopieer"); } }
+/* ---------- Export / import (bestand) ---------- */
 function exportFile(){
   try{
     var blob=new Blob([JSON.stringify(state,null,2)],{type:"application/json"});
@@ -935,20 +946,27 @@ function exportFile(){
     var a=document.createElement("a"); a.href=url; a.download="mandje-backup.json"; document.body.appendChild(a); a.click();
     setTimeout(function(){ URL.revokeObjectURL(url); a.remove(); },500);
     toast("Bestand geëxporteerd");
-  }catch(e){ exportClipboard(); }
+  }catch(e){ toast("Exporteren lukte niet"); }
 }
-function importFromText(){
-  var ta=$("#io-area"); var v=ta?ta.value.trim():"";
-  if(!v){ toast("Plak eerst een back-up"); return; }
-  try{
-    var data=JSON.parse(v);
-    if(!data || typeof data!=="object" || !("catalog" in data) ) throw new Error("ongeldig");
-    state=Object.assign(deepClone(DEFAULTS),data);
-    state.settings=Object.assign(deepClone(DEFAULTS.settings),data.settings||{});
-    save(); applyTheme(); applyPriceVisibility();
-    renderLijst(); renderDueBanner(); renderVaste(); renderMeer();
-    toast("Back-up hersteld");
-  }catch(e){ toast("Kon back-up niet lezen"); }
+function importFromFile(){
+  var inp=document.createElement("input"); inp.type="file"; inp.accept="application/json,.json";
+  inp.addEventListener("change",function(){
+    var f=inp.files&&inp.files[0]; if(!f) return;
+    var r=new FileReader();
+    r.onload=function(){
+      try{
+        var data=JSON.parse(r.result);
+        if(!data || typeof data!=="object" || !("catalog" in data)) throw new Error("ongeldig");
+        state=Object.assign(deepClone(DEFAULTS),data);
+        state.settings=Object.assign(deepClone(DEFAULTS.settings),data.settings||{});
+        save(); applyTheme(); applyPriceVisibility();
+        renderLijst(); renderDueBanner(); renderVaste(); renderMeer();
+        toast("Back-up hersteld");
+      }catch(e){ toast("Kon bestand niet lezen"); }
+    };
+    r.readAsText(f);
+  });
+  inp.click();
 }
 
 /* ============================================================
@@ -1129,10 +1147,8 @@ function attachSwipe(card,onDelete){
    ============================================================ */
 function doAdd(){
   var name=$("#add-name").value;
-  var price=state.settings.showPrices ? parsePrice(($("#add-price")||{}).value) : null;
-  if(addToList(name,price)){
+  if(addToList(name,null)){
     $("#add-name").value="";
-    var pi=$("#add-price"); if(pi) pi.value="";
     hideAC(); $("#add-name").focus();
   }
 }
@@ -1155,11 +1171,10 @@ function buildAC(q){
   list.innerHTML="";
   results.forEach(function(r){
     var c=CAT_BY_ID[r.cat]||CAT_BY_ID["overig"];
-    var row=el("div","ac-item",'<span class="ac-emoji">'+c.glyph+'</span><span class="ac-name">'+escapeHtml(r.name)+'</span>'+(r.own?'<span class="ac-tag">vaker gehaald</span>':'')+'<span class="ac-add">+</span>');
+    var row=el("div","ac-item",'<span class="ac-emoji">'+c.glyph+'</span><span class="ac-name">'+escapeHtml(r.name)+'</span><span class="ac-add">+</span>');
     row.addEventListener("click",function(){
-      var price=state.settings.showPrices?parsePrice(($("#add-price")||{}).value):null;
-      addToList(r.name, price);
-      $("#add-name").value=""; var pi=$("#add-price"); if(pi) pi.value=""; hideAC();
+      addToList(r.name, null);
+      $("#add-name").value=""; hideAC(); $("#add-name").focus();
     });
     list.appendChild(row);
   });
@@ -1171,7 +1186,9 @@ function hideAC(){ $("#ac-list").classList.remove("show"); $("#ac-list").innerHT
    TABS + SCROLL
    ============================================================ */
 var activeTab="lijst";
-var TAB_META={ lijst:{eyebrow:"Mijn lijst",title:"Boodschappen"}, vaste:{eyebrow:"Slim",title:"Vaste"}, meer:{eyebrow:"App",title:"Meer"} };
+var TAB_META={ lijst:{title:"Boodschappen"}, vaste:{title:"Vaste"}, meer:{title:"Instellingen"} };
+var COG_SVG='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 8 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H2a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 3.6 8a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H8a1.65 1.65 0 0 0 1-1.51V2a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V8a1.65 1.65 0 0 0 1.51 1H22a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>';
+var CLOSE_SVG='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>';
 
 function switchTab(tab){
   activeTab=tab;
@@ -1180,14 +1197,16 @@ function switchTab(tab){
   $("#view-vaste").classList.toggle("active",tab==="vaste");
   $("#view-meer").classList.toggle("active",tab==="meer");
   var m=TAB_META[tab];
-  $("#eyebrow").textContent=m.eyebrow; $("#title").textContent=m.title; $("#ctitle").textContent=m.title;
+  $("#title").textContent=m.title; $("#ctitle").textContent=m.title;
+  var gear=$("#gear-btn");
+  if(gear){ gear.innerHTML=(tab==="meer")?CLOSE_SVG:COG_SVG; gear.setAttribute("aria-label",tab==="meer"?"Sluiten":"Instellingen"); }
   $("#main").scrollTop=0; $("#topbar").classList.remove("scrolled");
   hideAC();
   if(tab==="vaste") renderVaste();
   if(tab==="meer") renderMeer();
   if(tab==="lijst"){ renderLijst(); renderDueBanner(); applyListHeader(); }
-  if(tab==="vaste"){ $("#subhead").textContent=""; var n=getRecurring().length; $("#subhead").textContent=n?(n+" "+(n===1?"vast product":"vaste producten")):""; }
-  if(tab==="meer"){ $("#subhead").textContent="Instellingen & gegevens"; }
+  if(tab==="vaste"){ var n=getRecurring().length; $("#subhead").textContent=n?(n+" "+(n===1?"vast product":"vaste producten")):""; }
+  if(tab==="meer"){ $("#subhead").textContent=""; }
   renderListSwitch(); renderMembersRow();
   updateTotals();
 }
@@ -1234,6 +1253,19 @@ function emptyState(icon,h,p){
 function escapeHtml(s){ return (s||"").replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c];}); }
 function escapeAttr(s){ return escapeHtml(s).replace(/'/g,"&#39;"); }
 
+function maybeIntro(){
+  if(!state || !state.settings || state.settings.seenIntro) return;
+  if(state.list.length>0 || Object.keys(state.catalog).length>0){ state.settings.seenIntro=true; save(); return; }
+  var sh=$("#sheet"); if(!sh) return;
+  sh.innerHTML='<div class="grip"></div><h3>Welkom bij Mandje</h3>'+
+    '<div class="intro-pt"><span class="ip-em">📝</span><div><b>Typ wat je nodig hebt.</b> Producten sorteren zichzelf in het juiste schap.</div></div>'+
+    '<div class="intro-pt"><span class="ip-em">🔁</span><div><b>Vaste</b> leert wat je vaak koopt en tipt je wanneer iets bijna op is.</div></div>'+
+    '<div class="intro-pt"><span class="ip-em">👥</span><div><b>Samen één lijst?</b> Tik op de knop onder de titel om te delen.</div></div>'+
+    '<div class="sheet-actions"><button class="save" id="intro-go">Aan de slag</button></div>';
+  $("#scrim").classList.add("show"); sh.classList.add("show");
+  var go=$("#intro-go"); if(go) go.addEventListener("click",function(){ state.settings.seenIntro=true; save(); closeSheet(); });
+}
+
 /* ============================================================
    INIT
    ============================================================ */
@@ -1247,11 +1279,7 @@ function init(){
   $("#add-name").addEventListener("keydown",function(e){ if(e.key==="Enter") doAdd(); });
   $("#add-name").addEventListener("input",function(){ buildAC(this.value); });
   $("#add-name").addEventListener("blur",function(){ setTimeout(hideAC,180); });
-  var ap=$("#add-price");
-  if(ap){
-    ap.addEventListener("keydown",function(e){ if(e.key==="Enter") doAdd(); });
-    ap.addEventListener("focus",function(){ setTimeout(function(){ ap.scrollIntoView({block:"nearest",behavior:"smooth"}); },200); });
-  }
+  var gb=$("#gear-btn"); if(gb) gb.addEventListener("click",function(){ switchTab(activeTab==="meer"?"lijst":"meer"); });
 
   // Keyboard-avoidance via visualViewport (iOS PWA)
   if(window.visualViewport){
@@ -1279,6 +1307,7 @@ function init(){
 
   renderLijst(); renderDueBanner();
   switchTab("lijst");
+  maybeIntro();
 }
 
 
@@ -1465,11 +1494,9 @@ function applyListHeader(){
   if(activeTab!=="lijst") return;
   if(Cloud.active){
     var l=Cloud.activeList();
-    $("#eyebrow").textContent="Gedeeld";
     $("#title").textContent=(l?l.name:"Gedeeld");
     $("#ctitle").textContent=(l?l.name:"Gedeeld");
   } else {
-    $("#eyebrow").textContent="Mijn lijst";
     $("#title").textContent="Boodschappen";
     $("#ctitle").textContent="Boodschappen";
   }
@@ -1478,6 +1505,7 @@ function applyListHeader(){
 function renderListSwitch(){
   var wrap=$("#list-switch-wrap"); if(!wrap) return;
   wrap.innerHTML="";
+  if(activeTab!=="lijst") return;          // pill alleen op de lijst-tab
   if(!Cloud.enabled) return; // sharing niet geconfigureerd → niets tonen
   var l=Cloud.activeList();
   var ico = Cloud.active ? "👥" : "🧺";

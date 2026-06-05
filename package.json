@@ -1,0 +1,14 @@
+{
+  "name": "mandje",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Mandje — premium boodschappenlijst-PWA (single-file build, GitHub Pages)",
+  "scripts": {
+    "build": "node build.js",
+    "test": "node tests/test.js && node tests/t3.js",
+    "deploy": "node build.js && git add -A && git commit -m \"update\" && git push"
+  },
+  "devDependencies": {
+    "jsdom": "^24.0.0"
+  }
+}
