@@ -13,6 +13,38 @@ function initials(name){
   return (p.length>1 ? (p[0][0]+p[1][0]) : name.slice(0,2)).toUpperCase();
 }
 
+var SUPABASE_SDK_CDNS = [
+  {name:"esm.sh",   url:"https://esm.sh/@supabase/supabase-js@2"},
+  {name:"esm.run",  url:"https://esm.run/@supabase/supabase-js@2"},
+  {name:"jspm.dev", url:"https://jspm.dev/@supabase/supabase-js@2"}
+];
+function loadSupabaseSDK(){
+  return new Promise(function(resolve, reject){
+    var lastErr=null, i=0;
+    function tryNext(){
+      if(i>=SUPABASE_SDK_CDNS.length){ reject(lastErr || new Error("Alle CDN's faalden")); return; }
+      var cdn=SUPABASE_SDK_CDNS[i++]; var done=false;
+      var timeout=setTimeout(function(){
+        if(done) return; done=true;
+        lastErr=new Error(cdn.name+" timeout (8s)");
+        console.warn("Mandje: "+cdn.name+" timeout");
+        tryNext();
+      }, 8000);
+      import(cdn.url).then(function(mod){
+        if(done) return; done=true; clearTimeout(timeout);
+        console.log("Mandje: SDK geladen via "+cdn.name);
+        resolve(mod);
+      }, function(err){
+        if(done) return; done=true; clearTimeout(timeout);
+        lastErr=err;
+        console.warn("Mandje: "+cdn.name+" faalde — "+(err && err.message || err));
+        tryNext();
+      });
+    }
+    tryNext();
+  });
+}
+
 var Cloud = {
   enabled:false, sb:null, ready:false,
   me:null, userId:null,
@@ -36,7 +68,7 @@ var Cloud = {
     Shortcuts.load();
     var params=new URLSearchParams(location.search);
     try{
-      var mod=await import("https://esm.sh/@supabase/supabase-js@2");
+      var mod=await loadSupabaseSDK();
       this.sb=mod.createClient(SUPABASE_URL, SUPABASE_ANON_KEY,
         {auth:{persistSession:true, autoRefreshToken:true, storageKey:"mandje.sb.auth"}});
       var s=await this.sb.auth.getSession();
@@ -190,9 +222,9 @@ function whenCloudReady(cb){
   if(Cloud.sb){ cb(); return; }
   if(!Cloud.enabled){ toast("Cloud niet geconfigureerd"); return; }
   toast("Verbinding maken…");
-  Cloud.waitReady(5000).then(function(ok){
+  Cloud.waitReady(28000).then(function(ok){
     if(ok) cb();
-    else toast("Geen verbinding — check je internet");
+    else toast("Verbinding lukt niet — check je internet of probeer later");
   });
 }
 
