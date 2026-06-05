@@ -241,21 +241,16 @@ function renderShortcutsRow(){
       '<span class="sc-name">'+escapeHtml(s.name)+'</span>'+
     '</button>';
   });
-  var shareSvg='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5 8.6 10.5"/></svg>';
   if(sorted.length===0){
-    inner+='<button class="sc-chip sc-action sc-action-wide" data-add="1"><span class="sc-act-ico">+</span><span class="sc-act-lbl">Naar iemand sturen</span></button>';
-    inner+='<button class="sc-chip sc-action sc-action-wide" data-receive="1">'+shareSvg+'<span class="sc-act-lbl">Laat iemand sturen</span></button>';
+    inner+='<button class="sc-chip sc-action sc-action-wide" data-actions="1"><span class="sc-act-ico">+</span><span class="sc-act-lbl">Snelkoppeling</span></button>';
   } else {
-    inner+='<button class="sc-chip sc-action" data-add="1" aria-label="Snelkoppeling toevoegen">+</button>';
-    inner+='<button class="sc-chip sc-action" data-receive="1" aria-label="Laat iemand sturen">'+shareSvg+'</button>';
+    inner+='<button class="sc-chip sc-action" data-actions="1" aria-label="Snelkoppeling-acties">+</button>';
   }
   inner+='</div>';
   wrap.innerHTML=inner;
   wrap.querySelectorAll(".sc-chip").forEach(function(b){
-    if(b.dataset.add){
-      b.addEventListener("click", function(){ openAddShortcutSheet(); });
-    } else if(b.dataset.receive){
-      b.addEventListener("click", function(){ openReceiveFlow(); });
+    if(b.dataset.actions){
+      b.addEventListener("click", function(){ openShareActionSheet(); });
     } else {
       var id=b.dataset.id;
       b.addEventListener("click", function(){ openSendSheet(id); });
@@ -283,6 +278,25 @@ function openReceiveFlow(){
       Cloud.createList("Boodschappen van " + nm);
     });
   });
+}
+
+function openShareActionSheet(){
+  var shareSvg='<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5 8.6 10.5"/></svg>';
+  var html='<div class="grip"></div>'+
+    '<h3>Snelkoppelingen</h3>'+
+    '<button class="sa-row" id="sa-add">'+
+      '<span class="sa-ico"><span style="font-size:21px;font-weight:800;line-height:1">+</span></span>'+
+      '<span class="sa-meta"><span class="sa-ttl">Naar iemand sturen</span><span class="sa-sub">Plak iemands stuur-link en sla op als chip.</span></span>'+
+      '<span class="sa-chev">›</span>'+
+    '</button>'+
+    '<button class="sa-row" id="sa-receive">'+
+      '<span class="sa-ico">'+shareSvg+'</span>'+
+      '<span class="sa-meta"><span class="sa-ttl">Laat iemand sturen</span><span class="sa-sub">Deel jouw stuur-link via WhatsApp.</span></span>'+
+      '<span class="sa-chev">›</span>'+
+    '</button>';
+  var sh=openSheet2(html);
+  sh.querySelector("#sa-add").addEventListener("click", function(){ closeSheet2(); openAddShortcutSheet(); });
+  sh.querySelector("#sa-receive").addEventListener("click", function(){ closeSheet2(); openReceiveFlow(); });
 }
 
 function openSendSheet(scId){
