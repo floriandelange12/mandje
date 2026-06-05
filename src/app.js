@@ -860,7 +860,7 @@ function maybeIntro(){
   sh.innerHTML='<div class="grip"></div><h3>Welkom bij Mandje</h3>'+
     '<div class="intro-pt"><span class="ip-em">📝</span><div><b>Typ wat je nodig hebt.</b> Producten sorteren zichzelf in het juiste schap.</div></div>'+
     '<div class="intro-pt"><span class="ip-em">🔁</span><div><b>Vaste</b> leert wat je vaak koopt en tipt je wanneer iets bijna op is.</div></div>'+
-    '<div class="intro-pt"><span class="ip-em">👥</span><div><b>Samen één lijst?</b> Tik op de knop onder de titel om te delen.</div></div>'+
+    '<div class="intro-pt"><span class="ip-em">👥</span><div><b>Samen sturen?</b> Op je Lijst-tab kun je iemand toevoegen of iemand naar jou laten sturen — beide met 1 tap.</div></div>'+
     '<div class="sheet-actions"><button class="save" id="intro-go">Aan de slag</button></div>';
   $("#scrim").classList.add("show"); sh.classList.add("show");
   var go=$("#intro-go"); if(go) go.addEventListener("click",function(){ state.settings.seenIntro=true; save(); closeSheet(); });

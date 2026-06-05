@@ -219,16 +219,21 @@ function renderShortcutsRow(){
       '<span class="sc-name">'+escapeHtml(s.name)+'</span>'+
     '</button>';
   });
+  var shareSvg='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5 8.6 10.5"/></svg>';
   if(sorted.length===0){
-    inner+='<button class="sc-chip sc-plus sc-plus-wide" data-add="1"><span class="sc-plus-ico">+</span><span class="sc-plus-lbl">Iemand toevoegen</span></button>';
+    inner+='<button class="sc-chip sc-action sc-action-wide" data-add="1"><span class="sc-act-ico">+</span><span class="sc-act-lbl">Naar iemand sturen</span></button>';
+    inner+='<button class="sc-chip sc-action sc-action-wide" data-receive="1">'+shareSvg+'<span class="sc-act-lbl">Laat iemand sturen</span></button>';
   } else {
-    inner+='<button class="sc-chip sc-plus" data-add="1" aria-label="Snelkoppeling toevoegen">+</button>';
+    inner+='<button class="sc-chip sc-action" data-add="1" aria-label="Snelkoppeling toevoegen">+</button>';
+    inner+='<button class="sc-chip sc-action" data-receive="1" aria-label="Laat iemand sturen">'+shareSvg+'</button>';
   }
   inner+='</div>';
   wrap.innerHTML=inner;
   wrap.querySelectorAll(".sc-chip").forEach(function(b){
     if(b.dataset.add){
       b.addEventListener("click", function(){ openAddShortcutSheet(); });
+    } else if(b.dataset.receive){
+      b.addEventListener("click", function(){ openReceiveFlow(); });
     } else {
       var id=b.dataset.id;
       b.addEventListener("click", function(){ openSendSheet(id); });
@@ -240,6 +245,20 @@ function renderShortcutsRow(){
       b.addEventListener("touchmove", clrLP);
       b.addEventListener("touchcancel", clrLP);
     }
+  });
+}
+
+function openReceiveFlow(){
+  if(!Cloud.enabled || !Cloud.sb){ toast("Geen verbinding"); return; }
+  if(Cloud.active){ openShareSheet(Cloud.active); return; }
+  if(Cloud.lists && Cloud.lists.length){
+    var firstId=Cloud.lists[0].id;
+    Cloud.open(firstId).then(function(){ openShareSheet(firstId); }, function(){ openShareSheet(firstId); });
+    return;
+  }
+  ensureIdentity(function(){
+    var nm=(Cloud.myName && Cloud.myName()) || "mij";
+    Cloud.createList("Boodschappen van " + nm);
   });
 }
 
@@ -428,7 +447,7 @@ function openShareSheet(listId){
     '<button class="mbtn" id="sh-invite" style="background:var(--green);color:var(--on-green);border-color:transparent">Deel uitnodiging</button>'+
     '<button class="mbtn" id="sh-link">Kopieer uitnodig-link</button>'+
     '<button class="mbtn" id="sh-send">Deel "stuur items"-link</button>'+
-    '<div class="hint" style="margin:2px 6px 14px">Met de uitnodiging doet iemand mee en ziet de hele lijst. Met de "stuur items"-link kan iemand alleen producten toevoegen — zonder de app, zonder mee te kijken.</div>'+
+    '<div class="hint" style="margin:2px 6px 14px;line-height:1.5">De <b>uitnodig-link</b> laat iemand meedoen en alles zien. De <b>stuur-link</b> geeft iemand alleen een drop-pagina om dingen aan jou te sturen — zonder app, zonder mee te kijken.</div>'+
     (memberHtml?('<div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-soft);margin:6px 6px 8px">Leden ('+Cloud.members.length+')</div>'+memberHtml):'')+
     '<div class="sheet-actions"><button class="del" id="sh-leave" style="width:100%">Lijst verlaten</button></div>';
   var s=openSheet2(html);
