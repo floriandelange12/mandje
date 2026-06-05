@@ -1506,8 +1506,30 @@ var Cloud = {
     else { renderListSwitch(); }
   },
   shareLink:function(list){ return location.origin+location.pathname+"?join="+list.join_code; },
-  sendLink:function(list){ return location.origin+location.pathname+"?send="+list.send_token; }
+  sendLink:function(list){ return location.origin+location.pathname+"?send="+list.send_token; },
+  waitReady:function(maxMs){
+    var self=this;
+    return new Promise(function(resolve){
+      if(self.sb){ resolve(true); return; }
+      var step=100, elapsed=0;
+      var t=setInterval(function(){
+        elapsed+=step;
+        if(self.sb){ clearInterval(t); resolve(true); }
+        else if(elapsed>=(maxMs||5000)){ clearInterval(t); resolve(false); }
+      }, step);
+    });
+  }
 };
+
+function whenCloudReady(cb){
+  if(Cloud.sb){ cb(); return; }
+  if(!Cloud.enabled){ toast("Cloud niet geconfigureerd"); return; }
+  toast("Verbinding maken…");
+  Cloud.waitReady(5000).then(function(ok){
+    if(ok) cb();
+    else toast("Geen verbinding — check je internet");
+  });
+}
 
 /* ============================================================
    SHORTCUTS — "Stuur naar"-snelkoppelingen (lokaal opgeslagen)
@@ -1584,16 +1606,17 @@ function renderShortcutsRow(){
 }
 
 function openReceiveFlow(){
-  if(!Cloud.enabled || !Cloud.sb){ toast("Geen verbinding"); return; }
-  if(Cloud.active){ openShareSheet(Cloud.active); return; }
-  if(Cloud.lists && Cloud.lists.length){
-    var firstId=Cloud.lists[0].id;
-    Cloud.open(firstId).then(function(){ openShareSheet(firstId); }, function(){ openShareSheet(firstId); });
-    return;
-  }
-  ensureIdentity(function(){
-    var nm=(Cloud.myName && Cloud.myName()) || "mij";
-    Cloud.createList("Boodschappen van " + nm);
+  whenCloudReady(function(){
+    if(Cloud.active){ openShareSheet(Cloud.active); return; }
+    if(Cloud.lists && Cloud.lists.length){
+      var firstId=Cloud.lists[0].id;
+      Cloud.open(firstId).then(function(){ openShareSheet(firstId); }, function(){ openShareSheet(firstId); });
+      return;
+    }
+    ensureIdentity(function(){
+      var nm=(Cloud.myName && Cloud.myName()) || "mij";
+      Cloud.createList("Boodschappen van " + nm);
+    });
   });
 }
 
@@ -1614,15 +1637,16 @@ function openSendSheet(scId){
   var btn=sh.querySelector("#sc-send");
   function send(){
     var nm=(inp.value||"").trim(); if(!nm) return;
-    if(!Cloud.sb){ toast("Geen verbinding"); return; }
-    var from=Cloud.myName();
-    Cloud.sb.rpc("add_item_via_token",{p_token:s.token, p_name:nm, p_qty:1, p_note:"", p_from:from}).then(function(r){
-      if(r.error){ toast("Versturen mislukt"); return; }
-      sent.unshift(nm); inp.value="";
-      sh.querySelector("#sc-sent").innerHTML=sent.map(function(n){return '<span class="chip"><span class="emoji">✓</span>'+escapeHtml(n)+'</span>';}).join("");
-      inp.focus();
-      Shortcuts.touch(s.id);
-    },function(){ toast("Versturen mislukt"); });
+    whenCloudReady(function(){
+      var from=Cloud.myName();
+      Cloud.sb.rpc("add_item_via_token",{p_token:s.token, p_name:nm, p_qty:1, p_note:"", p_from:from}).then(function(r){
+        if(r.error){ toast("Versturen mislukt"); return; }
+        sent.unshift(nm); inp.value="";
+        sh.querySelector("#sc-sent").innerHTML=sent.map(function(n){return '<span class="chip"><span class="emoji">✓</span>'+escapeHtml(n)+'</span>';}).join("");
+        inp.focus();
+        Shortcuts.touch(s.id);
+      },function(){ toast("Versturen mislukt"); });
+    });
   }
   btn.addEventListener("click", send);
   inp.addEventListener("keydown", function(e){ if(e.key==="Enter") send(); });
@@ -1642,16 +1666,13 @@ function openAddShortcutSheet(prefilledToken){
     var token=parseTokenFromInput(raw);
     if(!token){ toast("Deze link werkt niet"); return; }
     if(Shortcuts.byToken(token)){ toast("Al opgeslagen"); closeSheet2(); return; }
-    if(Cloud.sb){
+    whenCloudReady(function(){
       Cloud.sb.rpc("list_name_by_token",{p_token:token}).then(function(r){
         if(r.error || !r.data){ toast("Link verlopen of ongeldig"); return; }
         Shortcuts.add(r.data, token, pickColor());
         closeSheet2(); toast("“"+r.data+"” opgeslagen");
-      }, function(){ toast("Geen verbinding"); });
-    } else {
-      Shortcuts.add("Lijst", token, pickColor());
-      closeSheet2(); toast("Snelkoppeling toegevoegd");
-    }
+      }, function(){ toast("Geen verbinding — check je internet"); });
+    });
   });
 }
 
