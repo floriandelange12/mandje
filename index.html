@@ -1444,7 +1444,14 @@ var Cloud = {
       this.sb=sdk.createClient(SUPABASE_URL, SUPABASE_ANON_KEY,
         {auth:{persistSession:true, autoRefreshToken:true, storageKey:"mandje.sb.auth"}});
       var s=await this.sb.auth.getSession();
-      if(!s.data || !s.data.session){ var r=await this.sb.auth.signInAnonymously(); if(r.error) throw r.error; }
+      if(!s.data || !s.data.session){
+        var r=await this.sb.auth.signInAnonymously();
+        if(r.error){
+          console.warn("Mandje: anonieme aanmelding faalde —", r.error);
+          this.initError = "Anonieme aanmelding: " + (r.error.message || "onbekend");
+          throw r.error;
+        }
+      }
       var u=await this.sb.auth.getUser(); this.userId=(u.data&&u.data.user)?u.data.user.id:null;
       this.ready=true;
 
@@ -1457,7 +1464,11 @@ var Cloud = {
         var act=localStorage.getItem("mandje.activeList");
         if(act && act!=="local" && this.listById(act)) await this.open(act);
       }
-    }catch(e){ console.warn("Cloud init:", e); this.ready=false; }
+    }catch(e){
+      console.warn("Cloud init faalde:", e);
+      this.ready=false;
+      if(!this.initError) this.initError = (e && e.message) || String(e);
+    }
     renderListSwitch(); renderMembersRow(); renderShortcutsRow();
   },
 
@@ -1556,8 +1567,17 @@ var Cloud = {
 
   /* ---- lijstbeheer ---- */
   createList:async function(name){
+    if(!this.ready){
+      console.warn("Mandje: createList terwijl Cloud niet ready —", this.initError);
+      toast("Cloud nog niet klaar: " + (this.initError || "onbekend"));
+      return null;
+    }
     var r=await this.sb.rpc("create_list",{p_name:name||"Boodschappen", p_display_name:this.myName(), p_color:this.me.color});
-    if(r.error){ toast("Aanmaken mislukt"); return null; }
+    if(r.error){
+      console.warn("Mandje: create_list RPC faalde —", r.error);
+      toast("Aanmaken mislukt: " + (r.error.message || "onbekend"));
+      return null;
+    }
     await this.loadLists(); await this.open(r.data.id); switchTab("lijst");
     openShareSheet(r.data.id); return r.data;
   },
@@ -1579,11 +1599,13 @@ var Cloud = {
   waitReady:function(maxMs){
     var self=this;
     return new Promise(function(resolve){
-      if(self.sb){ resolve(true); return; }
+      if(self.ready){ resolve(true); return; }
+      if(self.initError){ resolve(false); return; }
       var step=100, elapsed=0;
       var t=setInterval(function(){
         elapsed+=step;
-        if(self.sb){ clearInterval(t); resolve(true); }
+        if(self.ready){ clearInterval(t); resolve(true); }
+        else if(self.initError){ clearInterval(t); resolve(false); }
         else if(elapsed>=(maxMs||5000)){ clearInterval(t); resolve(false); }
       }, step);
     });
@@ -1591,11 +1613,13 @@ var Cloud = {
 };
 
 function whenCloudReady(cb){
-  if(Cloud.sb){ cb(); return; }
+  if(Cloud.ready){ cb(); return; }
   if(!Cloud.enabled){ toast("Cloud niet geconfigureerd"); return; }
+  if(Cloud.initError){ toast("Cloud: " + Cloud.initError); return; }
   toast("Verbinding maken…");
   Cloud.waitReady(28000).then(function(ok){
     if(ok) cb();
+    else if(Cloud.initError) toast("Cloud: " + Cloud.initError);
     else toast("Verbinding lukt niet — check je internet of probeer later");
   });
 }
