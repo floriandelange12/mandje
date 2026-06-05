@@ -219,7 +219,11 @@ function renderShortcutsRow(){
       '<span class="sc-name">'+escapeHtml(s.name)+'</span>'+
     '</button>';
   });
-  inner+='<button class="sc-chip sc-plus" data-add="1" aria-label="Snelkoppeling toevoegen">+</button>';
+  if(sorted.length===0){
+    inner+='<button class="sc-chip sc-plus sc-plus-wide" data-add="1"><span class="sc-plus-ico">+</span><span class="sc-plus-lbl">Iemand toevoegen</span></button>';
+  } else {
+    inner+='<button class="sc-chip sc-plus" data-add="1" aria-label="Snelkoppeling toevoegen">+</button>';
+  }
   inner+='</div>';
   wrap.innerHTML=inner;
   wrap.querySelectorAll(".sc-chip").forEach(function(b){
@@ -271,32 +275,28 @@ function openSendSheet(scId){
   setTimeout(function(){ if(inp) inp.focus(); }, 280);
 }
 
-function openAddShortcutSheet(prefilledToken, prefilledName){
+function openAddShortcutSheet(prefilledToken){
   var html='<div class="grip"></div>'+
     '<h3>Snelkoppeling toevoegen</h3>'+
-    '<div class="hint" style="margin:0 6px 14px">Plak een stuur-link die je van iemand hebt gekregen. Daarmee kun je items naar hun lijst sturen.</div>'+
-    '<div class="frow"><input class="txt" id="sc-tokin" placeholder="Plak stuur-link" value="'+escapeAttr(prefilledToken||"")+'" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false"></div>'+
-    '<div class="frow"><input class="txt" id="sc-namein" placeholder="Naam, bv. Sasha" value="'+escapeAttr(prefilledName||"")+'" autocapitalize="words"></div>'+
+    '<div class="hint" style="margin:0 6px 14px;line-height:1.5">Vraag de ander om in <b>hun Mandje</b> op de <b>Delen-knop</b> te tikken en daarna op <b>"Deel \'stuur items\'-link"</b>. Ze sturen \'m bv. via WhatsApp naar jou — plak die link hier.</div>'+
+    '<div class="frow"><input class="txt" id="sc-tokin" placeholder="Plak stuur-link" value="'+escapeAttr(prefilledToken||"")+'" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" inputmode="url"></div>'+
     '<div class="sheet-actions"><button class="save" id="sc-save-add">Opslaan</button></div>';
   var sh=openSheet2(html);
-  setTimeout(function(){ var t=sh.querySelector("#sc-tokin"); if(t && !prefilledToken) t.focus(); else { var n=sh.querySelector("#sc-namein"); if(n) n.focus(); } }, 280);
+  setTimeout(function(){ var t=sh.querySelector("#sc-tokin"); if(t) t.focus(); }, 280);
   sh.querySelector("#sc-save-add").addEventListener("click", function(){
     var raw=sh.querySelector("#sc-tokin").value;
-    var nm=(sh.querySelector("#sc-namein").value||"").trim();
     var token=parseTokenFromInput(raw);
     if(!token){ toast("Deze link werkt niet"); return; }
     if(Shortcuts.byToken(token)){ toast("Al opgeslagen"); closeSheet2(); return; }
-    function persist(finalName){
-      Shortcuts.add(finalName||"Lijst", token, pickColor());
-      closeSheet2(); toast("Snelkoppeling toegevoegd");
-    }
     if(Cloud.sb){
       Cloud.sb.rpc("list_name_by_token",{p_token:token}).then(function(r){
         if(r.error || !r.data){ toast("Link verlopen of ongeldig"); return; }
-        persist(nm || r.data);
-      }, function(){ persist(nm); });
+        Shortcuts.add(r.data, token, pickColor());
+        closeSheet2(); toast("“"+r.data+"” opgeslagen");
+      }, function(){ toast("Geen verbinding"); });
     } else {
-      persist(nm);
+      Shortcuts.add("Lijst", token, pickColor());
+      closeSheet2(); toast("Snelkoppeling toegevoegd");
     }
   });
 }
