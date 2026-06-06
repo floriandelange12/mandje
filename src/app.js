@@ -418,8 +418,7 @@ function updateSubhead(){
   var open=state.list.filter(function(i){return !i.done;}).length;
   var done=state.list.filter(function(i){return i.done;}).length;
   var base = state.list.length===0 ? "Niets op de lijst" : (open+" te halen · "+done+" in mandje");
-  var b = (window.MANDJE_CONFIG && window.MANDJE_CONFIG.BUILD) || "dev";
-  $("#subhead").textContent = base + " · v" + b;
+  $("#subhead").textContent = base;
 }
 
 /* ---------- "Bijna op" banner ---------- */
@@ -882,15 +881,6 @@ function init(){
   load();
   applyTheme();
   applyPriceVisibility();
-
-  // tijdelijke versie-banner bovenaan zodat we cache-issues kunnen verifiëren
-  var vb = document.getElementById("version-banner");
-  if(vb){
-    var cfg = window.MANDJE_CONFIG || {};
-    var refM = (cfg.SUPABASE_URL || "").match(/\/\/([a-z0-9]+)\./);
-    var refStr = refM ? refM[1].slice(0, 8) : "geen-supabase";
-    vb.textContent = "Mandje v" + (cfg.BUILD || "dev") + " · " + refStr;
-  }
 
   if(typeof Cloud!=="undefined" && Cloud.cfg && Cloud.cfg()){ Cloud.init(); }
 
