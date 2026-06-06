@@ -6,6 +6,28 @@
 create extension if not exists pgcrypto;
 
 -- ==========================================================
+-- gen_random_bytes vindbaar maken vanuit anon/authenticated
+-- (Supabase's auth-service zoekt op deze functie zonder schema-
+-- qualifier; in nieuwe projecten zit pgcrypto alleen in
+-- 'extensions' en is hij niet bereikbaar voor de auth-rol.
+-- Wrapper in public + execute-grants lossen dat op.)
+-- ==========================================================
+
+grant usage on schema extensions to anon, authenticated, service_role;
+grant execute on function extensions.gen_random_bytes(integer) to anon, authenticated, service_role;
+grant execute on function extensions.gen_random_uuid() to anon, authenticated, service_role;
+
+create or replace function public.gen_random_bytes(integer)
+  returns bytea
+  language sql
+  immutable
+as $$
+  select extensions.gen_random_bytes($1)
+$$;
+
+grant execute on function public.gen_random_bytes(integer) to anon, authenticated, service_role;
+
+-- ==========================================================
 -- Tabellen
 -- ==========================================================
 
