@@ -134,9 +134,10 @@ var COMMON = ["Melk","Brood","Eieren","Kaas","Boter","Yoghurt","Kwark","Karnemel
 var NS = "mandje.v2";
 var DEFAULTS = {
   version:2,
-  settings:{ theme:"auto", showPrices:false, seenIntro:false, categoryOrder:CATS.map(function(c){return c.id;}), minPurchases:3, cvThreshold:0.6, dueWindowDays:1, customCategories:[], customCatEmoji:{} },
+  settings:{ theme:"auto", showPrices:false, seenIntro:false, categoryOrder:CATS.map(function(c){return c.id;}), minPurchases:3, cvThreshold:0.6, dueWindowDays:1, customCategories:[], customCatEmoji:{}, collapsedCats:{} },
   list:[],
-  catalog:{}
+  catalog:{},
+  coBuy:{}
 };
 
 var state = null;
@@ -154,6 +155,7 @@ function load(){
     state.settings = Object.assign(deepClone(DEFAULTS.settings), state.settings||{});
     if(!Array.isArray(state.list)) state.list=[];
     if(!state.catalog || typeof state.catalog!=="object") state.catalog={};
+    if(!state.coBuy || typeof state.coBuy!=="object") state.coBuy={};
     if(!Array.isArray(state.settings.categoryOrder)) state.settings.categoryOrder = DEFAULTS.settings.categoryOrder.slice();
     if(!Array.isArray(state.settings.customCategories)) state.settings.customCategories = [];
     if(!state.settings.customCatEmoji || typeof state.settings.customCatEmoji!=="object") state.settings.customCatEmoji = {};
@@ -207,6 +209,61 @@ function recordPurchase(name, price){
   // niet dubbel op dezelfde dag
   if(e.purchaseDates[e.purchaseDates.length-1] !== today) e.purchaseDates.push(today);
   if(price!=null) e.defaultPrice = price;
+}
+
+/* Co-purchase: alle paren in dezelfde finish-sessie krijgen +1 count.
+   Gebruikt om "Vaak samen: + brood"-suggesties te tonen. */
+function recordCoBuy(names){
+  if(!Array.isArray(names) || names.length < 2) return;
+  state.coBuy = state.coBuy || {};
+  var keys = names.map(norm).filter(Boolean);
+  // unique
+  var seen={}, uniq=[];
+  keys.forEach(function(k){ if(!seen[k]){ seen[k]=1; uniq.push(k); } });
+  for(var i=0; i<uniq.length; i++){
+    for(var j=0; j<uniq.length; j++){
+      if(i===j) continue;
+      state.coBuy[uniq[i]] = state.coBuy[uniq[i]] || {};
+      state.coBuy[uniq[i]][uniq[j]] = (state.coBuy[uniq[i]][uniq[j]]||0) + 1;
+    }
+  }
+}
+function getCoSuggestions(key, limit){
+  var co = (state.coBuy||{})[key];
+  if(!co) return [];
+  var onListKeys = state.list.filter(function(i){return !i.done;}).map(function(i){return norm(i.name);});
+  var out = [];
+  Object.keys(co).forEach(function(k){
+    if(co[k] < 3) return;
+    if(onListKeys.indexOf(k) !== -1) return;
+    var cat = state.catalog[k]; if(!cat) return;
+    out.push({key:k, name:cat.name, count:co[k]});
+  });
+  out.sort(function(a,b){ return b.count - a.count; });
+  return out.slice(0, limit||2);
+}
+var _coSuggestT;
+function renderCoSuggest(triggerKey){
+  var wrap = $("#co-suggest"); if(!wrap) return;
+  if(activeTab!=="lijst" || !triggerKey){ wrap.classList.add("hide"); wrap.innerHTML=""; return; }
+  var sugg = getCoSuggestions(triggerKey, 2);
+  if(!sugg.length){ wrap.classList.add("hide"); wrap.innerHTML=""; return; }
+  var html = '<span class="cs-lbl">Vaak samen:</span>';
+  sugg.forEach(function(s){
+    html += '<button class="cs-pill" data-name="'+escapeAttr(s.name)+'" type="button"><span class="plus">+</span>'+escapeHtml(s.name)+'</button>';
+  });
+  html += '<button class="cs-close" aria-label="Verberg" type="button">✕</button>';
+  wrap.innerHTML = html;
+  wrap.classList.remove("hide");
+  wrap.querySelectorAll(".cs-pill").forEach(function(b){
+    b.addEventListener("click", function(){
+      addToList(b.dataset.name, null);
+      wrap.classList.add("hide");
+    });
+  });
+  wrap.querySelector(".cs-close").addEventListener("click", function(){ wrap.classList.add("hide"); });
+  clearTimeout(_coSuggestT);
+  _coSuggestT = setTimeout(function(){ wrap.classList.add("hide"); }, 8000);
 }
 
 /* ============================================================
@@ -266,6 +323,36 @@ function getDueItems(){
   });
   out.sort(function(x,y){ return y.a.overdue - x.a.overdue; });
   return out;
+}
+
+/* Auto-add: items met autoAdd=true die NU due zijn, max 1× per dag,
+   nooit dubbel toevoegen wanneer al op de lijst. Lokaal alleen. */
+function runAutoAddDueItems(){
+  if(typeof Cloud!=="undefined" && Cloud.active) return;
+  var due = getDueItems(); if(!due.length) return;
+  var addedNames = [];
+  var nowMs = (typeof Date !== "undefined" && Date.now) ? Date.now() : 0;
+  due.forEach(function(d){
+    var e = d.e; if(!e.autoAdd) return;
+    var k = norm(e.name);
+    if(state.list.some(function(i){ return !i.done && norm(i.name)===k; })) return;
+    var last = e.lastAutoAddAt ? new Date(e.lastAutoAddAt).getTime() : 0;
+    if(nowMs - last < 86400 * 1000) return;
+    state.list.unshift({
+      id:uid(), name:e.name, category:e.category||"overig", qty:1,
+      price:(state.settings.showPrices?e.defaultPrice:null),
+      note:"", done:false, addedAt:nowISO()
+    });
+    e.lastAutoAddAt = nowISO();
+    addedNames.push(e.name);
+  });
+  if(addedNames.length){
+    save(); renderLijst(); renderDueBanner();
+    var msg = addedNames.length===1
+      ? addedNames[0]+" automatisch toegevoegd"
+      : addedNames.length+" vaste boodschappen automatisch toegevoegd";
+    toast(msg);
+  }
 }
 
 // alle "vaste" producten (handmatig of automatisch herkend als regelmatig)
@@ -342,15 +429,40 @@ function $(s){ return document.querySelector(s); }
 function el(tag, cls, html){ var e=document.createElement(tag); if(cls)e.className=cls; if(html!=null)e.innerHTML=html; return e; }
 function vibrate(ms){ if(navigator.vibrate){ try{navigator.vibrate(ms);}catch(e){} } }
 
-var CHECK_SVG='<svg viewBox="0 0 24 24" fill="none" stroke="var(--on-green)" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
+var CHECK_SVG='<svg viewBox="0 0 24 24" fill="none" stroke="var(--on-green)" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path pathLength="24" d="M20 6 9 17l-5-5"/></svg>';
 
 /* ============================================================
    TOAST
    ============================================================ */
 var toastT;
-function toast(msg){
-  var t=$("#toast"); t.textContent=msg; t.classList.add("show");
-  clearTimeout(toastT); toastT=setTimeout(function(){ t.classList.remove("show"); },1500);
+function toast(msg, opts){
+  opts = opts || {};
+  var t = $("#toast");
+  t.className = "toast";
+  t.innerHTML = "";
+  var span = document.createElement("span");
+  span.className = "toast-msg";
+  span.textContent = msg;
+  t.appendChild(span);
+  if(opts.action && typeof opts.onAction === "function"){
+    t.classList.add("has-action");
+    var btn = document.createElement("button");
+    btn.className = "toast-action";
+    btn.type = "button";
+    btn.textContent = opts.action;
+    btn.addEventListener("click", function(){
+      try{ opts.onAction(); }catch(e){}
+      t.classList.remove("show");
+      clearTimeout(toastT);
+    });
+    t.appendChild(btn);
+  }
+  t.classList.add("show");
+  clearTimeout(toastT);
+  toastT = setTimeout(function(){ t.classList.remove("show"); }, opts.duration || 1500);
+}
+function undoToast(label, restoreFn){
+  toast(label, { action:"Ongedaan", onAction:restoreFn, duration:5000 });
 }
 
 /* ============================================================
@@ -380,13 +492,22 @@ function addToList(name, price, opts){
   }
   touchCatalog(name, price);
   save(); renderLijst(); renderDueBanner();
+  if(!silent) renderCoSuggest(norm(name));
   return true;
 }
 function toggleDone(id){
   if(Cloud.active){ Cloud.toggle(id); vibrate(8); return; }
   var it=state.list.find(function(i){return i.id===id;}); if(!it) return;
-  it.done=!it.done; if(it.done) vibrate(8);
+  var wasDone = it.done;
+  it.done = !it.done;
+  if(it.done) vibrate(8);
   save(); renderLijst();
+  if(!wasDone && it.done){
+    undoToast(it.name + " afgevinkt", function(){
+      var i2 = state.list.find(function(x){return x.id===id;});
+      if(i2){ i2.done = false; save(); renderLijst(); }
+    });
+  }
 }
 function setQty(id,delta){
   if(Cloud.active){ Cloud.qty(id,delta); return; }
@@ -395,13 +516,21 @@ function setQty(id,delta){
 }
 function removeFromList(id){
   if(Cloud.active){ Cloud.remove(id); return; }
-  state.list=state.list.filter(function(i){return i.id!==id;}); save(); renderLijst(); renderDueBanner();
+  var idx = state.list.findIndex(function(i){return i.id===id;});
+  if(idx === -1) return;
+  var snap = Object.assign({}, state.list[idx]);
+  state.list.splice(idx, 1); save(); renderLijst(); renderDueBanner();
+  undoToast(snap.name + " verwijderd", function(){
+    state.list.splice(Math.min(idx, state.list.length), 0, snap);
+    save(); renderLijst(); renderDueBanner();
+  });
 }
 function finishShopping(){
   if(Cloud.active){ Cloud.finish(); return; }
   var done=state.list.filter(function(i){return i.done;});
   if(!done.length) return;
   done.forEach(function(it){ recordPurchase(it.name, it.price); });
+  recordCoBuy(done.map(function(it){return it.name;}));
   state.list=state.list.filter(function(i){return !i.done;});
   save(); renderLijst(); renderDueBanner(); renderVaste();
   toast(done.length+(done.length===1?" boodschap gekocht":" boodschappen gekocht"));
@@ -436,12 +565,20 @@ function renderLijst(){
     state.settings.categoryOrder.forEach(function(cid){
       var arr=byCat[cid]; if(!arr || !arr.length) return;
       var c=CAT_BY_ID[cid]||CAT_BY_ID["overig"];
-      var sec=el("div","section");
-      sec.innerHTML='<span class="cat-emoji">'+c.glyph+'</span><span>'+c.label+'</span><span class="count">'+arr.length+'</span>';
+      var collapsed = !!(state.settings.collapsedCats && state.settings.collapsedCats[cid]);
+      var sec=el("div","section collapsible"+(collapsed?" collapsed":""));
+      sec.innerHTML='<span class="cat-emoji emoji">'+c.glyph+'</span><span>'+c.label+'</span><span class="count">'+arr.length+'</span><svg class="sec-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>';
       openWrap.appendChild(sec);
-      var ul=el("ul","list");
+      var ul=el("ul","list"+(collapsed?" collapsed":""));
       arr.forEach(function(it){ ul.appendChild(itemRow(it)); });
       openWrap.appendChild(ul);
+      sec.addEventListener("click", function(){
+        state.settings.collapsedCats = state.settings.collapsedCats || {};
+        state.settings.collapsedCats[cid] = !state.settings.collapsedCats[cid];
+        save();
+        sec.classList.toggle("collapsed");
+        ul.classList.toggle("collapsed");
+      });
     });
     if(done.length){
       var s2=el("div","section");
@@ -457,6 +594,12 @@ function renderLijst(){
 
 function itemRow(it){
   var li=el("li","row"+(it.done?" done":""));
+  // Slide-in als item < 600ms geleden toegevoegd
+  var addedMs = it.addedAt ? new Date(it.addedAt).getTime() : 0;
+  if(addedMs && (Date.now() - addedMs) < 600){
+    li.classList.add("entering");
+    setTimeout(function(){ li.classList.remove("entering"); }, 360);
+  }
   li.appendChild(el("div","behind",'<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg><span>Verwijder</span>'));
   var card=el("div","card");
 
@@ -568,9 +711,11 @@ function vasteRow(r){
   var cad=cadenceLabel(r.a); var seen=lastSeenLabel(r.a);
   var info = cad + (seen?(' · '+seen):'');
   if(isDue(r.a)) info='<b>Bijna op</b> · '+info;
+  var autoBadge = r.e.autoAdd ? '<span class="vauto">Auto</span>' : '';
   div.innerHTML=
     '<div class="vemoji">'+c.glyph+'</div>'+
     '<div class="vmeta"><div class="vname"></div><div class="vcad">'+info+'</div></div>'+
+    autoBadge+
     '<button class="vadd" aria-label="Toevoegen">'+(onList?'✓':'+')+'</button>';
   div.querySelector(".vname").textContent=r.e.name;
   div.querySelector(".vadd").addEventListener("click",function(e){
@@ -729,6 +874,12 @@ function buildSheet(d){
     html+='<div class="frow"><div class="fl">Aantal</div><div class="qty" style="background:var(--surface-2);border:1px solid var(--line)"><button class="s-qminus">–</button><span id="s-qty">'+d.qty+'</span><button class="s-qplus">+</button></div></div>';
     if(state.settings.showPrices){
       html+='<div class="frow"><div class="fl">Prijs</div><input class="num" id="s-price" inputmode="decimal" placeholder="0,00" value="'+(d.price!=null?String(d.price).replace(".",","):"")+'"></div>';
+      // "vorige keer"-hint — geleerd uit catalog. Tap = overnemen.
+      var _hintKey = (sheetCtx && sheetCtx.key) || norm(d.name||"");
+      var lastPriceCat = (state.catalog[_hintKey] && state.catalog[_hintKey].defaultPrice);
+      if(lastPriceCat != null && (d.price == null || Number(d.price) !== Number(lastPriceCat))){
+        html += '<div class="price-hint" id="s-price-hint" role="button">Vorige keer <b>'+euro(lastPriceCat)+'</b> — tik om over te nemen</div>';
+      }
     }
     html+='<div class="frow"><div class="fl">Notitie</div><input class="txt" id="s-note" placeholder="bijv. 1 liter, merk…" value="'+escapeAttr(d.note||"")+'"></div>';
   }
@@ -755,6 +906,13 @@ function buildSheet(d){
         cadChip("m30","Maandelijks",selCad)+
         cadChip("off","Uit",selCad)+
         '</div>';
+
+  // Auto-add toggle (alleen tonen als er een ritme bekend of in te stellen is)
+  var _autoAdd = !!(state.catalog[(sheetCtx&&sheetCtx.key)||""] && state.catalog[(sheetCtx&&sheetCtx.key)||""].autoAdd);
+  html+='<div class="auto-add-toggle">'+
+    '<div class="aat-label">Automatisch toevoegen<small>Verschijnt vanzelf op je lijst zodra het ritme zegt "bijna op".</small></div>'+
+    '<button class="switch'+(_autoAdd?" on":"")+'" id="s-auto-toggle" type="button" aria-label="Auto-toevoegen wisselen"></button>'+
+  '</div>';
 
   html+='<div class="sheet-actions">'+
         '<button class="save" id="s-save">'+(d.catalogOnly?"Opslaan":"Klaar")+'</button>'+
@@ -809,10 +967,25 @@ function buildSheet(d){
     if(del) del.addEventListener("click",function(){ if(sheetCtx.type==="list") removeFromList(sheetCtx.id); closeSheet(); });
   }
 
+  var phEl = sheet.querySelector("#s-price-hint");
+  if(phEl){
+    phEl.addEventListener("click", function(){
+      var inp = sheet.querySelector("#s-price");
+      if(inp){ inp.value = String(lastPriceCat).replace(".",","); inp.focus(); }
+      phEl.style.display = "none";
+    });
+  }
+
+  var autoToggle = sheet.querySelector("#s-auto-toggle");
+  if(autoToggle){
+    autoToggle.addEventListener("click", function(){ autoToggle.classList.toggle("on"); });
+  }
+
   sheet.querySelector("#s-save").addEventListener("click",function(){
     var price = state.settings.showPrices ? parsePrice((sheet.querySelector("#s-price")||{}).value) : null;
     var note = (sheet.querySelector("#s-note")||{}).value || "";
-    saveSheet(chosenCat, chosenCad, qty, price, note, d.catalogOnly, chosenAssignee);
+    var autoAdd = !!(autoToggle && autoToggle.classList.contains("on"));
+    saveSheet(chosenCat, chosenCad, qty, price, note, d.catalogOnly, chosenAssignee, autoAdd);
   });
 
   openSheetUI();
@@ -820,17 +993,20 @@ function buildSheet(d){
 
 function cadChip(v,label,sel){ return '<button class="cadchip'+(sel===v?" on":"")+'" data-v="'+v+'">'+label+'</button>'; }
 
-function saveSheet(cat, cad, qty, price, note, catalogOnly, assignee){
+function saveSheet(cat, cad, qty, price, note, catalogOnly, assignee, autoAdd){
   var key = sheetCtx.key;
   // categorie + cadans naar (lokale) catalog — cadans blijft persoonlijk
   var e = state.catalog[key];
   if(!e){ e = touchCatalog(sheetCtx.type==="list" ? (state.list.find(function(i){return i.id===sheetCtx.id;})||{}).name : key, price); e.timesAdded=Math.max(0,(e.timesAdded||1)-1); }
   if(e){
+    // Catalog leert van correcties — handmatige cat-wijziging blokkeert toekomstige overschrijving door classifier.
+    if(cat !== e.category) e.userOverrideCat = true;
     e.category = cat;
     if(cad==="auto"){ e.cadenceMode="auto"; e.manualIntervalDays=null; }
     else if(cad==="off"){ e.cadenceMode="off"; e.manualIntervalDays=null; }
     else { e.cadenceMode="manual"; e.manualIntervalDays=parseInt(cad.slice(1),10); }
     if(price!=null) e.defaultPrice=price;
+    if(typeof autoAdd === "boolean") e.autoAdd = autoAdd;
   }
   save();
   if(Cloud.active && !catalogOnly && sheetCtx.type==="list"){
@@ -1241,11 +1417,37 @@ function applyPriceVisibility(){
    HELPERS
    ============================================================ */
 function emptyState(icon,h,p,actionLabel,actionFn){
+  // Hero-illustraties: rustige lijntekening met paar drijvende producten /
+  // klok-met-refresh. Stroke is currentColor + .7 opacity (zie shell.html .empty.hero).
   var icons={
-    bag:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>',
-    repeat:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg>'
+    bag:'<svg viewBox="0 0 120 110" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">'+
+      '<path d="M28 50 L24 95 Q24 100 28 100 L92 100 Q96 100 96 95 L92 50 Z"/>'+
+      '<path d="M22 50 L98 50"/>'+
+      '<path d="M44 50 Q44 32 60 32 Q76 32 76 50"/>'+
+      '<path d="M36 70 L84 70" opacity=".45" stroke-dasharray="2 3"/>'+
+      '<path d="M40 84 L80 84" opacity=".35" stroke-dasharray="2 3"/>'+
+      '<circle cx="22" cy="22" r="6"/>'+
+      '<path d="M22 16 V13 M24 14 L27 11"/>'+
+      '<ellipse cx="95" cy="20" rx="11" ry="6"/>'+
+      '<path d="M88 18 Q92 14 95 18 Q98 14 102 18"/>'+
+      '<rect x="55" y="6" width="11" height="18" rx="1.5"/>'+
+      '<path d="M55 12 L66 12"/>'+
+      '<path d="M58 6 L58 3 L63 3 L63 6"/>'+
+    '</svg>',
+    repeat:'<svg viewBox="0 0 120 110" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">'+
+      '<circle cx="60" cy="55" r="34"/>'+
+      '<path d="M60 30 V55 L78 65"/>'+
+      '<path d="M22 36 Q12 55 22 74"/>'+
+      '<path d="M20 40 L22 36 L26 38"/>'+
+      '<path d="M98 36 Q108 55 98 74"/>'+
+      '<path d="M100 40 L98 36 L94 38"/>'+
+      '<path d="M60 25 L60 30" opacity=".5"/>'+
+      '<path d="M60 80 L60 85" opacity=".5"/>'+
+      '<path d="M86 55 L91 55" opacity=".5"/>'+
+      '<path d="M29 55 L34 55" opacity=".5"/>'+
+    '</svg>'
   };
-  var e=el("div","empty");
+  var e=el("div","empty hero");
   e.innerHTML='<div class="ico">'+(icons[icon]||icons.bag)+'</div><h2>'+h+'</h2><p>'+p+'</p>';
   if(actionLabel && typeof actionFn === "function"){
     var btn = el("button","mbtn", actionLabel);
@@ -1259,6 +1461,37 @@ function emptyState(icon,h,p,actionLabel,actionFn){
 }
 function escapeHtml(s){ return (s||"").replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c];}); }
 function escapeAttr(s){ return escapeHtml(s).replace(/'/g,"&#39;"); }
+
+/* Event-delegated tap-ripples — Material-Design-light. Werkt op chips,
+   menu-knoppen en sheet-acties. Hosts zijn al position:relative+overflow:hidden
+   via shell.html CSS. */
+var _rippleSelectors = ".chip, .catchip, .cadchip, .sc-chip, .mbtn, .sheet-actions .save, .sheet-actions .del";
+function spawnRipple(host, clientX, clientY){
+  var rect = host.getBoundingClientRect();
+  var x = clientX - rect.left, y = clientY - rect.top;
+  var size = Math.max(rect.width, rect.height) * 0.95;
+  var r = document.createElement("span");
+  r.className = "ripple";
+  r.style.width = r.style.height = size + "px";
+  r.style.left = (x - size/2) + "px";
+  r.style.top = (y - size/2) + "px";
+  host.appendChild(r);
+  setTimeout(function(){ if(r.parentNode) r.parentNode.removeChild(r); }, 620);
+}
+function setupRipples(){
+  document.addEventListener("touchstart", function(e){
+    var t = e.target && e.target.closest && e.target.closest(_rippleSelectors);
+    if(!t) return;
+    var p = e.touches && e.touches[0]; if(!p) return;
+    spawnRipple(t, p.clientX, p.clientY);
+  }, {passive:true});
+  document.addEventListener("pointerdown", function(e){
+    if(e.pointerType === "touch") return;
+    var t = e.target && e.target.closest && e.target.closest(_rippleSelectors);
+    if(!t) return;
+    spawnRipple(t, e.clientX, e.clientY);
+  });
+}
 
 /* Toont een topbar-badge wanneer het netwerk wegvalt. Cloud writes happen
    alsnog optimistisch — bij online weer doorgaan reconcilieert realtime. */
@@ -1385,6 +1618,7 @@ function init(){
   setupOfflineIndicator();
   setupTopShareBtn();
   setupPullToRefresh();
+  setupRipples();
   window.addEventListener("beforeunload", function(){
     if(typeof Cloud!=="undefined" && Cloud.stop) Cloud.stop();
   });
@@ -1417,6 +1651,8 @@ function init(){
   renderLijst(); renderDueBanner();
   switchTab("lijst");
   maybeIntro();
+  // 1× per dag: voeg autoAdd-vaste-items met "bijna op"-status automatisch toe
+  try{ runAutoAddDueItems(); }catch(e){}
 }
 
 /* Tests: zorg dat pure helpers ook via window.* bereikbaar zijn (sommige
@@ -1424,6 +1660,11 @@ function init(){
 if(typeof window!=="undefined"){
   window.parseQtyFromInput = parseQtyFromInput;
   window.openBulkPasteSheet = openBulkPasteSheet;
+  window.recordCoBuy = recordCoBuy;
+  window.getCoSuggestions = getCoSuggestions;
+  window.touchCatalog = touchCatalog;
+  window.removeFromList = removeFromList;
+  window.runAutoAddDueItems = runAutoAddDueItems;
 }
 if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",init);
 else init();

@@ -416,6 +416,67 @@
   .section .more-link{ background:none; border:0; padding:2px 4px; font-size:13px; font-weight:700; color:var(--green); text-transform:none; letter-spacing:0; }
   .section .more-link:active{ opacity:.7; }
 
+  /* ---------- Section collapse ---------- */
+  .section.collapsible{ cursor:pointer; user-select:none; -webkit-user-select:none; }
+  .section.collapsible .count{ margin-left:auto; }
+  .section.collapsible .sec-chevron{ width:14px; height:14px; color:var(--ink-faint); transition:transform .22s var(--ease); flex:0 0 auto; margin-left:8px; }
+  .section.collapsible.collapsed .sec-chevron{ transform:rotate(-90deg); }
+  ul.list.collapsed{ display:none; }
+
+  /* ---------- Slide-in voor nieuwe items ---------- */
+  @keyframes rowSlideIn{
+    from{ opacity:0; transform:translateY(-10px) scale(.97); }
+    to{ opacity:1; transform:translateY(0) scale(1); }
+  }
+  .row.entering{ animation:rowSlideIn .32s var(--ease) backwards; }
+
+  /* ---------- Crisper checkmark (path-drawing animation) ---------- */
+  .check svg path{ stroke-dasharray:24; stroke-dashoffset:24; }
+  .row.done .check svg{ opacity:1; transform:scale(1); }
+  .row.done .check svg path{ animation:drawCheck .32s var(--ease) forwards; }
+  @keyframes drawCheck{ from{ stroke-dashoffset:24; } to{ stroke-dashoffset:0; } }
+
+  /* ---------- Tap-ripple ---------- */
+  .chip, .catchip, .cadchip, .sc-chip, .mbtn, .sheet-actions .save, .sheet-actions .del{ position:relative; overflow:hidden; }
+  .ripple-host{ position:relative; overflow:hidden; }
+  .ripple{ position:absolute; border-radius:50%; background:currentColor; pointer-events:none; opacity:.18; transform:scale(0); animation:ripple-pulse .55s var(--ease) forwards; }
+  @keyframes ripple-pulse{
+    0%{ transform:scale(0); opacity:.22; }
+    100%{ transform:scale(2.6); opacity:0; }
+  }
+
+  /* ---------- Rich undo-toast ---------- */
+  .toast{ display:inline-flex; align-items:center; gap:0; }
+  .toast .toast-msg{ flex:1; }
+  .toast .toast-action{ background:transparent; border:0; color:color-mix(in srgb, var(--green) 80%, var(--bg)); font-weight:800; padding:6px 12px; margin-left:10px; border-radius:10px; font-size:14px; letter-spacing:.01em; }
+  .toast.has-action{ padding:9px 8px 9px 18px; }
+  .toast .toast-action:active{ background:color-mix(in srgb, var(--green) 22%, transparent); }
+
+  /* ---------- Co-purchase suggestion (onder add-bar) ---------- */
+  .co-suggest{ display:flex; align-items:center; gap:8px; margin:8px 0 4px; padding:0 2px; font-size:13px; color:var(--ink-soft); animation:rowSlideIn .3s var(--ease) backwards; }
+  .co-suggest.hide{ display:none; }
+  .co-suggest .cs-lbl{ font-weight:600; flex:0 0 auto; }
+  .co-suggest .cs-pill{ display:inline-flex; align-items:center; gap:5px; background:var(--green-2); color:var(--green); border:0; border-radius:99px; padding:5px 11px; font-size:13px; font-weight:700; transition:transform .12s var(--ease); }
+  .co-suggest .cs-pill:active{ transform:scale(.95); filter:brightness(.96); }
+  .co-suggest .cs-pill .plus{ font-weight:800; font-size:14px; line-height:1; }
+  .co-suggest .cs-close{ margin-left:auto; border:0; background:transparent; color:var(--ink-faint); font-size:16px; line-height:1; padding:4px 6px; border-radius:50%; }
+  .co-suggest .cs-close:active{ background:var(--surface-3); }
+
+  /* ---------- Prijs-hint in item-sheet ---------- */
+  .price-hint{ font-size:12px; color:var(--ink-faint); margin:-6px 4px 12px; font-weight:500; letter-spacing:.01em; }
+  .price-hint b{ color:var(--ink-soft); font-weight:600; }
+
+  /* ---------- Auto-add badge in Vaste-rij ---------- */
+  .vrow .vauto{ flex:0 0 auto; font-size:10px; font-weight:800; color:var(--green); background:var(--green-2); padding:3px 7px; border-radius:99px; margin-right:6px; letter-spacing:.04em; text-transform:uppercase; }
+  .auto-add-toggle{ display:flex; align-items:center; gap:12px; padding:12px 4px 4px; }
+  .auto-add-toggle .aat-label{ flex:1; font-size:14px; }
+  .auto-add-toggle .aat-label small{ display:block; font-size:12px; color:var(--ink-soft); margin-top:2px; }
+
+  /* ---------- Hero empty-state ---------- */
+  .empty.hero .ico{ width:160px; height:140px; background:transparent; border-radius:0; }
+  .empty.hero .ico svg{ width:100%; height:100%; color:var(--ink-faint); opacity:.7; }
+  .empty.hero h2{ margin-top:6px; }
+
   @media (prefers-reduced-motion: reduce){
     *{ transition:none !important; animation:none !important; }
   }
@@ -430,7 +491,7 @@
   window.MANDJE_CONFIG = {
     SUPABASE_URL:      "https://yctcpxgjpmhyohbsrygy.supabase.co",   /* ingevuld ✓ */
     SUPABASE_ANON_KEY: "sb_publishable_lT77Nkcrl6VsBIx-PFuMtw_mdJ6fyNj",   /* ingevuld ✓ (publishable key) */
-    BUILD:             "2026-06-07.1"  /* alleen onderaan Meer-tab zichtbaar — handig om cache-versie te verifiëren */
+    BUILD:             "2026-06-07.2"  /* alleen onderaan Meer-tab zichtbaar — handig om cache-versie te verifiëren */
   };
 </script>
 <!-- ===================================================================== -->
@@ -466,6 +527,7 @@
         <input id="search-input" type="search" placeholder="Zoek in deze lijst…" enterkeyhint="search" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
         <button class="search-clear" id="search-clear" aria-label="Wissen" type="button">✕</button>
       </div>
+      <div class="co-suggest hide" id="co-suggest" aria-live="polite"></div>
       <div class="shortcuts-row empty" id="shortcuts-row"></div>
       <div class="members-row empty" id="members-row"></div>
       <div id="due-banner"></div>

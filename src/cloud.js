@@ -212,7 +212,9 @@ var Cloud = {
   finish:function(){
     var done=state.list.filter(function(i){return i.done;}); if(!done.length||!this.active) return;
     var ids=done.map(function(i){return i.id;});
-    done.forEach(function(it){ recordPurchase(it.name, it.price); }); save();
+    done.forEach(function(it){ recordPurchase(it.name, it.price); });
+    if(typeof recordCoBuy==="function") recordCoBuy(done.map(function(it){return it.name;}));
+    save();
     state.list=state.list.filter(function(i){return !i.done;}); renderLijst();
     this.sb.from("items").delete().in("id",ids).then(function(){},function(){});
     toast(done.length+(done.length===1?" gekocht":" gekocht")); vibrate(12); renderVaste();

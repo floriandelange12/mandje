@@ -111,6 +111,73 @@ const ok=(n,c)=>{ if(c){pass++;console.log("  ✓ "+n);} else {fail++;console.lo
   ok("Intro: laatste stap → Aan-de-slag knop", !!doc8.querySelector("#intro-go"));
   dom8.window.close();
 
+  // 10. Co-purchase tracking + suggesties
+  const dom9=new JSDOM(html,{url:"https://example.com/",runScripts:"dangerously",resources:"usable",pretendToBeVisual:true});
+  await wait(150); const W9=dom9.window;
+  W9.touchCatalog("Melk", null); W9.touchCatalog("Brood", null);
+  W9.recordCoBuy(["Melk","Brood"]);
+  W9.recordCoBuy(["Melk","Brood"]);
+  W9.recordCoBuy(["Melk","Brood"]);
+  const sugg = W9.getCoSuggestions("melk", 2);
+  ok("CoBuy: melk→brood suggestie (3× samen)", sugg.length===1 && sugg[0].key==="brood" && sugg[0].count===3);
+  const suggUnknown = W9.getCoSuggestions("onbekend", 2);
+  ok("CoBuy: lege array voor onbekend item", Array.isArray(suggUnknown) && suggUnknown.length===0);
+  dom9.window.close();
+
+  // 11. Undo-toast bij removeFromList toont 'Ongedaan' actie + herstelt
+  const dom10=new JSDOM(html,{url:"https://example.com/",runScripts:"dangerously",resources:"usable",pretendToBeVisual:true});
+  await wait(150); const doc10=dom10.window.document; const W10=dom10.window;
+  doc10.querySelector("#add-name").value="Melk";
+  doc10.querySelector("#add-name").dispatchEvent(new W10.KeyboardEvent("keydown",{key:"Enter",bubbles:true}));
+  await wait(30);
+  const beforeRm = JSON.parse(W10.localStorage.getItem("mandje.v2")).list;
+  const rmId = beforeRm[0].id;
+  W10.removeFromList(rmId); await wait(30);
+  const toastEl = doc10.querySelector("#toast");
+  ok("Undo: toast heeft action-knop", !!toastEl.querySelector(".toast-action"));
+  ok("Undo: action label = 'Ongedaan'", (toastEl.querySelector(".toast-action")||{}).textContent === "Ongedaan");
+  toastEl.querySelector(".toast-action").click(); await wait(30);
+  const afterUndo = JSON.parse(W10.localStorage.getItem("mandje.v2")).list;
+  ok("Undo: item terug op de lijst", afterUndo.length===1 && afterUndo[0].name==="Melk");
+  dom10.window.close();
+
+  // 12. Auto-add: catalog-item met autoAdd + due → staat op de lijst na init
+  const dom11=new JSDOM(html,{url:"https://example.com/",runScripts:"dangerously",resources:"usable",pretendToBeVisual:true,
+    beforeParse(w){
+      w.localStorage.setItem("mandje.v2", JSON.stringify({
+        version:2,
+        settings:{theme:"light",showPrices:false,seenIntro:true,categoryOrder:null,minPurchases:3,cvThreshold:.6,dueWindowDays:1,customCategories:[],customCatEmoji:{},collapsedCats:{}},
+        list:[],
+        catalog:{
+          "melk":{name:"Melk",category:"zuivel-eieren",defaultPrice:1.29,
+            purchaseDates:[dayStr(-21), dayStr(-14), dayStr(-7)],
+            timesAdded:3, lastAddedAt:null, cadenceMode:"auto", manualIntervalDays:null,
+            autoAdd:true}
+        },
+        coBuy:{}
+      }));
+    }
+  });
+  await wait(180);
+  const stored11 = JSON.parse(dom11.window.localStorage.getItem("mandje.v2"));
+  ok("Auto-add: Melk staat na init op de lijst", stored11.list.some(i => i.name === "Melk"));
+  dom11.window.close();
+
+  // 13. Section-collapse: chevron aanwezig + class toggle bij klik
+  const dom12=new JSDOM(html,{url:"https://example.com/",runScripts:"dangerously",resources:"usable",pretendToBeVisual:true});
+  await wait(150); const doc12=dom12.window.document;
+  doc12.querySelector("#add-name").value="Melk";
+  doc12.querySelector("#add-name").dispatchEvent(new dom12.window.KeyboardEvent("keydown",{key:"Enter",bubbles:true}));
+  await wait(20);
+  const secs = doc12.querySelectorAll("#open-list .section.collapsible");
+  ok("Section: collapsible class aanwezig", secs.length >= 1);
+  ok("Section: sec-chevron SVG aanwezig", !!secs[0].querySelector(".sec-chevron"));
+  secs[0].click(); await wait(20);
+  ok("Section: collapsed class na klik", secs[0].classList.contains("collapsed"));
+  dom12.window.close();
+
+  function dayStr(off){ const d=new Date(); d.setDate(d.getDate()+off); const p=n=>(n<10?"0":"")+n; return d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate()); }
+
   console.log("\nt3: "+pass+" geslaagd, "+fail+" gefaald");
   process.exit(fail?1:0);
 })().catch(e=>{console.error("t3 TESTFOUT:",e);process.exit(2)});
