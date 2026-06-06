@@ -272,6 +272,17 @@ drop policy if exists "members: verlaat lijst (delete eigen rij)" on public.memb
 create policy "members: verlaat lijst (delete eigen rij)" on public.members
   for delete using (user_id = auth.uid());
 
+-- Owner mag andere leden uit de lijst kicken
+drop policy if exists "members: owner mag andere leden verwijderen" on public.members;
+create policy "members: owner mag andere leden verwijderen" on public.members
+  for delete using (
+    exists (
+      select 1 from public.lists
+      where lists.id = members.list_id
+        and lists.owner_user_id = auth.uid()
+    )
+  );
+
 -- items
 drop policy if exists "items: leden zien items" on public.items;
 create policy "items: leden zien items" on public.items

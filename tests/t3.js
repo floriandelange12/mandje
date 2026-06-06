@@ -71,6 +71,46 @@ const ok=(n,c)=>{ if(c){pass++;console.log("  ✓ "+n);} else {fail++;console.lo
   });
   dom5.window.close();
 
+  // 7. parseQtyFromInput
+  const dom6=new JSDOM(html,{url:"https://example.com/",runScripts:"dangerously",resources:"usable",pretendToBeVisual:true});
+  await wait(150); const W=dom6.window;
+  const cases6=[
+    ["melk",          1, "melk"],
+    ["melk 2",        2, "melk"],
+    ["brood x3",      3, "brood"],
+    ["Wc-papier 4",   4, "Wc-papier"],
+    ["Heineken 0",    1, "Heineken 0"],
+    ["Heineken 0.0",  1, "Heineken 0.0"]
+  ];
+  cases6.forEach(([raw, expQty, expName])=>{
+    const r = W.parseQtyFromInput(raw);
+    ok("parseQty('"+raw+"') → "+expQty+" / '"+expName+"'", r.qty===expQty && r.name===expName);
+  });
+  dom6.window.close();
+
+  // 8. Bulk-paste voegt meerdere items toe met juiste qty
+  const dom7=new JSDOM(html,{url:"https://example.com/",runScripts:"dangerously",resources:"usable",pretendToBeVisual:true});
+  await wait(150); const doc7=dom7.window.document;
+  dom7.window.openBulkPasteSheet(); await wait(40);
+  const bulkIn = doc7.querySelector("#bulk-input");
+  bulkIn.value = "Melk\nBrood x2\nKaas\nWc-papier";
+  doc7.querySelector("#bulk-go").click(); await wait(40);
+  ok("Bulk: 4 items op de lijst", doc7.querySelectorAll("#open-list .row").length === 4);
+  const stored7 = JSON.parse(dom7.window.localStorage.getItem("mandje.v2"));
+  ok("Bulk: Brood heeft qty 2", (stored7.list.find(i => i.name === "Brood")||{}).qty === 2);
+  dom7.window.close();
+
+  // 9. Intro toont 3 dots + Volgende→Aan-de-slag op laatste stap
+  const dom8=new JSDOM(html,{url:"https://example.com/",runScripts:"dangerously",resources:"usable",pretendToBeVisual:true});
+  await wait(150); const doc8=dom8.window.document;
+  const dots = doc8.querySelectorAll("#sheet .intro-dots .id-dot");
+  ok("Intro: 3 stages aanwezig", dots.length === 3);
+  ok("Intro: stap 1 → Volgende-knop", !!doc8.querySelector("#intro-next"));
+  doc8.querySelector("#intro-next").click(); await wait(20);
+  doc8.querySelector("#intro-next").click(); await wait(20);
+  ok("Intro: laatste stap → Aan-de-slag knop", !!doc8.querySelector("#intro-go"));
+  dom8.window.close();
+
   console.log("\nt3: "+pass+" geslaagd, "+fail+" gefaald");
   process.exit(fail?1:0);
 })().catch(e=>{console.error("t3 TESTFOUT:",e);process.exit(2)});

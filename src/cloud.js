@@ -168,12 +168,27 @@ var Cloud = {
   },
 
   /* ---- mutaties (optimistisch; realtime reconcilieert) ---- */
-  addItem:function(name, price){
+  addItem:function(name, price, addQty, opts){
     name=(name||"").trim(); if(!name||!this.active) return;
-    var cat=(state.catalog[norm(name)]&&state.catalog[norm(name)].category)||classify(name);
-    state.list.unshift({ id:"tmp_"+uid(), name:name, category:cat, qty:1, price:price, note:"", done:false, assigned_to:null, added_by_name:this.myName(), addedAt:nowISO() });
+    addQty = Math.max(1, addQty||1);
+    opts = opts || {};
+    var k = norm(name);
+    var existing = state.list.find(function(i){ return !i.done && norm(i.name)===k; });
+    if(existing){
+      existing.qty += addQty;
+      if(price!=null) existing.price = price;
+      renderLijst();
+      if(!opts.silent) toast(name + " → " + existing.qty + "×");
+      var fields = {qty: existing.qty};
+      if(price!=null) fields.price = price;
+      this.sb.from("items").update(fields).eq("id", existing.id).then(function(){},function(){});
+      return;
+    }
+    var cat=(state.catalog[k]&&state.catalog[k].category)||classify(name);
+    state.list.unshift({ id:"tmp_"+uid(), name:name, category:cat, qty:addQty, price:price, note:"", done:false, assigned_to:null, added_by_name:this.myName(), addedAt:nowISO() });
     renderLijst();
-    this.sb.from("items").insert({list_id:this.active, name:name, category:cat, qty:1, price:(price==null?null:price), added_by_name:this.myName()}).then(function(r){ if(r.error) toast("Toevoegen mislukt"); },function(){});
+    if(!opts.silent && addQty>1) toast(name + " ×" + addQty);
+    this.sb.from("items").insert({list_id:this.active, name:name, category:cat, qty:addQty, price:(price==null?null:price), added_by_name:this.myName()}).then(function(r){ if(r.error) toast("Toevoegen mislukt"); },function(){});
   },
   toggle:function(id){
     var it=state.list.find(function(i){return i.id===id;}); if(!it) return;
@@ -231,6 +246,30 @@ var Cloud = {
     this.lists=this.lists.filter(function(l){return l.id!==listId;});
     if(this.active===listId) this.openLocal();
     else { renderListSwitch(); }
+  },
+  renameList:async function(listId, newName){
+    newName=(newName||"").trim(); if(!newName) return null;
+    var r=await this.sb.from("lists").update({name:newName}).eq("id",listId).select().single();
+    if(r.error){ toast("Hernoemen mislukt: "+(r.error.message||"")); return null; }
+    await this.loadLists();
+    if(this.active===listId){ applyListHeader(); }
+    renderListSwitch();
+    toast("Lijst hernoemd");
+    return r.data;
+  },
+  kickMember:async function(listId, userId){
+    var r=await this.sb.from("members").delete().eq("list_id",listId).eq("user_id",userId);
+    if(r.error){ toast("Verwijderen mislukt: "+(r.error.message||"")); return false; }
+    await this.refreshMembers();
+    await this.loadLists();
+    toast("Lid verwijderd");
+    return true;
+  },
+  recentActivity:async function(listId){
+    if(!this.sb) return [];
+    var r=await this.sb.from("items").select("name,added_by_name,done_by_name,done,created_at").eq("list_id",listId).order("created_at",{ascending:false}).limit(5);
+    if(r.error) return [];
+    return r.data||[];
   },
   shareLink:function(list){ return location.origin+location.pathname+"?join="+list.join_code; },
   sendLink:function(list){ return location.origin+location.pathname+"?send="+list.send_token; },
@@ -460,7 +499,7 @@ function ownerColor(l){
 }
 function applyListHeader(){
   if(activeTab!=="lijst") return;
-  var title=$("#title"), ctitle=$("#ctitle");
+  var title=$("#title"), ctitle=$("#ctitle"), shareTop=$("#share-top-btn");
   if(Cloud.active){
     var l=Cloud.activeList();
     var nm=prettyListName(l?l.name:"Gedeeld");
@@ -471,6 +510,7 @@ function applyListHeader(){
     ctitle.textContent=nm;
     ctitle.classList.add("has-dot");
     ctitle.style.setProperty("--list-dot", col);
+    if(shareTop) shareTop.classList.add("show");
   } else {
     title.textContent="Boodschappen";
     title.classList.remove("has-dot");
@@ -478,6 +518,7 @@ function applyListHeader(){
     ctitle.textContent="Boodschappen";
     ctitle.classList.remove("has-dot");
     ctitle.style.removeProperty("--list-dot");
+    if(shareTop) shareTop.classList.remove("show");
   }
 }
 
@@ -602,23 +643,108 @@ function ensureIdentity(cb){
   });
 }
 
+function relativeTime(iso){
+  if(!iso) return "";
+  var t = new Date(iso).getTime(); if(isNaN(t)) return "";
+  var diff = (Date.now() - t) / 1000;
+  if(diff < 45) return "net";
+  if(diff < 3600) return Math.floor(diff/60)+" min";
+  if(diff < 86400) return Math.floor(diff/3600)+" u";
+  if(diff < 604800) return Math.floor(diff/86400)+" d";
+  try{ return new Date(iso).toLocaleDateString("nl-NL",{day:"numeric",month:"short"}); }catch(e){ return ""; }
+}
+
 function openShareSheet(listId){
   var l=Cloud.listById(listId); if(!l) return;
-  var memberHtml=Cloud.members.map(function(m){ return '<div class="ls-item"><div class="av" style="width:34px;height:34px;background:'+m.color+';color:#fff;border:0">'+initials(m.display_name)+'</div><div class="lsi-name" style="font-size:16px">'+escapeHtml(m.display_name)+(m.user_id===Cloud.userId?' <span style="color:var(--ink-faint);font-weight:500">(jij)</span>':'')+'</div></div>'; }).join("");
-  var dotCol=ownerColor(l);
-  var html='<h3 style="display:flex;align-items:center;gap:10px"><span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:'+dotCol+';flex:0 0 auto"></span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">'+escapeHtml(prettyListName(l.name))+' delen</span></h3>'+
-    '<div class="code-box"><div class="cb-lbl">Join-code</div><div class="cb-code">'+l.join_code+'</div></div>'+
-    '<button class="mbtn" id="sh-invite" style="background:var(--green);color:var(--on-green);border-color:transparent">Deel uitnodiging</button>'+
-    '<button class="mbtn" id="sh-link">Kopieer uitnodig-link</button>'+
-    '<button class="mbtn" id="sh-send">Deel "stuur items"-link</button>'+
-    '<div class="hint" style="margin:2px 6px 14px;line-height:1.5">De <b>uitnodig-link</b> laat iemand meedoen en alles zien. De <b>stuur-link</b> geeft iemand alleen een drop-pagina om dingen aan jou te sturen — zonder app, zonder mee te kijken.</div>'+
-    (memberHtml?('<div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-soft);margin:6px 6px 8px">Leden ('+Cloud.members.length+')</div>'+memberHtml):'')+
-    '<div class="sheet-actions"><button class="del" id="sh-leave" style="width:100%">Lijst verlaten</button></div>';
-  var s=openSheet2(html);
-  s.querySelector("#sh-invite").addEventListener("click",function(){ shareNative(Cloud.shareLink(l), "Doe mee met onze boodschappenlijst \""+prettyListName(l.name)+"\" in Mandje 🧺", "Uitnodig-link gekopieerd"); });
-  s.querySelector("#sh-link").addEventListener("click",function(){ copyText(Cloud.shareLink(l),"Uitnodig-link gekopieerd"); });
-  s.querySelector("#sh-send").addEventListener("click",function(){ shareNative(Cloud.sendLink(l), "Stuur boodschappen naar onze lijst \""+prettyListName(l.name)+"\" 🧺", "Stuur-link gekopieerd"); });
-  s.querySelector("#sh-leave").addEventListener("click",function(){ if(confirm("Deze gedeelde lijst verlaten?")){ closeSheet2(); Cloud.leaveList(l.id); } });
+  var isOwner = (l.owner_user_id === Cloud.userId);
+  var dotCol = ownerColor(l);
+  var prettyName = prettyListName(l.name);
+
+  function memberRowHtml(m){
+    var isYou = (m.user_id === Cloud.userId);
+    var action = '';
+    if(isYou){
+      action = '<button class="lsi-member-action leave" type="button">Verlaten</button>';
+    } else if(isOwner){
+      action = '<button class="lsi-member-action kick" data-user="'+m.user_id+'" data-name="'+escapeAttr(m.display_name)+'" type="button">Verwijder</button>';
+    }
+    return '<div class="ls-item">'+
+      '<div class="av" style="width:34px;height:34px;background:'+m.color+';color:#fff;border:0">'+escapeHtml(initials(m.display_name))+'</div>'+
+      '<div class="lsi-name" style="flex:1;min-width:0;font-size:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+escapeHtml(m.display_name)+(isYou?' <span style="color:var(--ink-faint);font-weight:500">(jij)</span>':'')+'</div>'+
+      action+
+    '</div>';
+  }
+
+  function buildHtml(activityHtml){
+    var memberHtml = Cloud.members.map(memberRowHtml).join("");
+    var titleHtml = '<h3 id="sh-title-row" style="display:flex;align-items:center;gap:10px"><span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:'+dotCol+';flex:0 0 auto"></span><span id="sh-title-name" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">'+escapeHtml(prettyName)+'</span>'+
+      (isOwner?'<button id="sh-rename" type="button" aria-label="Hernoem" style="border:0;background:transparent;color:var(--ink-soft);padding:6px;border-radius:8px"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>':'')+
+    '</h3>';
+    return titleHtml +
+      '<div class="code-box"><div class="cb-lbl">Join-code</div><div class="cb-code">'+l.join_code+'</div></div>'+
+      '<button class="mbtn" id="sh-invite" style="background:var(--green);color:var(--on-green);border-color:transparent">Deel uitnodiging</button>'+
+      '<button class="mbtn" id="sh-link">Kopieer uitnodig-link</button>'+
+      '<button class="mbtn" id="sh-send">Deel "stuur items"-link</button>'+
+      '<div class="hint" style="margin:2px 6px 14px;line-height:1.5">De <b>uitnodig-link</b> laat iemand meedoen en alles zien. De <b>stuur-link</b> geeft iemand alleen een drop-pagina om dingen aan jou te sturen — zonder app, zonder mee te kijken.</div>'+
+      (memberHtml?('<div class="sheet-label"><span class="lbl-cap">Leden ('+Cloud.members.length+')</span></div>'+memberHtml):'')+
+      (activityHtml||'');
+  }
+
+  var s = openSheet2(buildHtml(''));
+  wireShareSheet(s, l, isOwner, prettyName);
+
+  // recente activiteit laden + onder de leden injecteren
+  Cloud.recentActivity(l.id).then(function(rows){
+    if(!rows || !rows.length) return;
+    var html = '<div class="sheet-label" style="margin-top:18px"><span class="lbl-cap">Recente activiteit</span></div>';
+    rows.forEach(function(it){
+      var who = escapeHtml(it.added_by_name || "iemand");
+      var name = escapeHtml(it.name||"");
+      html += '<div class="activity-row"><div class="ar-icon add">+</div><div class="ar-text"><b>'+who+'</b>: '+name+'</div><div class="ar-time">'+escapeHtml(relativeTime(it.created_at))+'</div></div>';
+    });
+    s.innerHTML = '<div class="grip"></div>' + buildHtml(html);
+    wireShareSheet(s, l, isOwner, prettyName);
+  });
+}
+
+function wireShareSheet(s, l, isOwner, prettyName){
+  var invite = s.querySelector("#sh-invite");
+  var lnk = s.querySelector("#sh-link");
+  var snd = s.querySelector("#sh-send");
+  if(invite) invite.addEventListener("click",function(){ shareNative(Cloud.shareLink(l), "Doe mee met onze boodschappenlijst \""+prettyName+"\" in Mandje 🧺", "Uitnodig-link gekopieerd"); });
+  if(lnk) lnk.addEventListener("click",function(){ copyText(Cloud.shareLink(l),"Uitnodig-link gekopieerd"); });
+  if(snd) snd.addEventListener("click",function(){ shareNative(Cloud.sendLink(l), "Stuur boodschappen naar onze lijst \""+prettyName+"\" 🧺", "Stuur-link gekopieerd"); });
+
+  s.querySelectorAll(".lsi-member-action.leave").forEach(function(b){
+    b.addEventListener("click",function(){ if(confirm("Deze gedeelde lijst verlaten?")){ closeSheet2(); Cloud.leaveList(l.id); } });
+  });
+  s.querySelectorAll(".lsi-member-action.kick").forEach(function(b){
+    b.addEventListener("click",function(){
+      var nm = b.dataset.name || "Dit lid";
+      if(confirm(nm+" uit deze lijst verwijderen?")){
+        Cloud.kickMember(l.id, b.dataset.user).then(function(){ openShareSheet(l.id); });
+      }
+    });
+  });
+
+  var rename = s.querySelector("#sh-rename");
+  if(rename){
+    rename.addEventListener("click",function(){
+      var row = s.querySelector("#sh-title-row");
+      if(!row) return;
+      row.innerHTML = '<div class="inline-rename"><input id="sh-rename-input" type="text" value="'+escapeAttr(prettyName)+'" maxlength="50" autocomplete="off"><button class="ir-save" id="sh-rename-save" type="button">Opslaan</button><button class="ir-cancel" id="sh-rename-cancel" type="button">Annuleer</button></div>';
+      var inp = s.querySelector("#sh-rename-input");
+      setTimeout(function(){ if(inp){ inp.focus(); inp.select(); } }, 50);
+      s.querySelector("#sh-rename-cancel").addEventListener("click",function(){ openShareSheet(l.id); });
+      var doSave = function(){
+        var nv = (inp.value||"").trim();
+        if(!nv){ toast("Naam mag niet leeg zijn"); return; }
+        Cloud.renameList(l.id, nv).then(function(ok){ if(ok) openShareSheet(l.id); });
+      };
+      s.querySelector("#sh-rename-save").addEventListener("click", doSave);
+      inp.addEventListener("keydown", function(e){ if(e.key==="Enter") doSave(); if(e.key==="Escape") openShareSheet(l.id); });
+    });
+  }
 }
 
 function copyText(txt,msg){

@@ -28,6 +28,37 @@ var CATS = [
 ];
 var CAT_BY_ID = {}; CATS.forEach(function(c){ CAT_BY_ID[c.id]=c; });
 
+/* Emoji-set voor de picker bij eigen schap / emoji-wijzigen.
+   Niet uitputtend — een handige selectie die past bij een boodschappenlijst. */
+var EMOJI_SET = ["🥬","🥖","🥛","🧀","🍗","🧊","🍯","🥫","🍫","🧃","🧽","🧴","👶","🐾","🔧","🌱","💊","📎","🧦","🛒","🎂","🍕","🥗","🌿","☕","🍷","💄","💡","📱","🍔","🍣","🎮","📚","🎨","🧸","🏠","🚗","✏️","🪴","🛁","🧻","🛠️","🔩","🌻","🥃","🍺","🍩","🍪","🍦","🍰","🎁","🎈","🎄","🕯️","🧼","🚰","🪞","🪥","🧯","🪟","🧹","🪒","🩹","💊","👕","👖","🩳","🧤","🧣","🧢","👟","👞","👜","🎒","🏀","⚽","🎾","🏊","🚲","🪴","🌾","🐶","🐱","🐰","🐭","🐦","🐠","🦴","🍙","🍱","🍝","🥡","☘️","🌴","🍂"];
+
+/* Verbeterde lookup die custom categorieën + emoji-overrides meeneemt.
+   Sneller dan inline checks elke plek. Wordt gebruikt door render-paden. */
+function getCatById(id){
+  return CAT_BY_ID[id] || CAT_BY_ID["overig"];
+}
+function getAllCats(){
+  if(state && state.settings && Array.isArray(state.settings.customCategories) && state.settings.customCategories.length){
+    return CATS.concat(state.settings.customCategories);
+  }
+  return CATS.slice();
+}
+function rebuildCatIndex(){
+  CAT_BY_ID = {};
+  CATS.forEach(function(c){ CAT_BY_ID[c.id]=c; });
+  if(state && state.settings){
+    (state.settings.customCategories||[]).forEach(function(c){
+      CAT_BY_ID[c.id] = { id:c.id, label:c.label, glyph:c.glyph, isCustom:true };
+    });
+    var em = state.settings.customCatEmoji || {};
+    Object.keys(em).forEach(function(id){
+      if(CAT_BY_ID[id]){
+        CAT_BY_ID[id] = Object.assign({}, CAT_BY_ID[id], {glyph: em[id]});
+      }
+    });
+  }
+}
+
 var KW = {
   "groente-fruit":["appel","appels","banaan","bananen","peer","peren","sinaasappel","mandarijn","druif","druiven","aardbei","framboos","bes","blauwe bes","kiwi","mango","ananas","citroen","limoen","avocado","tomaat","tomaten","cherrytomaat","komkommer","paprika","sla","ijsbergsla","andijvie","spinazie","broccoli","bloemkool","wortel","wortels","peen","ui","uien","rode ui","knoflook","aardappel","aardappels","krieltjes","prei","courgette","aubergine","champignon","paddenstoel","sperziebon","erwt","mais","pompoen","radijs","biet","bleekselderij","venkel","asperge","witlof","rucola","pruim","perzik","nectarine","meloen","granaatappel","gember","verse kruiden","basilicum","peterselie"],
   "brood-banket":["brood","bruinbrood","witbrood","volkorenbrood","volkoren","stokbrood","baguette","croissant","broodje","bolletje","pistolet","krentenbol","beschuit","cracker","ontbijtkoek","cake","taart","gebak","koek","koekje","wrap","tortilla","pita","naan","muffin","donut","appeltaart"],
@@ -103,7 +134,7 @@ var COMMON = ["Melk","Brood","Eieren","Kaas","Boter","Yoghurt","Kwark","Karnemel
 var NS = "mandje.v2";
 var DEFAULTS = {
   version:2,
-  settings:{ theme:"auto", showPrices:false, seenIntro:false, categoryOrder:CATS.map(function(c){return c.id;}), minPurchases:3, cvThreshold:0.6, dueWindowDays:1 },
+  settings:{ theme:"auto", showPrices:false, seenIntro:false, categoryOrder:CATS.map(function(c){return c.id;}), minPurchases:3, cvThreshold:0.6, dueWindowDays:1, customCategories:[], customCatEmoji:{} },
   list:[],
   catalog:{}
 };
@@ -124,7 +155,11 @@ function load(){
     if(!Array.isArray(state.list)) state.list=[];
     if(!state.catalog || typeof state.catalog!=="object") state.catalog={};
     if(!Array.isArray(state.settings.categoryOrder)) state.settings.categoryOrder = DEFAULTS.settings.categoryOrder.slice();
+    if(!Array.isArray(state.settings.customCategories)) state.settings.customCategories = [];
+    if(!state.settings.customCatEmoji || typeof state.settings.customCatEmoji!=="object") state.settings.customCatEmoji = {};
     CATS.forEach(function(c){ if(state.settings.categoryOrder.indexOf(c.id)===-1) state.settings.categoryOrder.push(c.id); });
+    state.settings.customCategories.forEach(function(c){ if(state.settings.categoryOrder.indexOf(c.id)===-1) state.settings.categoryOrder.push(c.id); });
+    rebuildCatIndex();
     return;
   }
   // geen geldige v2-data → eenmalige migratie vanaf v1
@@ -138,6 +173,7 @@ function load(){
       });
     }
   }catch(e){}
+  rebuildCatIndex();
   save();
 }
 
@@ -284,6 +320,24 @@ function parsePrice(str){
   var n = parseFloat(str);
   return isNaN(n)?null:n;
 }
+
+/* "melk", "melk 2", "melk x3", "melk ×4" → {name, qty}.
+   qty alleen overgenomen als ondubbelzinnig (x/×/* prefix of >=2). */
+function parseQtyFromInput(s){
+  var raw = (s||"").trim();
+  if(!raw) return {name:"", qty:1};
+  var m = raw.match(/^(.+?)\s*[x×*]\s*(\d{1,3})$/i);
+  if(m){
+    var q = parseInt(m[2],10);
+    if(q >= 1) return { name: m[1].trim(), qty: q };
+  }
+  m = raw.match(/^(.+?)\s+(\d{1,3})$/);
+  if(m){
+    var q2 = parseInt(m[2],10);
+    if(q2 >= 2) return { name: m[1].trim(), qty: q2 };
+  }
+  return { name: raw, qty: 1 };
+}
 function $(s){ return document.querySelector(s); }
 function el(tag, cls, html){ var e=document.createElement(tag); if(cls)e.className=cls; if(html!=null)e.innerHTML=html; return e; }
 function vibrate(ms){ if(navigator.vibrate){ try{navigator.vibrate(ms);}catch(e){} } }
@@ -305,14 +359,24 @@ function toast(msg){
 function addToList(name, price, opts){
   name=(name||"").trim(); if(!name) return false;
   opts=opts||{};
-  if(Cloud.active){ Cloud.addItem(name, (state.settings.showPrices?price:null)); touchCatalog(name, price); save(); return true; }
+  var addQty = Math.max(1, opts.qty || 1);
+  var silent = !!opts.silent;
+  if(Cloud.active){
+    Cloud.addItem(name, (state.settings.showPrices?price:null), addQty, {silent:silent});
+    touchCatalog(name, price); save();
+    return true;
+  }
   var k=norm(name);
   var existing = state.list.find(function(i){ return !i.done && norm(i.name)===k; });
-  if(existing){ existing.qty+=1; if(price!=null) existing.price=price; }
-  else{
+  if(existing){
+    existing.qty += addQty;
+    if(price!=null) existing.price=price;
+    if(!silent) toast(name + " → " + existing.qty + "×");
+  } else{
     var cat = (state.catalog[k] && state.catalog[k].category) || classify(name);
     var defPrice = price!=null ? price : (state.catalog[k] ? state.catalog[k].defaultPrice : null);
-    state.list.unshift({ id:uid(), name:name, category:cat, qty:1, price:(state.settings.showPrices?defPrice:null), note:"", done:false, addedAt:nowISO() });
+    state.list.unshift({ id:uid(), name:name, category:cat, qty:addQty, price:(state.settings.showPrices?defPrice:null), note:"", done:false, addedAt:nowISO() });
+    if(!silent && addQty>1) toast(name + " ×" + addQty);
   }
   touchCatalog(name, price);
   save(); renderLijst(); renderDueBanner();
@@ -352,9 +416,20 @@ function renderLijst(){
   var done = state.list.filter(function(i){return i.done;});
   var openWrap=$("#open-list"); openWrap.innerHTML="";
   var doneWrap=$("#done-list"); doneWrap.innerHTML="";
+  toggleSearchBar();
 
   if(state.list.length===0){
-    openWrap.appendChild(emptyState("bag","Leeg mandje","Typ hierboven wat je nodig hebt. Producten landen vanzelf in het juiste schap."));
+    if(typeof Cloud!=="undefined" && Cloud.active){
+      openWrap.appendChild(emptyState(
+        "bag",
+        "Leeg mandje",
+        "Tik hierboven om iets toe te voegen — of deel de stuur-link zodat anderen items voor je droppen.",
+        "Delen",
+        function(){ if(typeof openShareSheet==="function") openShareSheet(Cloud.active); }
+      ));
+    } else {
+      openWrap.appendChild(emptyState("bag","Leeg mandje","Typ hierboven wat je nodig hebt. Producten landen vanzelf in het juiste schap."));
+    }
   } else {
     // groepeer open per categorie volgens categoryOrder
     var byCat={}; open.forEach(function(it){ (byCat[it.category]=byCat[it.category]||[]).push(it); });
@@ -450,6 +525,12 @@ function renderDueBanner(){
     chip.addEventListener("click",function(){ addToList(d.e.name, d.e.defaultPrice); toast(d.e.name+" toegevoegd"); });
     chips.appendChild(chip);
   });
+  if(due.length > 6){
+    var more = el("button","chip",'<span>Toon alles ('+due.length+')</span><span class="plus">→</span>');
+    more.style.background="transparent"; more.style.borderColor="var(--line)"; more.style.color="var(--ink-soft)";
+    more.addEventListener("click", function(){ switchTab("vaste"); });
+    chips.appendChild(more);
+  }
   b.appendChild(chips);
   wrap.appendChild(b);
 }
@@ -527,6 +608,27 @@ function renderMeer(){
   priceRow.appendChild(sw);
   g1.appendChild(priceRow);
   wrap.appendChild(g1);
+
+  // Schap-volgorde + eigen schappen
+  wrap.appendChild(el("div","section",'<span>Schap-volgorde</span><span class="count">'+state.settings.categoryOrder.length+'</span>'));
+  wrap.appendChild(el("div","hint","Sleep om de volgorde te wijzigen waarin schappen op de Lijst-tab verschijnen. Lege schappen worden vanzelf verborgen."));
+  var sortWrap = el("div","sort-list");
+  var sortItems = [];
+  state.settings.categoryOrder.forEach(function(cid){
+    var c = CAT_BY_ID[cid]; if(!c) return;
+    var isCustom = (state.settings.customCategories||[]).some(function(cc){return cc.id===cid;});
+    sortItems.push({id:cid, label:c.label, glyph:c.glyph, isCustom:isCustom});
+  });
+  makeSortableList(sortWrap, sortItems, function(newOrder){
+    state.settings.categoryOrder = newOrder; save();
+    if(activeTab==="lijst") renderLijst();
+  });
+  wrap.appendChild(sortWrap);
+
+  var addCat = el("button","mbtn","+ Eigen schap toevoegen");
+  addCat.style.marginTop = "10px";
+  addCat.addEventListener("click", openAddCategorySheet);
+  wrap.appendChild(addCat);
 
   // Back-up
   wrap.appendChild(el("div","section",'<span>Back-up</span>'));
@@ -633,7 +735,7 @@ function buildSheet(d){
 
   var showAssign = (!d.catalogOnly && Cloud.active && Cloud.members.length>0);
   if(showAssign){
-    html+='<div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-soft);margin:6px 6px 8px">Wie haalt het?</div>';
+    html+='<div class="sheet-label"><span class="lbl-cap">Wie haalt het?</span></div>';
     html+='<div class="cadrow" id="s-assign"><button class="cadchip'+(!d.assigned_to?" on":"")+'" data-m="">Niemand</button>';
     Cloud.members.forEach(function(m){
       html+='<button class="cadchip'+(d.assigned_to===m.id?" on":"")+'" data-m="'+m.id+'" style="'+(d.assigned_to===m.id?'background:'+m.color+';border-color:transparent':'')+'">'+escapeHtml(m.display_name)+'</button>';
@@ -641,10 +743,10 @@ function buildSheet(d){
     html+='</div>';
   }
 
-  html+='<div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-soft);margin:6px 6px 8px">Schap</div>';
+  html+='<div class="sheet-label"><span class="lbl-cap">Schap</span><span class="lbl-hint">Lang indrukken voor ander pictogram</span></div>';
   html+='<div class="catscroll" id="s-cats"></div>';
 
-  html+='<div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-soft);margin:10px 6px 8px">Herinner me — vaste boodschap</div>';
+  html+='<div class="sheet-label"><span class="lbl-cap">Herinner me — vaste boodschap</span></div>';
   if(statusLine) html+='<div class="hint" style="margin:0 6px 10px">'+statusLine+'</div>';
   html+='<div class="cadrow" id="s-cad">'+
         cadChip("auto","Automatisch",selCad)+
@@ -665,11 +767,19 @@ function buildSheet(d){
   // categorie-chips
   var catWrap=sheet.querySelector("#s-cats");
   var chosenCat=d.category||"overig";
-  CATS.forEach(function(c){
-    var b=el("button","catchip"+(c.id===chosenCat?" on":""),'<span>'+c.glyph+'</span><span>'+c.label+'</span>');
-    b.addEventListener("click",function(){ chosenCat=c.id; catWrap.querySelectorAll(".catchip").forEach(function(x){x.classList.remove("on");}); b.classList.add("on"); });
-    catWrap.appendChild(b);
-  });
+  var renderCatChips = function(){
+    catWrap.innerHTML="";
+    getAllCats().forEach(function(c){
+      var b=el("button","catchip"+(c.id===chosenCat?" on":""),'<span class="emoji">'+c.glyph+'</span><span>'+escapeHtml(c.label)+'</span>');
+      b.addEventListener("click",function(){ chosenCat=c.id; catWrap.querySelectorAll(".catchip").forEach(function(x){x.classList.remove("on");}); b.classList.add("on"); });
+      // Long-press: pictogram wijzigen via emoji-picker (in 2e sheet, blijft buildSheet open)
+      attachLongPress(b, function(){
+        openEmojiPickerForCat(c.id, function(){ renderCatChips(); });
+      });
+      catWrap.appendChild(b);
+    });
+  };
+  renderCatChips();
 
   // cadans-chips
   var chosenCad=selCad;
@@ -767,24 +877,38 @@ function attachSwipe(card,onDelete){
    ADD-FIELD + AUTOCOMPLETE
    ============================================================ */
 function doAdd(){
-  var name=$("#add-name").value;
-  if(addToList(name,null)){
+  var raw = $("#add-name").value;
+  var p = parseQtyFromInput(raw);
+  if(!p.name) return;
+  if(addToList(p.name, null, {qty: p.qty})){
     $("#add-name").value="";
     hideAC(); $("#add-name").focus();
   }
 }
 function buildAC(q){
-  var nq=norm(q);
+  // strip qty-syntax voor ac-zoekopdracht (zodat "melk 2" ook 'melk' suggereert)
+  var stripped = parseQtyFromInput(q||"").name;
+  var nq=norm(stripped);
   if(!nq){ hideAC(); return; }
-  var seen={}, results=[];
-  // catalog eerst (eigen historie), gerangschikt
-  Object.keys(state.catalog).map(function(k){ return state.catalog[k]; })
-    .filter(function(e){ return norm(e.name).indexOf(nq)!==-1; })
-    .sort(function(a,b){ return (b.timesAdded||0)-(a.timesAdded||0); })
-    .forEach(function(e){ var k=norm(e.name); if(!seen[k]){ seen[k]=1; results.push({name:e.name,cat:e.category,own:true}); } });
-  // dan COMMON
-  COMMON.filter(function(n){ return norm(n).indexOf(nq)!==-1; })
-    .forEach(function(n){ var k=norm(n); if(!seen[k]){ seen[k]=1; results.push({name:n,cat:classify(n),own:false}); } });
+  var seen={}, prefix=[], partial=[];
+  // catalog: prefix-matches eerst, dan partial; binnen elke groep op timesAdded desc
+  Object.keys(state.catalog).forEach(function(k){
+    var e=state.catalog[k]; var en=norm(e.name);
+    if(en===nq) return;
+    if(en.indexOf(nq)===0) prefix.push(e);
+    else if(en.indexOf(nq)!==-1) partial.push(e);
+  });
+  var byTimes=function(a,b){ return (b.timesAdded||0)-(a.timesAdded||0); };
+  prefix.sort(byTimes); partial.sort(byTimes);
+  var results=[];
+  prefix.concat(partial).forEach(function(e){ var k=norm(e.name); if(!seen[k]){ seen[k]=1; results.push({name:e.name,cat:e.category,own:true}); } });
+  // dan COMMON die niet al voorkomt
+  var commonPrefix=[], commonPartial=[];
+  COMMON.forEach(function(n){ var k=norm(n); if(seen[k]) return;
+    if(k.indexOf(nq)===0) commonPrefix.push(n);
+    else if(k.indexOf(nq)!==-1) commonPartial.push(n);
+  });
+  commonPrefix.concat(commonPartial).forEach(function(n){ var k=norm(n); if(!seen[k]){ seen[k]=1; results.push({name:n,cat:classify(n),own:false}); } });
 
   results=results.slice(0,6);
   var list=$("#ac-list");
@@ -792,9 +916,11 @@ function buildAC(q){
   list.innerHTML="";
   results.forEach(function(r){
     var c=CAT_BY_ID[r.cat]||CAT_BY_ID["overig"];
-    var row=el("div","ac-item",'<span class="ac-emoji">'+c.glyph+'</span><span class="ac-name">'+escapeHtml(r.name)+'</span><span class="ac-add">+</span>');
+    var row=el("div","ac-item",'<span class="ac-emoji emoji">'+c.glyph+'</span><span class="ac-name">'+escapeHtml(r.name)+'</span><span class="ac-add">+</span>');
     row.addEventListener("click",function(){
-      addToList(r.name, null);
+      // gebruik de qty die in het invoerveld stond als die er was
+      var pq = parseQtyFromInput($("#add-name").value || "").qty;
+      addToList(r.name, null, {qty: pq});
       $("#add-name").value=""; hideAC(); $("#add-name").focus();
     });
     list.appendChild(row);
@@ -802,6 +928,257 @@ function buildAC(q){
   list.classList.add("show");
 }
 function hideAC(){ $("#ac-list").classList.remove("show"); $("#ac-list").innerHTML=""; }
+
+/* ============================================================
+   LONG-PRESS (touch + muis), SEARCH, BULK-PASTE
+   ============================================================ */
+function attachLongPress(elm, cb, ms){
+  ms = ms || 500;
+  var timer = null;
+  var clear = function(){ if(timer){ clearTimeout(timer); timer=null; } };
+  var start = function(){ clear(); timer = setTimeout(function(){ timer=null; vibrate(14); cb(); }, ms); };
+  elm.addEventListener("touchstart", start, {passive:true});
+  elm.addEventListener("touchend", clear);
+  elm.addEventListener("touchmove", clear);
+  elm.addEventListener("touchcancel", clear);
+  elm.addEventListener("mousedown", start);
+  elm.addEventListener("mouseup", clear);
+  elm.addEventListener("mouseleave", clear);
+  elm.addEventListener("contextmenu", function(e){ e.preventDefault(); });
+}
+
+function setupSearchBar(){
+  var input = $("#search-input"); if(!input) return;
+  var bar = $("#search-bar"); var clear = $("#search-clear");
+  input.addEventListener("input", function(){
+    var q=(input.value||"").trim().toLowerCase();
+    bar.classList.toggle("empty", !q);
+    applySearchFilter(q);
+  });
+  clear.addEventListener("click", function(){
+    input.value=""; bar.classList.add("empty");
+    applySearchFilter(""); input.focus();
+  });
+}
+function toggleSearchBar(){
+  var bar = $("#search-bar"); if(!bar) return;
+  var visible = activeTab==="lijst" && state.list.length >= 10;
+  bar.style.display = visible ? "" : "none";
+  if(!visible){
+    var input = $("#search-input");
+    if(input && input.value){ input.value=""; bar.classList.add("empty"); applySearchFilter(""); }
+  }
+}
+function applySearchFilter(q){
+  q = (q||"").trim().toLowerCase();
+  var open = $("#open-list"); var done = $("#done-list");
+  if(!open) return;
+  if(!q){
+    open.querySelectorAll(".row, .section, ul.list").forEach(function(n){ n.style.display=""; });
+    if(done) done.style.display = "";
+    return;
+  }
+  if(done) done.style.display = "none";
+  open.querySelectorAll("ul.list").forEach(function(ul){
+    var any = false;
+    ul.querySelectorAll(".row").forEach(function(r){
+      var nm = r.querySelector(".nm");
+      var name = nm ? nm.textContent.toLowerCase() : "";
+      var match = name.indexOf(q) !== -1;
+      r.style.display = match ? "" : "none";
+      if(match) any = true;
+    });
+    ul.style.display = any ? "" : "none";
+    var sec = ul.previousElementSibling;
+    if(sec && sec.classList.contains("section")) sec.style.display = any ? "" : "none";
+  });
+}
+
+/* Sleepbare lijst van schap-rijen. Globale move/end-listeners worden eenmalig gebonden. */
+var _sortState = { dragging:null, items:null, dragIdx:-1, startY:0, offset:0, onReorder:null };
+var _sortBound = false;
+function _sortMove(clientY){
+  var d = _sortState; if(!d.dragging) return;
+  d.offset = clientY - d.startY;
+  d.dragging.style.transform = "translateY("+d.offset+"px) scale(1.02)";
+  var rowH = d.dragging.offsetHeight + 6;
+  var newIdx = Math.max(0, Math.min(d.items.length-1, d.dragIdx + Math.round(d.offset/rowH)));
+  d.items.forEach(function(r,i){
+    if(r===d.dragging) return;
+    var shift=0;
+    if(d.dragIdx<newIdx && i>d.dragIdx && i<=newIdx) shift = -rowH;
+    else if(d.dragIdx>newIdx && i>=newIdx && i<d.dragIdx) shift = rowH;
+    r.style.transform = "translateY("+shift+"px)";
+  });
+}
+function _sortEnd(){
+  var d = _sortState; if(!d.dragging) return;
+  var rowH = d.dragging.offsetHeight + 6;
+  var newIdx = Math.max(0, Math.min(d.items.length-1, d.dragIdx + Math.round(d.offset/rowH)));
+  d.items.forEach(function(r){ r.style.transform=""; r.classList.remove("dragging"); });
+  if(newIdx !== d.dragIdx){
+    var ids = d.items.map(function(r){return r.dataset.id;});
+    var moved = ids.splice(d.dragIdx, 1)[0];
+    ids.splice(newIdx, 0, moved);
+    d.onReorder(ids);
+  }
+  _sortState = { dragging:null, items:null, dragIdx:-1, startY:0, offset:0, onReorder:null };
+}
+function _ensureSortListeners(){
+  if(_sortBound) return;
+  _sortBound = true;
+  document.addEventListener("touchmove", function(e){
+    if(_sortState.dragging){ _sortMove(e.touches[0].clientY); e.preventDefault(); }
+  }, {passive:false});
+  document.addEventListener("touchend", _sortEnd);
+  document.addEventListener("touchcancel", _sortEnd);
+  document.addEventListener("mousemove", function(e){ if(_sortState.dragging) _sortMove(e.clientY); });
+  document.addEventListener("mouseup", _sortEnd);
+}
+function makeSortableList(container, items, onReorder){
+  _ensureSortListeners();
+  var rows = [];
+  items.forEach(function(item){
+    var row = el("div","sort-row");
+    row.dataset.id = item.id;
+    row.innerHTML =
+      '<span class="sr-emoji emoji">'+item.glyph+'</span>'+
+      '<span class="sr-label"></span>'+
+      (item.isCustom?'<button class="sr-del" type="button">Verwijder</button>':'')+
+      '<span class="sr-handle" aria-label="Sleep"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></span>';
+    row.querySelector(".sr-label").textContent = item.label;
+    if(item.isCustom){
+      row.querySelector(".sr-del").addEventListener("click", function(e){
+        e.stopPropagation();
+        if(confirm('"'+item.label+'" verwijderen als schap?')) deleteCustomCategory(item.id);
+      });
+    }
+    container.appendChild(row);
+    rows.push(row);
+  });
+  rows.forEach(function(row){
+    var handle = row.querySelector(".sr-handle");
+    var startDrag = function(clientY){
+      _sortState.dragging = row;
+      _sortState.items = rows;
+      _sortState.dragIdx = rows.indexOf(row);
+      _sortState.startY = clientY; _sortState.offset = 0;
+      _sortState.onReorder = onReorder;
+      row.classList.add("dragging");
+      vibrate(8);
+    };
+    handle.addEventListener("touchstart", function(e){ startDrag(e.touches[0].clientY); e.preventDefault(); }, {passive:false});
+    handle.addEventListener("mousedown", function(e){ startDrag(e.clientY); e.preventDefault(); });
+  });
+}
+
+function openAddCategorySheet(){
+  var picked = EMOJI_SET[0];
+  var sh = $("#sheet"); if(!sh) return;
+  var emojis = EMOJI_SET.map(function(em){
+    return '<button class="ep-cell'+(em===picked?" on":"")+'" data-em="'+em+'" type="button">'+em+'</button>';
+  }).join("");
+  sh.innerHTML = '<div class="grip"></div>'+
+    '<h3>Eigen schap</h3>'+
+    '<div class="sheet-label"><span class="lbl-cap">Naam</span></div>'+
+    '<div class="frow"><input class="txt" id="nc-name" placeholder="Bijv. Klusspullen, Bakker, Boeken" autocapitalize="words" autocomplete="off"></div>'+
+    '<div class="sheet-label"><span class="lbl-cap">Pictogram</span><span class="lbl-hint">Tik om te kiezen</span></div>'+
+    '<div class="emoji-picker" id="nc-emojis">'+emojis+'</div>'+
+    '<div class="hint" style="margin:14px 4px 0">Auto-categorisering werkt niet voor je eigen schappen. Open een product en kies dit schap handmatig.</div>'+
+    '<div class="sheet-actions">'+
+      '<button class="save" id="nc-go">Toevoegen</button>'+
+      '<button class="del" id="nc-cancel">Annuleren</button>'+
+    '</div>';
+  $("#scrim").classList.add("show"); sh.classList.add("show");
+  setTimeout(function(){ var i=$("#nc-name"); if(i) i.focus(); }, 260);
+  sh.querySelectorAll("#nc-emojis .ep-cell").forEach(function(b){
+    b.addEventListener("click", function(){
+      sh.querySelectorAll("#nc-emojis .ep-cell").forEach(function(x){x.classList.remove("on");});
+      b.classList.add("on"); picked = b.dataset.em;
+    });
+  });
+  $("#nc-cancel").addEventListener("click", closeSheet);
+  $("#nc-go").addEventListener("click", function(){
+    var name = ($("#nc-name").value||"").trim();
+    if(!name){ toast("Geef een naam"); return; }
+    var id = "custom-"+norm(name).replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"")+"-"+Date.now().toString(36).slice(-4);
+    state.settings.customCategories = state.settings.customCategories || [];
+    state.settings.customCategories.push({id:id, label:name, glyph:picked});
+    state.settings.categoryOrder.push(id);
+    rebuildCatIndex(); save();
+    closeSheet(); renderMeer(); toast(name+" toegevoegd");
+  });
+}
+
+function deleteCustomCategory(id){
+  state.settings.customCategories = (state.settings.customCategories||[]).filter(function(c){return c.id!==id;});
+  state.settings.categoryOrder = state.settings.categoryOrder.filter(function(cid){return cid!==id;});
+  state.list.forEach(function(it){ if(it.category===id) it.category="overig"; });
+  Object.keys(state.catalog).forEach(function(k){ if(state.catalog[k].category===id) state.catalog[k].category="overig"; });
+  if(state.settings.customCatEmoji) delete state.settings.customCatEmoji[id];
+  rebuildCatIndex(); save();
+  renderMeer(); renderLijst();
+  toast("Schap verwijderd");
+}
+
+function openEmojiPickerForCat(catId, onPick){
+  var current = (CAT_BY_ID[catId] || {}).glyph || "🛒";
+  var picked = current;
+  var sh = $("#sheet2") || $("#sheet"); if(!sh) return;
+  var useSheet2 = (sh.id === "sheet2");
+  var scrim = useSheet2 ? $("#scrim2") : $("#scrim");
+  var emojis = EMOJI_SET.map(function(em){
+    return '<button class="ep-cell'+(em===picked?" on":"")+'" data-em="'+em+'" type="button">'+em+'</button>';
+  }).join("");
+  sh.innerHTML = '<div class="grip"></div>'+
+    '<h3>Kies pictogram</h3>'+
+    '<div class="emoji-picker" id="em-pick">'+emojis+'</div>'+
+    '<div class="sheet-actions">'+
+      '<button class="save" id="em-go">Opslaan</button>'+
+      '<button class="del" id="em-cancel">Annuleren</button>'+
+    '</div>';
+  scrim.classList.add("show"); sh.classList.add("show");
+  sh.querySelectorAll("#em-pick .ep-cell").forEach(function(b){
+    b.addEventListener("click", function(){
+      sh.querySelectorAll("#em-pick .ep-cell").forEach(function(x){x.classList.remove("on");});
+      b.classList.add("on"); picked = b.dataset.em;
+    });
+  });
+  var close = function(){ scrim.classList.remove("show"); sh.classList.remove("show"); };
+  $("#em-cancel").addEventListener("click", close);
+  $("#em-go").addEventListener("click", function(){
+    state.settings.customCatEmoji = state.settings.customCatEmoji || {};
+    state.settings.customCatEmoji[catId] = picked;
+    rebuildCatIndex(); save();
+    close(); onPick && onPick(picked);
+  });
+}
+
+function openBulkPasteSheet(){
+  var sh = $("#sheet"); if(!sh) return;
+  sh.innerHTML = '<div class="grip"></div>'+
+    '<h3>Plak meerdere</h3>'+
+    '<div class="hint" style="margin:0 0 12px">Eén product per regel. Voeg achter een naam "x2" toe voor aantal.</div>'+
+    '<textarea class="io" id="bulk-input" placeholder="Melk\nBrood x2\nWc-papier\nKaas 3" style="height:170px" autocapitalize="sentences" autocomplete="off" spellcheck="false"></textarea>'+
+    '<div class="sheet-actions">'+
+      '<button class="save" id="bulk-go">Toevoegen</button>'+
+      '<button class="del" id="bulk-cancel">Annuleren</button>'+
+    '</div>';
+  $("#scrim").classList.add("show"); sh.classList.add("show");
+  setTimeout(function(){ var i=$("#bulk-input"); if(i) i.focus(); }, 260);
+  $("#bulk-cancel").addEventListener("click", closeSheet);
+  $("#bulk-go").addEventListener("click", function(){
+    var text = ($("#bulk-input").value||"");
+    var lines = text.split(/\r?\n/).map(function(l){return l.trim();}).filter(Boolean);
+    var added = 0;
+    lines.forEach(function(line){
+      var p = parseQtyFromInput(line);
+      if(p.name && addToList(p.name, null, {qty:p.qty, silent:true})) added++;
+    });
+    closeSheet();
+    if(added) toast(added + (added===1?" item toegevoegd":" items toegevoegd"));
+  });
+}
 
 /* ============================================================
    TABS + SCROLL
@@ -863,29 +1240,130 @@ function applyPriceVisibility(){
 /* ============================================================
    HELPERS
    ============================================================ */
-function emptyState(icon,h,p){
+function emptyState(icon,h,p,actionLabel,actionFn){
   var icons={
     bag:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>',
     repeat:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg>'
   };
   var e=el("div","empty");
   e.innerHTML='<div class="ico">'+(icons[icon]||icons.bag)+'</div><h2>'+h+'</h2><p>'+p+'</p>';
+  if(actionLabel && typeof actionFn === "function"){
+    var btn = el("button","mbtn", actionLabel);
+    btn.style.maxWidth = "260px"; btn.style.margin = "20px auto 0";
+    btn.style.background = "var(--green)"; btn.style.color = "var(--on-green)";
+    btn.style.borderColor = "transparent";
+    btn.addEventListener("click", actionFn);
+    e.appendChild(btn);
+  }
   return e;
 }
 function escapeHtml(s){ return (s||"").replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c];}); }
 function escapeAttr(s){ return escapeHtml(s).replace(/'/g,"&#39;"); }
 
+/* Toont een topbar-badge wanneer het netwerk wegvalt. Cloud writes happen
+   alsnog optimistisch — bij online weer doorgaan reconcilieert realtime. */
+function setupOfflineIndicator(){
+  var badge = $("#offline-badge"); if(!badge) return;
+  var update = function(){
+    if(!navigator.onLine) badge.classList.add("show");
+    else badge.classList.remove("show");
+  };
+  window.addEventListener("online", update);
+  window.addEventListener("offline", update);
+  update();
+}
+
+function setupTopShareBtn(){
+  var btn = $("#share-top-btn"); if(!btn) return;
+  btn.addEventListener("click", function(){
+    if(typeof Cloud!=="undefined" && Cloud.active && typeof openShareSheet === "function"){
+      openShareSheet(Cloud.active);
+    }
+  });
+}
+
+/* iOS-stijl pull-to-refresh. Werkt alleen op de Lijst-tab in een Cloud-lijst.
+   Bij sleep >70px → Cloud.refreshItems() + Cloud.refreshMembers(). */
+function setupPullToRefresh(){
+  var main = $("#main"), ptr = $("#ptr");
+  if(!main || !ptr) return;
+  var startY = 0, currentDy = 0, pulling = false, locked = false;
+  main.addEventListener("touchstart", function(e){
+    if(locked) return;
+    if(main.scrollTop > 2) { pulling = false; return; }
+    if(activeTab!=="lijst" || !(typeof Cloud!=="undefined" && Cloud.active)) { pulling = false; return; }
+    startY = e.touches[0].clientY;
+    currentDy = 0;
+    pulling = true;
+  }, {passive:true});
+  main.addEventListener("touchmove", function(e){
+    if(!pulling) return;
+    currentDy = e.touches[0].clientY - startY;
+    if(currentDy <= 0){ ptr.classList.remove("show"); return; }
+    var y = Math.min(28, currentDy * 0.4);
+    ptr.style.setProperty("--ptr-y", y+"px");
+    ptr.classList.add("show");
+  }, {passive:true});
+  main.addEventListener("touchend", function(){
+    if(!pulling) return;
+    var dy = currentDy;
+    pulling = false;
+    if(dy > 70 && typeof Cloud!=="undefined" && Cloud.active){
+      locked = true;
+      ptr.classList.add("spin");
+      Promise.all([Cloud.refreshItems(), Cloud.refreshMembers()])
+        .catch(function(){})
+        .then(function(){
+          setTimeout(function(){
+            ptr.classList.remove("spin");
+            ptr.classList.remove("show");
+            locked = false;
+          }, 320);
+        });
+    } else {
+      ptr.classList.remove("show");
+    }
+  });
+}
+
 function maybeIntro(){
   if(!state || !state.settings || state.settings.seenIntro) return;
   if(state.list.length>0 || Object.keys(state.catalog).length>0){ state.settings.seenIntro=true; save(); return; }
   var sh=$("#sheet"); if(!sh) return;
-  sh.innerHTML='<div class="grip"></div><h3>Welkom bij Mandje</h3>'+
-    '<div class="intro-pt"><span class="ip-em">📝</span><div><b>Typ wat je nodig hebt.</b> Producten sorteren zichzelf in het juiste schap.</div></div>'+
-    '<div class="intro-pt"><span class="ip-em">🔁</span><div><b>Vaste</b> leert wat je vaak koopt en tipt je wanneer iets bijna op is.</div></div>'+
-    '<div class="intro-pt"><span class="ip-em">👥</span><div><b>Samen sturen?</b> Op je Lijst-tab kun je iemand toevoegen of iemand naar jou laten sturen — beide met 1 tap.</div></div>'+
-    '<div class="sheet-actions"><button class="save" id="intro-go">Aan de slag</button></div>';
+  var stages = [
+    {glyph:"📝", title:"Typ wat je nodig hebt", body:"Producten landen automatisch in het juiste schap. Eén veld, geen formulier."},
+    {glyph:"🔁", title:"Vaste leert mee", body:"Vink af, rond af. Na een paar keer herkent Mandje wat 'bijna op' is — zonder dat je iets hoeft in te stellen."},
+    {glyph:"👥", title:"Samen of solo", body:"Maak meerdere lijsten — privé of gedeeld. Deel een stuur-link en iemand kan items naar jou droppen zonder app."}
+  ];
+  var idx = 0;
+  var render = function(){
+    var s = stages[idx];
+    var isLast = (idx === stages.length-1);
+    sh.innerHTML = '<div class="grip"></div>'+
+      '<div class="intro-stage">'+
+        '<div class="intro-card">'+
+          '<div class="ic-glyph emoji">'+s.glyph+'</div>'+
+          '<h4>'+escapeHtml(s.title)+'</h4>'+
+          '<p>'+escapeHtml(s.body)+'</p>'+
+        '</div>'+
+        '<div class="intro-dots">'+stages.map(function(_,i){return '<span class="id-dot'+(i===idx?" on":"")+'"></span>';}).join("")+'</div>'+
+      '</div>'+
+      '<div class="sheet-actions">'+
+        (isLast
+          ? '<button class="save" id="intro-go">Aan de slag</button>'
+          : '<button class="save" id="intro-next">Volgende</button>')+
+      '</div>';
+    if(isLast){
+      $("#intro-go").addEventListener("click", function(){
+        state.settings.seenIntro=true; save(); closeSheet();
+        setTimeout(function(){ var i=$("#add-name"); if(i) i.focus(); }, 320);
+      });
+    } else {
+      $("#intro-next").addEventListener("click", function(){ idx++; render(); });
+    }
+  };
   $("#scrim").classList.add("show"); sh.classList.add("show");
-  var go=$("#intro-go"); if(go) go.addEventListener("click",function(){ state.settings.seenIntro=true; save(); closeSheet(); });
+  render();
 }
 
 /* ============================================================
@@ -902,6 +1380,14 @@ function init(){
   $("#add-name").addEventListener("keydown",function(e){ if(e.key==="Enter") doAdd(); });
   $("#add-name").addEventListener("input",function(){ buildAC(this.value); });
   $("#add-name").addEventListener("blur",function(){ setTimeout(hideAC,180); });
+  attachLongPress($("#add-btn"), openBulkPasteSheet);
+  setupSearchBar();
+  setupOfflineIndicator();
+  setupTopShareBtn();
+  setupPullToRefresh();
+  window.addEventListener("beforeunload", function(){
+    if(typeof Cloud!=="undefined" && Cloud.stop) Cloud.stop();
+  });
   var gb=$("#gear-btn"); if(gb) gb.addEventListener("click",function(){ switchTab(activeTab==="meer"?"lijst":"meer"); });
 
   // Keyboard-avoidance via visualViewport (iOS PWA)
@@ -933,6 +1419,12 @@ function init(){
   maybeIntro();
 }
 
+/* Tests: zorg dat pure helpers ook via window.* bereikbaar zijn (sommige
+   JSDOM-configuraties zetten function-declaraties niet automatisch op window). */
+if(typeof window!=="undefined"){
+  window.parseQtyFromInput = parseQtyFromInput;
+  window.openBulkPasteSheet = openBulkPasteSheet;
+}
 if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",init);
 else init();
 
