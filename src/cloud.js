@@ -105,6 +105,15 @@ var Cloud = {
     var r=await this.sb.from("lists").select("*").order("created_at",{ascending:true});
     if(r.error){ console.warn(r.error); return; }
     this.lists=r.data||[];
+    if(this.lists.length){
+      var ids=this.lists.map(function(l){return l.id;});
+      var rm=await this.sb.from("members").select("list_id,user_id").in("list_id", ids);
+      var counts={};
+      if(!rm.error && rm.data){
+        rm.data.forEach(function(m){ counts[m.list_id]=(counts[m.list_id]||0)+1; });
+      }
+      this.lists.forEach(function(l){ l.member_count=counts[l.id]||1; });
+    }
   },
 
   open:async function(listId){
@@ -208,7 +217,7 @@ var Cloud = {
       return null;
     }
     await this.loadLists(); await this.open(r.data.id); switchTab("lijst");
-    openShareSheet(r.data.id); return r.data;
+    return r.data;
   },
   joinList:async function(code){
     var r=await this.sb.rpc("join_list",{p_code:(code||"").trim(), p_display_name:this.myName(), p_color:this.me.color});
@@ -331,7 +340,9 @@ function openReceiveFlow(){
     }
     ensureIdentity(function(){
       var nm=(Cloud.myName && Cloud.myName()) || "Mijn lijst";
-      Cloud.createList(nm);
+      Cloud.createList(nm).then(function(newList){
+        if(newList && newList.id) openShareSheet(newList.id);
+      });
     });
   });
 }
@@ -503,13 +514,36 @@ function closeSheet2(){ $("#scrim2").classList.remove("show"); $("#sheet2").clas
 $("#scrim2").addEventListener("click",closeSheet2);
 
 function openSwitchSheet(){
-  var html='<h3>Lijsten</h3>';
-  // persoonlijk
-  html+='<div class="ls-item'+(!Cloud.active?" active":"")+'" data-act="local"><div class="lsi-ico">🧺</div><div style="flex:1"><div class="lsi-name">Persoonlijk</div><div class="lsi-sub">Alleen op dit toestel</div></div>'+(!Cloud.active?'<span class="lsi-check">✓</span>':'')+'</div>';
+  var html='<h3>Mijn lijsten</h3>';
+  // Persoonlijk (lokaal, altijd bovenaan)
+  html+='<div class="ls-item'+(!Cloud.active?" active":"")+'" data-act="local">'+
+    '<div class="lsi-ico">🧺</div>'+
+    '<div style="flex:1;min-width:0"><div class="lsi-name">Persoonlijk</div>'+
+    '<div class="lsi-sub">Alleen op dit toestel</div></div>'+
+    (!Cloud.active?'<span class="lsi-check">✓</span>':'')+
+  '</div>';
+  // Cloud-lijsten
   Cloud.lists.forEach(function(l){
-    html+='<div class="ls-item'+(Cloud.active===l.id?" active":"")+'" data-act="'+l.id+'"><div class="lsi-ico">👥</div><div style="flex:1"><div class="lsi-name">'+escapeHtml(prettyListName(l.name))+'</div><div class="lsi-sub">Code '+l.join_code+'</div></div>'+(Cloud.active===l.id?'<span class="lsi-check">✓</span>':'')+'</div>';
+    var col=ownerColor(l);
+    var nm=prettyListName(l.name);
+    var cnt=l.member_count||1;
+    var iOwn=l.owner_user_id===Cloud.userId;
+    var badge;
+    if(cnt<=1) badge=iOwn?'Alleen jij · niet gedeeld':'Alleen jij';
+    else if(iOwn) badge='Jij + '+(cnt-1)+' ander'+(cnt-1>1?'en':'');
+    else badge=cnt+' leden';
+    html+='<div class="ls-item'+(Cloud.active===l.id?" active":"")+'" data-act="'+l.id+'">'+
+      '<div class="lsi-ico" style="background:'+col+';color:#fff;font-size:13px;font-weight:700;letter-spacing:.02em">'+escapeHtml(initials(nm))+'</div>'+
+      '<div style="flex:1;min-width:0"><div class="lsi-name" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+escapeHtml(nm)+'</div>'+
+      '<div class="lsi-sub">'+escapeHtml(badge)+'</div></div>'+
+      (Cloud.active===l.id?'<span class="lsi-check">✓</span>':'')+
+    '</div>';
   });
-  html+='<div class="sheet-actions" style="flex-direction:column;gap:10px"><button class="save" id="ls-new">+ Nieuwe gedeelde lijst</button><button class="del" id="ls-join" style="width:100%">Lijst-code invoeren</button></div>';
+  // Acties: prominent + Nieuwe lijst, daaronder code-invoeren
+  html+='<div class="sheet-actions" style="flex-direction:column;gap:10px;margin-top:14px">'+
+    '<button class="save" id="ls-new" style="display:flex;align-items:center;justify-content:center;gap:8px"><span style="font-size:20px;font-weight:800;line-height:1">+</span><span>Nieuwe lijst</span></button>'+
+    '<button class="mbtn" id="ls-join" style="width:100%">Lijst-code invoeren</button>'+
+  '</div>';
   var s=openSheet2(html);
   s.querySelectorAll(".ls-item").forEach(function(it){
     it.addEventListener("click",function(){
@@ -522,10 +556,18 @@ function openSwitchSheet(){
 }
 
 function promptNewList(){
-  var html='<h3>Nieuwe lijst</h3><div class="frow"><input class="txt" id="nl-name" placeholder="Naam, bijv. Thuis of Weekend" value="Boodschappen"></div><div class="sheet-actions"><button class="save" id="nl-go">Aanmaken & delen</button></div>';
+  var html='<h3>Nieuwe lijst</h3>'+
+    '<div class="frow"><input class="txt" id="nl-name" placeholder="Naam, bijv. Thuis, Weekend, Vakantie" autocapitalize="words"></div>'+
+    '<div class="hint" style="margin:0 6px 14px;line-height:1.5">Privé voor jou — delen kan later via de Delen-knop.</div>'+
+    '<div class="sheet-actions"><button class="save" id="nl-go">Aanmaken</button></div>';
   var s=openSheet2(html);
-  setTimeout(function(){ var i=s.querySelector("#nl-name"); if(i){ i.focus(); i.select(); } },250);
-  s.querySelector("#nl-go").addEventListener("click",function(){ var nm=(s.querySelector("#nl-name").value||"").trim(); closeSheet2(); Cloud.createList(nm); });
+  setTimeout(function(){ var i=s.querySelector("#nl-name"); if(i){ i.focus(); } },250);
+  s.querySelector("#nl-go").addEventListener("click",function(){
+    var nm=(s.querySelector("#nl-name").value||"").trim();
+    if(!nm) nm="Mijn lijst";
+    closeSheet2();
+    Cloud.createList(nm);
+  });
 }
 function promptJoin(code){
   var html='<h3>Lijst joinen</h3><div class="frow"><input class="txt" id="jn-code" placeholder="6-cijferige code" autocapitalize="characters" value="'+(code?escapeAttr(code):"")+'" style="text-transform:uppercase;letter-spacing:.1em;font-weight:700"></div><div class="sheet-actions"><button class="save" id="jn-go">Meedoen</button></div>';
