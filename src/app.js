@@ -535,6 +535,13 @@ function renderMeer(){
   // info
   var n=Object.keys(state.catalog).length;
   wrap.appendChild(el("div","hint","Mandje kent inmiddels "+n+" "+(n===1?"product":"producten")+" uit jouw geschiedenis. Hoe vaker je afrondt, hoe slimmer de vaste boodschappen worden."));
+
+  // build/verbinding-vingerafdruk (helpt cache-versie verifiëren)
+  var cfg = window.MANDJE_CONFIG || {};
+  var ref = (cfg.SUPABASE_URL || "").match(/\/\/([a-z0-9]+)\./);
+  var refStr = ref ? ref[1].slice(0, 8) : "(geen)";
+  var buildStr = cfg.BUILD || "dev";
+  wrap.appendChild(el("div","hint","Verbonden met "+refStr+" · build "+buildStr));
 }
 
 /* ---------- Export / import (bestand) ---------- */
