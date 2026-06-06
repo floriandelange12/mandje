@@ -48,6 +48,29 @@ const ok=(n,c)=>{ if(c){pass++;console.log("  ✓ "+n);} else {fail++;console.lo
   ok("'Manderijn' (typo) -> Groente & fruit", /Groente/.test([...doc4.querySelectorAll("#open-list .section")].map(s=>s.textContent).join("|")));
   dom4.window.close();
 
+  // 6. Nieuwe non-food categorieën — auto-classifier
+  const dom5=new JSDOM(html,{url:"https://example.com/",runScripts:"dangerously",resources:"usable",pretendToBeVisual:true});
+  await wait(150); const doc5=dom5.window.document;
+  const cases=[
+    ["Luiers",       /Baby/],
+    ["Paracetamol",  /Apotheek/],
+    ["Schroeven",    /Klussen/],
+    ["Potgrond",     /Tuin/],
+    ["Pennen",       /Kantoor/],
+    ["Sokken",       /Kleding/],
+    ["Hondenvoer",   /Huisdier/]
+  ];
+  for(const [item] of cases){
+    doc5.querySelector("#add-name").value=item;
+    doc5.querySelector("#add-name").dispatchEvent(new dom5.window.KeyboardEvent("keydown",{key:"Enter",bubbles:true}));
+    await wait(15);
+  }
+  const sections5=[...doc5.querySelectorAll("#open-list .section")].map(s=>s.textContent).join("|");
+  cases.forEach(([item,re])=>{
+    ok("'"+item+"' → "+re.source.replace(/[\\\/]/g,""), re.test(sections5));
+  });
+  dom5.window.close();
+
   console.log("\nt3: "+pass+" geslaagd, "+fail+" gefaald");
   process.exit(fail?1:0);
 })().catch(e=>{console.error("t3 TESTFOUT:",e);process.exit(2)});

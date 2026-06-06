@@ -5,19 +5,26 @@
    CATEGORIEËN + classificatie (NL-schappen)
    ============================================================ */
 var CATS = [
-  {id:"groente-fruit",  label:"Groente & fruit",   glyph:"🥬"},
-  {id:"brood-banket",   label:"Brood & banket",    glyph:"🥖"},
-  {id:"zuivel-eieren",  label:"Zuivel & eieren",   glyph:"🥛"},
-  {id:"kaas-vleeswaren",label:"Kaas & vleeswaren", glyph:"🧀"},
-  {id:"vlees-vis",      label:"Vlees & vis",       glyph:"🍗"},
-  {id:"diepvries",      label:"Diepvries",         glyph:"🧊"},
-  {id:"ontbijt-beleg",  label:"Ontbijt & beleg",   glyph:"🍯"},
-  {id:"houdbaar",       label:"Houdbaar",          glyph:"🥫"},
-  {id:"snoep-snacks",   label:"Snoep & snacks",    glyph:"🍫"},
-  {id:"dranken",        label:"Dranken",           glyph:"🧃"},
-  {id:"huishouden",     label:"Huishouden",        glyph:"🧽"},
-  {id:"verzorging",     label:"Verzorging",        glyph:"🧴"},
-  {id:"overig",         label:"Overig",            glyph:"🛒"}
+  {id:"groente-fruit",   label:"Groente & fruit",       glyph:"🥬"},
+  {id:"brood-banket",    label:"Brood & banket",        glyph:"🥖"},
+  {id:"zuivel-eieren",   label:"Zuivel & eieren",       glyph:"🥛"},
+  {id:"kaas-vleeswaren", label:"Kaas & vleeswaren",     glyph:"🧀"},
+  {id:"vlees-vis",       label:"Vlees & vis",           glyph:"🍗"},
+  {id:"diepvries",       label:"Diepvries",             glyph:"🧊"},
+  {id:"ontbijt-beleg",   label:"Ontbijt & beleg",       glyph:"🍯"},
+  {id:"houdbaar",        label:"Houdbaar",              glyph:"🥫"},
+  {id:"snoep-snacks",    label:"Snoep & snacks",        glyph:"🍫"},
+  {id:"dranken",         label:"Dranken",               glyph:"🧃"},
+  {id:"huishouden",      label:"Huishouden",            glyph:"🧽"},
+  {id:"verzorging",      label:"Verzorging",            glyph:"🧴"},
+  {id:"baby-kind",       label:"Baby & kind",           glyph:"👶"},
+  {id:"huisdier",        label:"Huisdier",              glyph:"🐾"},
+  {id:"klussen",         label:"Klussen & gereedschap", glyph:"🔧"},
+  {id:"tuin-planten",    label:"Tuin & planten",        glyph:"🌱"},
+  {id:"apotheek",        label:"Apotheek",              glyph:"💊"},
+  {id:"kantoor-school",  label:"Kantoor & school",      glyph:"📎"},
+  {id:"kleding-textiel", label:"Kleding & textiel",     glyph:"🧦"},
+  {id:"overig",          label:"Overig",                glyph:"🛒"}
 ];
 var CAT_BY_ID = {}; CATS.forEach(function(c){ CAT_BY_ID[c.id]=c; });
 
@@ -32,8 +39,15 @@ var KW = {
   "houdbaar":["pasta","spaghetti","macaroni","penne","rijst","basmati","noedels","mie","couscous","bulgur","quinoa","meel","bloem","suiker","basterdsuiker","zout","peper","kruiden","kerrie","paprikapoeder","olie","olijfolie","zonnebloemolie","azijn","balsamico","saus","pastasaus","ketchup","mayonaise","mayo","mosterd","soep","bouillon","blik","conserven","tomatenblokjes","passata","tomatenpuree","kokosmelk","linzen","kikkererwt","kidneybonen","bruine bonen","augurk","olijf","pesto","currypasta","gist","cacao","rozijnen","noten ongezouten"],
   "snoep-snacks":["chocola","chocolade","reep","snoep","drop","chips","naturel chips","paprikachips","nootjes","noten","pinda","cashew","popcorn","mars","snickers","twix","winegum","zoutjes","toastje","borrelnoot","koekjes","stroopwafel","pepernoten","zoute krakeling"],
   "dranken":["water","spa","bruiswater","cola","fris","frisdrank","sap","sinaasappelsap","appelsap","limonade","ranja","siroop","ice tea","icetea","thee","groene thee","koffie","koffiebonen","espresso","cappuccino","oploskoffie","bier","wijn","rode wijn","witte wijn","prosecco","energiedrank","red bull","tonic","kombucha","smoothie","chocomel"],
-  "huishouden":["wc papier","toiletpapier","wc-papier","keukenrol","vuilniszak","afwasmiddel","afwas","vaatwastablet","vaatwas","wasmiddel","wasverzachter","allesreiniger","schoonmaak","spons","schuurspons","vochtige doekjes","aluminiumfolie","vershoudfolie","bakpapier","batterij","batterijen","lamp","kaars","theelicht","luier","zakdoek","tissue","afwasborstel","vaatwasmiddel"],
-  "verzorging":["shampoo","conditioner","zeep","handzeep","douchegel","tandpasta","tandenborstel","floss","deodorant","deo","scheermes","scheerschuim","bodylotion","handcreme","creme","maandverband","tampon","watten","wattenstaafje","mondwater","zonnebrand","vitamine","paracetamol","pleister","verband"]
+  "huishouden":["wc papier","toiletpapier","wc-papier","keukenrol","vuilniszak","afwasmiddel","afwas","vaatwastablet","vaatwas","wasmiddel","wasverzachter","allesreiniger","schoonmaak","spons","schuurspons","vochtige doekjes","aluminiumfolie","vershoudfolie","bakpapier","kaars","theelicht","zakdoek","tissue","afwasborstel","vaatwasmiddel"],
+  "verzorging":["shampoo","conditioner","zeep","handzeep","douchegel","tandpasta","tandenborstel","floss","deodorant","deo","scheermes","scheerschuim","bodylotion","handcreme","creme","maandverband","tampon","watten","wattenstaafje","mondwater","zonnebrand","make-up","makeup","mascara","foundation","lippenstift","oogschaduw","nagellak","parfum","eau de toilette"],
+  "baby-kind":["luier","luiers","babyluier","trainerbroek","babyvoeding","flesvoeding","melkpoeder","fopspeen","babyflesje","babydoekjes","billendoekjes","babybillendoekjes","babyzalf","sudocrem","babyzeep","babyshampoo","babyolie","baby-olie","knijpfruit","knijpyoghurt","babyhapje","babyhap","slabbetje","spuugdoekje","spuugdoek","kindertandpasta","kindertandborstel","kinderzeep","kindershampoo","babykleding","rompertje","romper","babymutsje","speen","spenen","puzzel","kleurboek","kleurpotloden voor kinderen"],
+  "huisdier":["hondenvoer","hondenbrokken","hondensnacks","kauwbot","kauwbotje","hondensnoep","kattenvoer","kattenbrokken","kattenpaté","kattenpate","kattennat","kattenbakvulling","kattengrit","vogelvoer","muizenvoer","konijnenvoer","caviavoer","hamstervoer","vissenvoer","aquariumvoer","dierenvoer","dierenshampoo","dierenkam","kattenkam","vlooienband","wormenkuur","tekenspray","kattenbakje","hondenriem","halsband","hondenpoepzakje","poepzakje","poepzakjes","kattenspeeltje","hondenspeeltje","krabpaal"],
+  "klussen":["schroef","schroeven","spijker","spijkers","moeren","bouten","tieraps","tie-rap","schroefje","secondelijm","montagelijm","houtlijm","behangerslijm","siliconenkit","silicone","alleslijm","plakband","duct tape","ducttape","masking tape","schilderstape","isolatietape","batterij","batterijen","aa batterij","aaa batterij","aa-batterij","9v batterij","knoopcel","knoopbatterij","gloeilamp","ledlamp","spaarlamp","fitting","stekker","verlengsnoer","stekkerdoos","schuurpapier","staalwol","kwast","verfrol","verfemmer","verf","grondverf","beits","schroevendraaier","hamer","tang","boormachine","accuboor","sleutelset","steeksleutel","ijzerdraad","nylondraad","houten plank","latje","mdf","piepschuim","isolatie","tochtstrip","stofzuigerzak","stofzuigerfilter"],
+  "tuin-planten":["potgrond","tuinaarde","compost","plantengrond","substraat","zaden","zaadjes","bloembol","bloembollen","stekken","plantenvoeding","plantenmest","kunstmest","koemest","groeikorrels","snijbloemen","boeket","kamerplant","hangplant","cactus","vetplant","orchidee","perkplant","perkplantjes","balkonplant","viooltjes","geranium","plantenpot","bloempot","onderschotel","hangmand","tuinslang","gieter","sproeier","graszaad","grassemen","gazonmest","tuinhandschoenen","snoeischaar","schoffel","spade","tuinbezem","plantensteun","plantenstok","bamboestok","plantentouw","vogelhuisje","vogelzaad","strooizout","strooizand"],
+  "apotheek":["paracetamol","ibuprofen","aspirine","brufen","advil","neusspray","neusdruppels","oogdruppels","keelpastilles","keelpastille","hoestdrank","hoeststroop","slijmoplosser","multivitamine","vitamine c","vitamine d","vitamine b","ijzertabletten","magnesium","calcium","zink","vitaminen","vitamine","ehbo","ehbo-doos","jodium","betadine","desinfecterend","kompres","steriel kompres","pleister","pleisters","blarenpleister","wondpleister","verband","zwachtel","koortsthermometer","thermometer","bloeddrukmeter","antihistaminicum","loratadine","cetirizine","neusspoeling","zoutoplossing","ibuprofengel","spierzalf","arnica","tijgerbalsem","biotine"],
+  "kantoor-school":["balpen","bic","viltstift","stift","markeerstift","fineliner","potlood","kleurpotlood","kleurpotloden","puntenslijper","liniaal","passer","geodriehoek","gradenboog","schrift","schriftje","ringband","ordner","tabbladen","insteekhoes","post-it","plakbriefje","plakbriefjes","memoblok","notitieblok","notitieboekje","paperclip","paperclips","nietmachine","nietjes","perforator","schaar","schaartje","prittstift","lijmstift","lijmstaaf","etiketten","etiket","printerinkt","cartridge","tonercartridge","printerpapier","kopieerpapier","a4-papier","papier a4","a4 papier","rekenmachine","calculator","agenda","planner","prikbord","punaise","punaises","rugzak","schooltas","etui","pennenbakje","pen","pennen","stickers"],
+  "kleding-textiel":["sok","sokken","sportsok","damessok","ondergoed","onderbroek","beha","slipje","string","boxer","panty","panty's","kous","kousen","t-shirt","tshirt","hemd","blouse","topje","spijkerbroek","joggingbroek","jeans","short","winterjas","regenjas","trui","sweater","hoodie","schoenen","laarzen","sneakers","sandalen","slippers","riem","handschoen","handschoenen","muts","sjaal","das","zwemkleding","zwembroek","badpak","bikini","theedoek","theedoeken","vaatdoek","vaatdoeken","dweil","dweilen","sponsdoek","washandje","washand","washandjes","badhanddoek","gastendoekje","handdoek","handdoeken","hoeslaken","laken","kussensloop","sloop","dekbedovertrek","overtrek","plaid"]
 };
 // vlakke lijst {kw, cat}, gesorteerd op lengte aflopend voor specificiteit
 var FLAT_KW = [];
@@ -81,7 +95,7 @@ function classify(name){
 }
 
 // Veelgekochte producten voor autocomplete (geen vaste lijst, alleen suggesties bij typen)
-var COMMON = ["Melk","Brood","Eieren","Kaas","Boter","Yoghurt","Kwark","Karnemelk","Slagroom","Kipfilet","Gehakt","Zalm","Tonijn","Ham","Salami","Bananen","Appels","Sinaasappels","Druiven","Citroen","Tomaten","Komkommer","Sla","Paprika","Avocado","Aardappels","Uien","Knoflook","Wortels","Broccoli","Spinazie","Champignons","Courgette","Pasta","Spaghetti","Rijst","Couscous","Bloem","Suiker","Zout","Olijfolie","Azijn","Pastasaus","Tomatenblokjes","Kokosmelk","Kidneybonen","Linzen","Soep","Pindakaas","Hagelslag","Jam","Honing","Muesli","Havermout","Cornflakes","Koffie","Thee","Water","Spa","Cola","Sinaasappelsap","Bier","Wijn","Chips","Chocolade","Stroopwafels","Crackers","Beschuit","Croissants","Stokbrood","Mozzarella","Feta","Pizza","IJs","Mayonaise","Ketchup","Mosterd","Wc-papier","Keukenrol","Vuilniszakken","Afwasmiddel","Wasmiddel","Allesreiniger","Shampoo","Tandpasta","Deodorant"];
+var COMMON = ["Melk","Brood","Eieren","Kaas","Boter","Yoghurt","Kwark","Karnemelk","Slagroom","Kipfilet","Gehakt","Zalm","Tonijn","Ham","Salami","Bananen","Appels","Sinaasappels","Druiven","Citroen","Tomaten","Komkommer","Sla","Paprika","Avocado","Aardappels","Uien","Knoflook","Wortels","Broccoli","Spinazie","Champignons","Courgette","Pasta","Spaghetti","Rijst","Couscous","Bloem","Suiker","Zout","Olijfolie","Azijn","Pastasaus","Tomatenblokjes","Kokosmelk","Kidneybonen","Linzen","Soep","Pindakaas","Hagelslag","Jam","Honing","Muesli","Havermout","Cornflakes","Koffie","Thee","Water","Spa","Cola","Sinaasappelsap","Bier","Wijn","Chips","Chocolade","Stroopwafels","Crackers","Beschuit","Croissants","Stokbrood","Mozzarella","Feta","Pizza","IJs","Mayonaise","Ketchup","Mosterd","Wc-papier","Keukenrol","Vuilniszakken","Afwasmiddel","Wasmiddel","Allesreiniger","Shampoo","Tandpasta","Deodorant","Luiers","Babydoekjes","Hondenvoer","Kattenvoer","Kattenbakvulling","Batterijen","Gloeilampen","Plakband","Schroeven","Potgrond","Snijbloemen","Paracetamol","Ibuprofen","Pleisters","Multivitamine","Pen","Schrift","Post-its","Printerpapier","Sokken","Theedoeken","Washandjes","Handdoek","Hoeslaken"];
 
 /* ============================================================
    STORE — localStorage + migratie
