@@ -97,7 +97,11 @@
 
   .largehead{ padding:calc(var(--safe-t) + 54px) 4px 6px; }
   h1{ font-family:var(--display); font-size:31px; line-height:1.06; font-weight:600; letter-spacing:-.01em; margin:2px 0 3px; }
+  h1.has-dot{ display:flex; align-items:center; gap:12px; }
+  h1.has-dot::before{ content:""; width:14px; height:14px; border-radius:50%; background:var(--list-dot,transparent); flex:0 0 auto; box-shadow:0 0 0 1px color-mix(in srgb, var(--list-dot,transparent) 35%, transparent); }
   .subhead{ font-size:14px; color:var(--ink-soft); }
+  .topbar .ctitle.has-dot{ display:inline-flex; align-items:center; gap:8px; }
+  .topbar .ctitle.has-dot::before{ content:""; width:9px; height:9px; border-radius:50%; background:var(--list-dot,transparent); flex:0 0 auto; }
   .topbar .gear{ position:absolute; right:max(8px, env(safe-area-inset-right)); top:calc(var(--safe-t) + 7px); width:36px; height:36px; border:0; background:transparent; color:var(--ink-soft); display:flex; align-items:center; justify-content:center; border-radius:50%; transition:background .15s ease, color .15s ease; }
   .topbar .gear svg{ width:23px; height:23px; }
   .topbar .gear:active{ background:var(--surface-3); }
@@ -1686,8 +1690,7 @@ function renderShortcutsRow(){
   sorted.forEach(function(s){
     inner+='<button class="sc-chip" data-id="'+s.id+'">'+
       '<span class="sc-dot" style="background:'+s.color+'"></span>'+
-      '<span class="sc-arrow">→</span>'+
-      '<span class="sc-name">'+escapeHtml(s.name)+'</span>'+
+      '<span class="sc-name">'+escapeHtml(prettyListName(s.name))+'</span>'+
     '</button>';
   });
   if(sorted.length===0){
@@ -1723,8 +1726,8 @@ function openReceiveFlow(){
       return;
     }
     ensureIdentity(function(){
-      var nm=(Cloud.myName && Cloud.myName()) || "mij";
-      Cloud.createList("Boodschappen van " + nm);
+      var nm=(Cloud.myName && Cloud.myName()) || "Mijn lijst";
+      Cloud.createList(nm);
     });
   });
 }
@@ -1752,7 +1755,7 @@ function openSendSheet(scId){
   var s=Shortcuts.byId(scId); if(!s) return;
   var sent=[];
   var html='<div class="grip"></div>'+
-    '<h3 style="display:flex;align-items:center;gap:10px"><span style="display:inline-block;width:14px;height:14px;border-radius:50%;background:'+s.color+';flex:0 0 auto"></span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">Sturen naar '+escapeHtml(s.name)+'</span></h3>'+
+    '<h3 style="display:flex;align-items:center;gap:10px"><span style="display:inline-block;width:14px;height:14px;border-radius:50%;background:'+s.color+';flex:0 0 auto"></span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">Sturen naar '+escapeHtml(prettyListName(s.name))+'</span></h3>'+
     '<div class="field" style="margin-bottom:6px">'+
       '<svg class="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>'+
       '<input class="name" id="sc-input" type="search" enterkeyhint="send" placeholder="Bijv. melk, brood…" autocapitalize="sentences" autocomplete="off" autocorrect="off" spellcheck="false">'+
@@ -1826,15 +1829,40 @@ function openManageShortcutSheet(id){
 /* ============================================================
    CLOUD UI
    ============================================================ */
+/* "Boodschappen van X" → "X" voor cosmetische rendering; raw DB-naam blijft onaangetast */
+function prettyListName(name){
+  if(!name) return "Gedeeld";
+  var m=String(name).match(/^\s*boodschappen van\s+(.+?)\s*$/i);
+  return m ? m[1] : name;
+}
+function ownerColor(l){
+  if(l && Cloud.members && l.owner_user_id){
+    for(var i=0;i<Cloud.members.length;i++){
+      if(Cloud.members[i].user_id===l.owner_user_id) return Cloud.members[i].color;
+    }
+  }
+  return (Cloud.me && Cloud.me.color) || "#2F7A4F";
+}
 function applyListHeader(){
   if(activeTab!=="lijst") return;
+  var title=$("#title"), ctitle=$("#ctitle");
   if(Cloud.active){
     var l=Cloud.activeList();
-    $("#title").textContent=(l?l.name:"Gedeeld");
-    $("#ctitle").textContent=(l?l.name:"Gedeeld");
+    var nm=prettyListName(l?l.name:"Gedeeld");
+    var col=ownerColor(l);
+    title.textContent=nm;
+    title.classList.add("has-dot");
+    title.style.setProperty("--list-dot", col);
+    ctitle.textContent=nm;
+    ctitle.classList.add("has-dot");
+    ctitle.style.setProperty("--list-dot", col);
   } else {
-    $("#title").textContent="Boodschappen";
-    $("#ctitle").textContent="Boodschappen";
+    title.textContent="Boodschappen";
+    title.classList.remove("has-dot");
+    title.style.removeProperty("--list-dot");
+    ctitle.textContent="Boodschappen";
+    ctitle.classList.remove("has-dot");
+    ctitle.style.removeProperty("--list-dot");
   }
 }
 
@@ -1845,7 +1873,7 @@ function renderListSwitch(){
   if(!Cloud.enabled) return; // sharing niet geconfigureerd → niets tonen
   var l=Cloud.activeList();
   var ico = Cloud.active ? "👥" : "🧺";
-  var name = Cloud.active ? (l?l.name:"Gedeeld") : "Persoonlijk";
+  var name = Cloud.active ? prettyListName(l?l.name:"Gedeeld") : "Persoonlijk";
   var pill=el("button","list-switch",'<span class="ls-ico">'+ico+'</span><span class="ls-name">'+escapeHtml(name)+'</span><svg class="ls-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>');
   pill.addEventListener("click",openSwitchSheet);
   wrap.appendChild(pill);
@@ -1875,7 +1903,7 @@ function openSwitchSheet(){
   // persoonlijk
   html+='<div class="ls-item'+(!Cloud.active?" active":"")+'" data-act="local"><div class="lsi-ico">🧺</div><div style="flex:1"><div class="lsi-name">Persoonlijk</div><div class="lsi-sub">Alleen op dit toestel</div></div>'+(!Cloud.active?'<span class="lsi-check">✓</span>':'')+'</div>';
   Cloud.lists.forEach(function(l){
-    html+='<div class="ls-item'+(Cloud.active===l.id?" active":"")+'" data-act="'+l.id+'"><div class="lsi-ico">👥</div><div style="flex:1"><div class="lsi-name">'+escapeHtml(l.name)+'</div><div class="lsi-sub">Code '+l.join_code+'</div></div>'+(Cloud.active===l.id?'<span class="lsi-check">✓</span>':'')+'</div>';
+    html+='<div class="ls-item'+(Cloud.active===l.id?" active":"")+'" data-act="'+l.id+'"><div class="lsi-ico">👥</div><div style="flex:1"><div class="lsi-name">'+escapeHtml(prettyListName(l.name))+'</div><div class="lsi-sub">Code '+l.join_code+'</div></div>'+(Cloud.active===l.id?'<span class="lsi-check">✓</span>':'')+'</div>';
   });
   html+='<div class="sheet-actions" style="flex-direction:column;gap:10px"><button class="save" id="ls-new">+ Nieuwe gedeelde lijst</button><button class="del" id="ls-join" style="width:100%">Lijst-code invoeren</button></div>';
   var s=openSheet2(html);
@@ -1926,7 +1954,8 @@ function ensureIdentity(cb){
 function openShareSheet(listId){
   var l=Cloud.listById(listId); if(!l) return;
   var memberHtml=Cloud.members.map(function(m){ return '<div class="ls-item"><div class="av" style="width:34px;height:34px;background:'+m.color+';color:#fff;border:0">'+initials(m.display_name)+'</div><div class="lsi-name" style="font-size:16px">'+escapeHtml(m.display_name)+(m.user_id===Cloud.userId?' <span style="color:var(--ink-faint);font-weight:500">(jij)</span>':'')+'</div></div>'; }).join("");
-  var html='<h3>'+escapeHtml(l.name)+' delen</h3>'+
+  var dotCol=ownerColor(l);
+  var html='<h3 style="display:flex;align-items:center;gap:10px"><span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:'+dotCol+';flex:0 0 auto"></span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">'+escapeHtml(prettyListName(l.name))+' delen</span></h3>'+
     '<div class="code-box"><div class="cb-lbl">Join-code</div><div class="cb-code">'+l.join_code+'</div></div>'+
     '<button class="mbtn" id="sh-invite" style="background:var(--green);color:var(--on-green);border-color:transparent">Deel uitnodiging</button>'+
     '<button class="mbtn" id="sh-link">Kopieer uitnodig-link</button>'+
@@ -1935,9 +1964,9 @@ function openShareSheet(listId){
     (memberHtml?('<div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-soft);margin:6px 6px 8px">Leden ('+Cloud.members.length+')</div>'+memberHtml):'')+
     '<div class="sheet-actions"><button class="del" id="sh-leave" style="width:100%">Lijst verlaten</button></div>';
   var s=openSheet2(html);
-  s.querySelector("#sh-invite").addEventListener("click",function(){ shareNative(Cloud.shareLink(l), "Doe mee met onze boodschappenlijst \""+l.name+"\" in Mandje 🧺", "Uitnodig-link gekopieerd"); });
+  s.querySelector("#sh-invite").addEventListener("click",function(){ shareNative(Cloud.shareLink(l), "Doe mee met onze boodschappenlijst \""+prettyListName(l.name)+"\" in Mandje 🧺", "Uitnodig-link gekopieerd"); });
   s.querySelector("#sh-link").addEventListener("click",function(){ copyText(Cloud.shareLink(l),"Uitnodig-link gekopieerd"); });
-  s.querySelector("#sh-send").addEventListener("click",function(){ shareNative(Cloud.sendLink(l), "Stuur boodschappen naar onze lijst \""+l.name+"\" 🧺", "Stuur-link gekopieerd"); });
+  s.querySelector("#sh-send").addEventListener("click",function(){ shareNative(Cloud.sendLink(l), "Stuur boodschappen naar onze lijst \""+prettyListName(l.name)+"\" 🧺", "Stuur-link gekopieerd"); });
   s.querySelector("#sh-leave").addEventListener("click",function(){ if(confirm("Deze gedeelde lijst verlaten?")){ closeSheet2(); Cloud.leaveList(l.id); } });
 }
 
@@ -1963,7 +1992,7 @@ function openSendScreen(token){
     scr.innerHTML=
       '<div class="ss-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg></div>'+
       '<div class="eyebrow">Stuur naar</div>'+
-      '<h1>'+escapeHtml(listName||"de lijst")+'</h1>'+
+      '<h1>'+escapeHtml(prettyListName(listName)||"de lijst")+'</h1>'+
       '<div class="ss-sub">Voeg producten toe. De ander ziet ze meteen verschijnen.</div>'+
       '<div class="field"><svg class="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>'+
         '<input class="name" id="ss-name" placeholder="Bijv. melk, brood…" enterkeyhint="send" autocapitalize="sentences">'+
@@ -1989,7 +2018,7 @@ function openSendScreen(token){
     var remBtn=scr.querySelector("#ss-remember");
     if(remBtn && !alreadySaved){
       remBtn.addEventListener("click", function(){
-        var defaultName=listName||"Lijst";
+        var defaultName=prettyListName(listName)||"Lijst";
         var nm=prompt("Naam voor deze snelkoppeling:", defaultName);
         if(nm===null) return;
         nm=(nm||"").trim(); if(!nm) nm=defaultName;

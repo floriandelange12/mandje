@@ -97,7 +97,11 @@
 
   .largehead{ padding:calc(var(--safe-t) + 54px) 4px 6px; }
   h1{ font-family:var(--display); font-size:31px; line-height:1.06; font-weight:600; letter-spacing:-.01em; margin:2px 0 3px; }
+  h1.has-dot{ display:flex; align-items:center; gap:12px; }
+  h1.has-dot::before{ content:""; width:14px; height:14px; border-radius:50%; background:var(--list-dot,transparent); flex:0 0 auto; box-shadow:0 0 0 1px color-mix(in srgb, var(--list-dot,transparent) 35%, transparent); }
   .subhead{ font-size:14px; color:var(--ink-soft); }
+  .topbar .ctitle.has-dot{ display:inline-flex; align-items:center; gap:8px; }
+  .topbar .ctitle.has-dot::before{ content:""; width:9px; height:9px; border-radius:50%; background:var(--list-dot,transparent); flex:0 0 auto; }
   .topbar .gear{ position:absolute; right:max(8px, env(safe-area-inset-right)); top:calc(var(--safe-t) + 7px); width:36px; height:36px; border:0; background:transparent; color:var(--ink-soft); display:flex; align-items:center; justify-content:center; border-radius:50%; transition:background .15s ease, color .15s ease; }
   .topbar .gear svg{ width:23px; height:23px; }
   .topbar .gear:active{ background:var(--surface-3); }

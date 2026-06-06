@@ -35,6 +35,11 @@ async function run(){
     await wait(120); // init draaien
     const doc = window.document;
 
+    // 0. persoonlijke modus: titel = "Boodschappen", geen dot
+    const title0 = doc.querySelector("#title");
+    ok("Persoonlijke titel = 'Boodschappen'", title0?.textContent === "Boodschappen");
+    ok("Persoonlijke titel heeft geen has-dot", !title0?.classList.contains("has-dot"));
+
     // 1. item toevoegen via veld + Enter
     const name = doc.querySelector("#add-name");
     name.value = "Melk";
