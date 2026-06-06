@@ -417,7 +417,9 @@ function updateSubhead(){
   if(activeTab!=="lijst") return;
   var open=state.list.filter(function(i){return !i.done;}).length;
   var done=state.list.filter(function(i){return i.done;}).length;
-  $("#subhead").textContent = state.list.length===0 ? "Niets op de lijst" : (open+" te halen · "+done+" in mandje");
+  var base = state.list.length===0 ? "Niets op de lijst" : (open+" te halen · "+done+" in mandje");
+  var b = (window.MANDJE_CONFIG && window.MANDJE_CONFIG.BUILD) || "dev";
+  $("#subhead").textContent = base + " · v" + b;
 }
 
 /* ---------- "Bijna op" banner ---------- */
