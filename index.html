@@ -344,7 +344,7 @@
   window.MANDJE_CONFIG = {
     SUPABASE_URL:      "https://yctcpxgjpmhyohbsrygy.supabase.co",   /* ingevuld ✓ */
     SUPABASE_ANON_KEY: "sb_publishable_lT77Nkcrl6VsBIx-PFuMtw_mdJ6fyNj",   /* ingevuld ✓ (publishable key) */
-    BUILD:             "2026-06-06.2"  /* zichtbaar onder titel en onderaan Meer-tab — handig om cache-versie te verifiëren */
+    BUILD:             "2026-06-06.3"  /* zichtbaar onder titel en onderaan Meer-tab — handig om cache-versie te verifiëren */
   };
 </script>
 <!-- ===================================================================== -->
@@ -356,6 +356,7 @@
 
   <main id="main">
     <div class="largehead">
+      <div id="version-banner" style="margin:0 0 14px;padding:10px 14px;background:#FBF0DC;border:1px solid #E0A23A;border-radius:12px;font-size:13px;font-weight:700;color:#9C6710;text-align:center;letter-spacing:.01em;"></div>
       <h1 id="title">Boodschappen</h1>
       <div class="subhead" id="subhead"></div>
       <div id="list-switch-wrap"></div>
@@ -1340,6 +1341,16 @@ function init(){
   load();
   applyTheme();
   applyPriceVisibility();
+
+  // tijdelijke versie-banner bovenaan zodat we cache-issues kunnen verifiëren
+  var vb = document.getElementById("version-banner");
+  if(vb){
+    var cfg = window.MANDJE_CONFIG || {};
+    var refM = (cfg.SUPABASE_URL || "").match(/\/\/([a-z0-9]+)\./);
+    var refStr = refM ? refM[1].slice(0, 8) : "geen-supabase";
+    vb.textContent = "Mandje v" + (cfg.BUILD || "dev") + " · " + refStr;
+  }
+
   if(typeof Cloud!=="undefined" && Cloud.cfg && Cloud.cfg()){ Cloud.init(); }
 
   $("#add-btn").addEventListener("click",doAdd);

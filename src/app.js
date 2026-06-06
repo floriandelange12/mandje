@@ -882,6 +882,16 @@ function init(){
   load();
   applyTheme();
   applyPriceVisibility();
+
+  // tijdelijke versie-banner bovenaan zodat we cache-issues kunnen verifiëren
+  var vb = document.getElementById("version-banner");
+  if(vb){
+    var cfg = window.MANDJE_CONFIG || {};
+    var refM = (cfg.SUPABASE_URL || "").match(/\/\/([a-z0-9]+)\./);
+    var refStr = refM ? refM[1].slice(0, 8) : "geen-supabase";
+    vb.textContent = "Mandje v" + (cfg.BUILD || "dev") + " · " + refStr;
+  }
+
   if(typeof Cloud!=="undefined" && Cloud.cfg && Cloud.cfg()){ Cloud.init(); }
 
   $("#add-btn").addEventListener("click",doAdd);
