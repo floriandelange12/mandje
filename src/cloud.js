@@ -499,12 +499,17 @@ function renderMembersRow(){
   if(!Cloud.active || activeTab!=="lijst"){ row.className="members-row empty"; row.innerHTML=""; return; }
   row.className="members-row";
   var now=Date.now();
-  var avs=Cloud.members.map(function(m){
+  // toon alleen ANDERE leden (jij ben je zelf al — geen zin in een avatar van jezelf)
+  var others=Cloud.members.filter(function(m){ return m.user_id !== Cloud.userId; });
+  var avs=others.map(function(m){
     var online = m.last_seen && (now-new Date(m.last_seen).getTime() < 120000);
-    return '<div class="av" title="'+escapeHtml(m.display_name)+'" style="background:'+m.color+';'+(online?'':'opacity:.5')+'">'+initials(m.display_name)+'</div>';
+    return '<div class="av" title="'+escapeHtml(m.display_name)+'" style="background:'+m.color+';'+(online?'':'opacity:.55')+'">'+escapeHtml(initials(m.display_name).slice(0,1))+'</div>';
   }).join("");
-  row.innerHTML='<div class="avatars">'+avs+'</div>'+
+  var avBlock = others.length ? '<div class="avatars" aria-label="Leden">'+avs+'</div>' : '';
+  row.innerHTML = avBlock +
     '<button class="share-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5 8.6 10.5"/></svg>Delen</button>';
+  var avEl=row.querySelector(".avatars");
+  if(avEl) avEl.addEventListener("click",function(){ if(Cloud.active) openShareSheet(Cloud.active); });
   row.querySelector(".share-btn").addEventListener("click",function(){ if(Cloud.active) openShareSheet(Cloud.active); });
 }
 

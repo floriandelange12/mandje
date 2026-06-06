@@ -276,13 +276,13 @@
   .list-switch .ls-ico{ font-size:15px; }
   .list-switch .ls-name{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .list-switch .ls-chev{ width:16px; height:16px; color:var(--ink-faint); flex:0 0 auto; }
-  .members-row{ display:flex; align-items:center; gap:8px; margin:2px 4px 4px; min-height:0; }
+  .members-row{ display:flex; align-items:center; gap:8px; margin:6px 4px 6px; min-height:0; }
   .members-row.empty{ display:none; }
-  .avatars{ display:flex; }
-  .avatars .av{ width:30px; height:30px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:800; color:#fff; border:2px solid var(--bg); margin-left:-8px; }
-  .avatars .av:first-child{ margin-left:0; }
-  .members-row .share-btn{ margin-left:auto; display:inline-flex; align-items:center; gap:6px; background:var(--green-2); color:var(--green); border:0; border-radius:var(--r-pill); padding:7px 13px; font-size:13px; font-weight:700; }
-  .members-row .share-btn svg{ width:15px; height:15px; }
+  .avatars{ display:flex; gap:4px; cursor:pointer; }
+  .avatars .av{ width:22px; height:22px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:700; color:#fff; letter-spacing:.02em; }
+  .members-row .share-btn{ margin-left:auto; display:inline-flex; align-items:center; gap:6px; background:var(--surface); color:var(--ink-soft); border:1px solid var(--line); border-radius:var(--r-pill); padding:5px 11px; font-size:12px; font-weight:600; }
+  .members-row .share-btn svg{ width:13px; height:13px; }
+  .members-row .share-btn:active{ background:var(--surface-2); }
 
   .ls-item{ display:flex; align-items:center; gap:12px; padding:13px 4px; border-bottom:1px solid var(--line); }
   .ls-item:last-child{ border-bottom:0; }
@@ -348,7 +348,7 @@
   window.MANDJE_CONFIG = {
     SUPABASE_URL:      "https://yctcpxgjpmhyohbsrygy.supabase.co",   /* ingevuld ✓ */
     SUPABASE_ANON_KEY: "sb_publishable_lT77Nkcrl6VsBIx-PFuMtw_mdJ6fyNj",   /* ingevuld ✓ (publishable key) */
-    BUILD:             "2026-06-06.4"  /* alleen onderaan Meer-tab zichtbaar — handig om cache-versie te verifiëren */
+    BUILD:             "2026-06-06.5"  /* alleen onderaan Meer-tab zichtbaar — handig om cache-versie te verifiëren */
   };
 </script>
 <!-- ===================================================================== -->
@@ -1884,12 +1884,17 @@ function renderMembersRow(){
   if(!Cloud.active || activeTab!=="lijst"){ row.className="members-row empty"; row.innerHTML=""; return; }
   row.className="members-row";
   var now=Date.now();
-  var avs=Cloud.members.map(function(m){
+  // toon alleen ANDERE leden (jij ben je zelf al — geen zin in een avatar van jezelf)
+  var others=Cloud.members.filter(function(m){ return m.user_id !== Cloud.userId; });
+  var avs=others.map(function(m){
     var online = m.last_seen && (now-new Date(m.last_seen).getTime() < 120000);
-    return '<div class="av" title="'+escapeHtml(m.display_name)+'" style="background:'+m.color+';'+(online?'':'opacity:.5')+'">'+initials(m.display_name)+'</div>';
+    return '<div class="av" title="'+escapeHtml(m.display_name)+'" style="background:'+m.color+';'+(online?'':'opacity:.55')+'">'+escapeHtml(initials(m.display_name).slice(0,1))+'</div>';
   }).join("");
-  row.innerHTML='<div class="avatars">'+avs+'</div>'+
+  var avBlock = others.length ? '<div class="avatars" aria-label="Leden">'+avs+'</div>' : '';
+  row.innerHTML = avBlock +
     '<button class="share-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5 8.6 10.5"/></svg>Delen</button>';
+  var avEl=row.querySelector(".avatars");
+  if(avEl) avEl.addEventListener("click",function(){ if(Cloud.active) openShareSheet(Cloud.active); });
   row.querySelector(".share-btn").addEventListener("click",function(){ if(Cloud.active) openShareSheet(Cloud.active); });
 }
 
