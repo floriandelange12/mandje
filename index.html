@@ -82,7 +82,7 @@
     position:absolute; top:0; left:0; right:0; z-index:30;
     padding-top:var(--safe-t); height:calc(var(--safe-t) + 50px);
     display:flex; align-items:center; justify-content:center;
-    background:transparent; transition:background .25s ease, border-color .25s ease;
+    background:transparent; transition:background .18s ease, border-color .18s ease;
     border-bottom:.5px solid transparent;
   }
   .topbar.scrolled{ background:color-mix(in srgb, var(--bg) 80%, transparent); -webkit-backdrop-filter:var(--blur); backdrop-filter:var(--blur); border-bottom-color:var(--line); }
@@ -96,7 +96,8 @@
   .pad-bottom.with-total{ height:calc(var(--tabbar-h) + var(--safe-b) + 132px); }
 
   .largehead{ padding:calc(var(--safe-t) + 54px) 4px 6px; }
-  h1{ font-family:var(--display); font-size:31px; line-height:1.06; font-weight:600; letter-spacing:-.01em; margin:2px 0 3px; }
+  h1{ font-family:var(--display); font-size:31px; line-height:1.06; font-weight:600; letter-spacing:-.01em; margin:2px 0 3px; transition:opacity .22s var(--ease); }
+  .largehead[data-loading] h1{ opacity:0; }
   h1.has-dot{ display:flex; align-items:center; gap:12px; }
   h1.has-dot::before{ content:""; width:14px; height:14px; border-radius:50%; background:var(--list-dot,transparent); flex:0 0 auto; box-shadow:0 0 0 1px color-mix(in srgb, var(--list-dot,transparent) 35%, transparent); }
   .subhead{ font-size:14px; color:var(--ink-soft); }
@@ -261,6 +262,7 @@
   .grip{ width:36px; height:4px; border-radius:99px; background:color-mix(in srgb, var(--ink-faint) 55%, transparent); margin:6px auto 14px; transition:background .15s ease; }
   .sheet h3{ font-family:var(--display); font-size:25px; font-weight:600; letter-spacing:-.01em; margin:0 0 16px; }
   .sheet-label{ font-size:12px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:var(--ink-soft); margin:14px 4px 8px; display:flex; align-items:center; gap:7px; }
+  .sheet h3 + .sheet-label{ margin-top:6px; }
   .sheet-label .lbl-cap{ flex:1; }
   .sheet-label .lbl-hint{ font-size:11px; font-weight:600; text-transform:none; letter-spacing:0; color:var(--ink-faint); }
   .frow{ display:flex; align-items:center; gap:12px; margin-bottom:14px; }
@@ -282,8 +284,9 @@
   .intro-pt b{ color:var(--ink); font-weight:700; }
 
   /* ---------- Toast ---------- */
-  .toast{ position:absolute; left:50%; bottom:calc(var(--tabbar-h) + var(--safe-b) + 20px); transform:translateX(-50%) translateY(16px); background:var(--ink); color:var(--bg); padding:11px 18px; border-radius:14px; font-size:14px; font-weight:600; opacity:0; z-index:60; pointer-events:none; box-shadow:var(--shadow-lg); transition:opacity .25s var(--ease), transform .25s var(--ease); white-space:nowrap; }
-  .toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
+  .toast{ position:absolute; left:50%; bottom:calc(var(--tabbar-h) + var(--safe-b) + 20px); transform:translateX(-50%) translateY(16px); background:var(--ink); color:var(--bg); padding:11px 18px; border-radius:14px; font-size:14px; font-weight:600; opacity:0; z-index:60; pointer-events:none; box-shadow:var(--shadow-lg); transition:opacity .25s var(--ease), transform .25s var(--ease); max-width:calc(100vw - 32px); white-space:normal; text-align:center; line-height:1.35; }
+  .toast.show{ opacity:1; transform:translateX(-50%) translateY(0); pointer-events:auto; }
+  .toast.has-action{ pointer-events:auto; }
 
   /* ---------- Cloud: list switch, members, share, send ---------- */
   .list-switch{ display:inline-flex; align-items:center; gap:7px; margin-top:8px; background:var(--surface); border:1px solid var(--line); border-radius:var(--r-pill); padding:6px 12px 6px 13px; box-shadow:var(--shadow-sm); font-size:14px; font-weight:600; max-width:100%; }
@@ -491,7 +494,7 @@
   window.MANDJE_CONFIG = {
     SUPABASE_URL:      "https://yctcpxgjpmhyohbsrygy.supabase.co",   /* ingevuld ✓ */
     SUPABASE_ANON_KEY: "sb_publishable_lT77Nkcrl6VsBIx-PFuMtw_mdJ6fyNj",   /* ingevuld ✓ (publishable key) */
-    BUILD:             "2026-06-07.2"  /* alleen onderaan Meer-tab zichtbaar — handig om cache-versie te verifiëren */
+    BUILD:             "2026-06-07.3"  /* alleen onderaan Meer-tab zichtbaar — handig om cache-versie te verifiëren */
   };
 </script>
 <!-- ===================================================================== -->
@@ -504,7 +507,7 @@
   </div>
 
   <main id="main">
-    <div class="largehead">
+    <div class="largehead" data-loading>
       <h1 id="title">Boodschappen</h1>
       <div class="subhead" id="subhead"></div>
       <div id="list-switch-wrap"></div>
@@ -2379,7 +2382,16 @@ var Cloud = {
       if(params.get("join")){ await ensureIdentity(function(){ Cloud.joinList(params.get("join")); }); }
       else{
         var act=localStorage.getItem("mandje.activeList");
-        if(act && act!=="local" && this.listById(act)) await this.open(act);
+        if(act && act!=="local"){
+          if(this.listById(act)){
+            await this.open(act);
+          } else {
+            // Saved active-list bestaat niet meer (door owner verwijderd of jij gekickt) —
+            // val terug op persoonlijk en laat 't weten zodat de gebruiker niet verward raakt.
+            try{ localStorage.setItem("mandje.activeList","local"); }catch(e){}
+            setTimeout(function(){ toast("Vorige lijst is niet meer beschikbaar"); }, 600);
+          }
+        }
       }
     }catch(e){
       console.warn("Cloud init faalde:", e);
@@ -2391,7 +2403,13 @@ var Cloud = {
 
   loadLists:async function(){
     var r=await this.sb.from("lists").select("*").order("created_at",{ascending:true});
-    if(r.error){ console.warn(r.error); return; }
+    if(r.error){
+      console.warn("loadLists faalde:", r.error);
+      this.lists=[];
+      toast("Lijsten laden mislukt — check verbinding");
+      renderListSwitch();
+      return;
+    }
     this.lists=r.data||[];
     if(this.lists.length){
       var ids=this.lists.map(function(l){return l.id;});
@@ -2424,7 +2442,14 @@ var Cloud = {
   refreshItems:async function(){
     if(!this.active) return;
     var r=await this.sb.from("items").select("*").eq("list_id",this.active).order("created_at",{ascending:false});
-    if(r.error){ console.warn(r.error); return; }
+    if(r.error){
+      console.warn("refreshItems faalde:", r.error);
+      // Voorkom dat items van een vorige lijst blijven plakken — leeg de view
+      state.list=[];
+      if(activeTab==="lijst"){ renderLijst(); renderDueBanner(); }
+      toast("Items laden mislukt — check verbinding");
+      return;
+    }
     state.list=(r.data||[]).map(function(it){ return {
       id:it.id, name:it.name, category:it.category||classify(it.name), qty:it.qty||1,
       price:(it.price==null?null:Number(it.price)), note:it.note||"", done:!!it.done,
@@ -2435,7 +2460,12 @@ var Cloud = {
   refreshMembers:async function(){
     if(!this.active) return;
     var r=await this.sb.from("members").select("*").eq("list_id",this.active).order("created_at",{ascending:true});
-    if(r.error){ console.warn(r.error); return; }
+    if(r.error){
+      console.warn("refreshMembers faalde:", r.error);
+      this.members=[];
+      renderMembersRow();
+      return;
+    }
     this.members=r.data||[];
     renderMembersRow();
   },
@@ -2445,8 +2475,22 @@ var Cloud = {
     var self=this;
     this.channel=this.sb.channel("list-"+listId)
       .on("postgres_changes",{event:"*",schema:"public",table:"items",filter:"list_id=eq."+listId}, function(){ self.refreshItems(); })
-      .on("postgres_changes",{event:"*",schema:"public",table:"members",filter:"list_id=eq."+listId}, function(){ self.refreshMembers(); })
-      .subscribe();
+      .on("postgres_changes",{event:"*",schema:"public",table:"members",filter:"list_id=eq."+listId}, function(){
+        self.refreshMembers().then(function(){
+          // Als jouw eigen member-rij weg is (gekickt of lijst gedeleted door owner met FK-cascade),
+          // val dan netjes terug naar persoonlijk en zeg waarom.
+          if(self.active === listId && (!self.members || !self.members.some(function(m){return m.user_id===self.userId;}))){
+            toast("Deze lijst is niet meer beschikbaar");
+            self.openLocal();
+            self.loadLists();
+          }
+        });
+      })
+      .subscribe(function(status){
+        if(status === "CHANNEL_ERROR" || status === "TIMED_OUT"){
+          console.warn("Cloud realtime channel:", status);
+        }
+      });
   },
   startPresence:function(){
     var self=this;
@@ -2537,6 +2581,19 @@ var Cloud = {
     if(this.active===listId) this.openLocal();
     else { renderListSwitch(); }
   },
+  deleteList:async function(listId){
+    var l = this.listById(listId);
+    if(!l) return false;
+    if(l.owner_user_id !== this.userId){ toast("Alleen de eigenaar kan deze lijst verwijderen"); return false; }
+    var r = await this.sb.from("lists").delete().eq("id", listId);
+    if(r.error){ toast("Verwijderen mislukt: " + (r.error.message||"")); return false; }
+    // FK cascade ruimt members + items op. Refresh lokale state en val terug op persoonlijk.
+    if(this.active === listId) this.openLocal();
+    await this.loadLists();
+    renderListSwitch();
+    toast("Lijst verwijderd");
+    return true;
+  },
   renameList:async function(listId, newName){
     newName=(newName||"").trim(); if(!newName) return null;
     var r=await this.sb.from("lists").update({name:newName}).eq("id",listId).select().single();
@@ -2550,7 +2607,10 @@ var Cloud = {
   kickMember:async function(listId, userId){
     var r=await this.sb.from("members").delete().eq("list_id",listId).eq("user_id",userId);
     if(r.error){ toast("Verwijderen mislukt: "+(r.error.message||"")); return false; }
+    // FK ON DELETE SET NULL clearde assigned_to op zijn items, maar onze lokale state
+    // ziet dat pas via realtime — forceer een refresh zodat de UI direct klopt.
     await this.refreshMembers();
+    await this.refreshItems();
     await this.loadLists();
     toast("Lid verwijderd");
     return true;
@@ -2698,34 +2758,67 @@ function openShareActionSheet(){
 function openSendSheet(scId){
   var s=Shortcuts.byId(scId); if(!s) return;
   var sent=[];
-  var html='<div class="grip"></div>'+
-    '<h3 style="display:flex;align-items:center;gap:10px"><span style="display:inline-block;width:14px;height:14px;border-radius:50%;background:'+s.color+';flex:0 0 auto"></span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">Sturen naar '+escapeHtml(prettyListName(s.name))+'</span></h3>'+
-    '<div class="field" style="margin-bottom:6px">'+
-      '<svg class="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>'+
-      '<input class="name" id="sc-input" type="search" enterkeyhint="send" placeholder="Bijv. melk, brood…" autocapitalize="sentences" autocomplete="off" autocorrect="off" spellcheck="false">'+
-      '<button class="addbtn" id="sc-send" aria-label="Stuur"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg></button>'+
-    '</div>'+
-    '<div class="chips" id="sc-sent" style="margin:14px 0 4px"></div>'+
-    '<div class="hint" style="margin:8px 6px 4px">De ander ziet je toevoegingen direct in hun lijst.</div>';
-  var sh=openSheet2(html);
-  var inp=sh.querySelector("#sc-input");
-  var btn=sh.querySelector("#sc-send");
-  function send(){
-    var nm=(inp.value||"").trim(); if(!nm) return;
-    whenCloudReady(function(){
-      var from=Cloud.myName();
-      Cloud.sb.rpc("add_item_via_token",{p_token:s.token, p_name:nm, p_qty:1, p_note:"", p_from:from}).then(function(r){
-        if(r.error){ toast("Versturen mislukt"); return; }
-        sent.unshift(nm); inp.value="";
-        sh.querySelector("#sc-sent").innerHTML=sent.map(function(n){return '<span class="chip"><span class="emoji">✓</span>'+escapeHtml(n)+'</span>';}).join("");
-        inp.focus();
-        Shortcuts.touch(s.id);
-      },function(){ toast("Versturen mislukt"); });
-    });
+  function renderSheet(displayName){
+    return '<div class="grip"></div>'+
+      '<h3 style="display:flex;align-items:center;gap:10px"><span style="display:inline-block;width:14px;height:14px;border-radius:50%;background:'+s.color+';flex:0 0 auto"></span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">Sturen naar '+escapeHtml(prettyListName(displayName))+'</span></h3>'+
+      '<div class="field" style="margin-bottom:6px">'+
+        '<svg class="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>'+
+        '<input class="name" id="sc-input" type="search" enterkeyhint="send" placeholder="Bijv. melk, brood…" autocapitalize="sentences" autocomplete="off" autocorrect="off" spellcheck="false">'+
+        '<button class="addbtn" id="sc-send" aria-label="Stuur"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg></button>'+
+      '</div>'+
+      '<div class="chips" id="sc-sent" style="margin:14px 0 4px"></div>'+
+      '<div class="hint" style="margin:8px 6px 4px">De ander ziet je toevoegingen direct in hun lijst.</div>';
   }
-  btn.addEventListener("click", send);
-  inp.addEventListener("keydown", function(e){ if(e.key==="Enter") send(); });
-  setTimeout(function(){ if(inp) inp.focus(); }, 280);
+  var sh=openSheet2(renderSheet(s.name));
+  // Wire send-functie tegen actuele sheet (re-wire na eventuele re-render)
+  function wire(){
+    var inp=sh.querySelector("#sc-input");
+    var btn=sh.querySelector("#sc-send");
+    if(!inp || !btn) return;
+    function send(){
+      var nm=(inp.value||"").trim(); if(!nm) return;
+      whenCloudReady(function(){
+        var from=Cloud.myName();
+        Cloud.sb.rpc("add_item_via_token",{p_token:s.token, p_name:nm, p_qty:1, p_note:"", p_from:from}).then(function(r){
+          if(r.error){
+            toast(r.error.message && /ongeldige stuur-link/i.test(r.error.message)
+              ? "Deze lijst is niet meer beschikbaar"
+              : "Versturen mislukt");
+            return;
+          }
+          sent.unshift(nm); inp.value="";
+          sh.querySelector("#sc-sent").innerHTML=sent.map(function(n){return '<span class="chip"><span class="emoji">✓</span>'+escapeHtml(n)+'</span>';}).join("");
+          inp.focus();
+          Shortcuts.touch(s.id);
+        },function(){ toast("Versturen mislukt"); });
+      });
+    }
+    btn.addEventListener("click", send);
+    inp.addEventListener("keydown", function(e){ if(e.key==="Enter") send(); });
+    setTimeout(function(){ if(inp) inp.focus(); }, 280);
+  }
+  wire();
+  // Pre-fetch actuele lijstnaam: als owner ondertussen hernoemt, update shortcut + sheet-kop
+  whenCloudReady(function(){
+    Cloud.sb.rpc("list_name_by_token",{p_token:s.token}).then(function(r){
+      if(r.error || !r.data){
+        // Token bestaat niet meer — wis shortcut + meld
+        Shortcuts.remove(scId);
+        closeSheet2();
+        toast("Deze snelkoppeling werkt niet meer — verwijderd");
+        return;
+      }
+      if(r.data !== s.name){
+        s.name = r.data;
+        Shortcuts.rename(scId, r.data);
+        sh.innerHTML = renderSheet(s.name);
+        // Hervind sent-chips na re-render
+        var sentWrap = sh.querySelector("#sc-sent");
+        if(sentWrap) sentWrap.innerHTML = sent.map(function(n){return '<span class="chip"><span class="emoji">✓</span>'+escapeHtml(n)+'</span>';}).join("");
+        wire();
+      }
+    },function(){ /* netwerkfout — laat lokale naam staan, geen toast */ });
+  });
 }
 
 function openAddShortcutSheet(prefilledToken){
@@ -2737,16 +2830,21 @@ function openAddShortcutSheet(prefilledToken){
   var sh=openSheet2(html);
   setTimeout(function(){ var t=sh.querySelector("#sc-tokin"); if(t) t.focus(); }, 280);
   sh.querySelector("#sc-save-add").addEventListener("click", function(){
+    var saveBtn=sh.querySelector("#sc-save-add");
     var raw=sh.querySelector("#sc-tokin").value;
     var token=parseTokenFromInput(raw);
     if(!token){ toast("Deze link werkt niet"); return; }
     if(Shortcuts.byToken(token)){ toast("Al opgeslagen"); closeSheet2(); return; }
+    if(saveBtn){ saveBtn.disabled=true; saveBtn.textContent="Controleren…"; saveBtn.style.opacity=".7"; }
+    var done=function(ok){
+      if(saveBtn){ saveBtn.disabled=false; saveBtn.textContent="Opslaan"; saveBtn.style.opacity=""; }
+    };
     whenCloudReady(function(){
       Cloud.sb.rpc("list_name_by_token",{p_token:token}).then(function(r){
-        if(r.error || !r.data){ toast("Link verlopen of ongeldig"); return; }
+        if(r.error || !r.data){ toast("Link verlopen of ongeldig"); done(false); return; }
         Shortcuts.add(r.data, token, pickColor());
-        closeSheet2(); toast("“"+r.data+"” opgeslagen");
-      }, function(){ toast("Geen verbinding — check je internet"); });
+        closeSheet2(); toast("“"+r.data+"” opgeslagen"); done(true);
+      }, function(){ toast("Geen verbinding — check je internet"); done(false); });
     });
   });
 }
@@ -2790,6 +2888,8 @@ function ownerColor(l){
 function applyListHeader(){
   if(activeTab!=="lijst") return;
   var title=$("#title"), ctitle=$("#ctitle"), shareTop=$("#share-top-btn");
+  // Fade titel in zodra we de juiste tekst hebben — voorkomt "Boodschappen → Florian" flikker.
+  var lh=document.querySelector(".largehead"); if(lh) lh.removeAttribute("data-loading");
   if(Cloud.active){
     var l=Cloud.activeList();
     var nm=prettyListName(l?l.name:"Gedeeld");
@@ -2851,9 +2951,9 @@ $("#scrim2").addEventListener("click",closeSheet2);
 
 function openSwitchSheet(){
   var html='<h3>Mijn lijsten</h3>';
-  // Persoonlijk (lokaal, altijd bovenaan)
+  // Persoonlijk (lokaal, altijd bovenaan) — subtiele grijze ico zodat 't visueel verschilt van cloud-lijsten
   html+='<div class="ls-item'+(!Cloud.active?" active":"")+'" data-act="local">'+
-    '<div class="lsi-ico">🧺</div>'+
+    '<div class="lsi-ico" style="background:var(--surface-3);color:var(--ink-soft)">🧺</div>'+
     '<div style="flex:1;min-width:0"><div class="lsi-name">Persoonlijk</div>'+
     '<div class="lsi-sub">Alleen op dit toestel</div></div>'+
     (!Cloud.active?'<span class="lsi-check">✓</span>':'')+
@@ -2977,7 +3077,8 @@ function openShareSheet(listId){
       '<button class="mbtn" id="sh-send">Deel "stuur items"-link</button>'+
       '<div class="hint" style="margin:2px 6px 14px;line-height:1.5">De <b>uitnodig-link</b> laat iemand meedoen en alles zien. De <b>stuur-link</b> geeft iemand alleen een drop-pagina om dingen aan jou te sturen — zonder app, zonder mee te kijken.</div>'+
       (memberHtml?('<div class="sheet-label"><span class="lbl-cap">Leden ('+Cloud.members.length+')</span></div>'+memberHtml):'')+
-      (activityHtml||'');
+      (activityHtml||'')+
+      (isOwner ? '<div class="sheet-label" style="margin-top:22px"><span class="lbl-cap">Gevaren-zone</span></div><button class="mbtn danger" id="sh-delete-list" type="button" style="width:100%;color:var(--red);border-color:color-mix(in srgb, var(--red) 25%, var(--line))">Lijst verwijderen</button><div class="hint" style="margin:4px 6px 0">Items en leden worden definitief verwijderd. Niet terug te halen.</div>' : '');
   }
 
   var s = openSheet2(buildHtml(''));
@@ -3017,6 +3118,21 @@ function wireShareSheet(s, l, isOwner, prettyName){
     });
   });
 
+  var delBtn = s.querySelector("#sh-delete-list");
+  if(delBtn){
+    delBtn.addEventListener("click", function(){
+      // Naam-confirmation om accidentele kliks te voorkomen
+      var typed = prompt('Typ de naam "'+prettyName+'" om te bevestigen dat je deze lijst wilt verwijderen. Items en leden worden definitief weg.');
+      if(typed === null) return;
+      if(typed.trim().toLowerCase() !== prettyName.trim().toLowerCase()){
+        toast("Naam komt niet overeen");
+        return;
+      }
+      closeSheet2();
+      Cloud.deleteList(l.id);
+    });
+  }
+
   var rename = s.querySelector("#sh-rename");
   if(rename){
     rename.addEventListener("click",function(){
@@ -3053,6 +3169,19 @@ function shareNative(url, text, fallbackMsg){
 function openSendScreen(token){
   var scr=$("#send-screen"); scr.classList.add("show");
   var added=[];
+  function renderError(msg){
+    scr.innerHTML =
+      '<div class="ss-badge" style="background:var(--amber-2)"><svg viewBox="0 0 24 24" fill="none" stroke="var(--amber)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg></div>'+
+      '<div class="eyebrow">Niet beschikbaar</div>'+
+      '<h1>Link werkt niet</h1>'+
+      '<div class="ss-sub">'+escapeHtml(msg||"Deze stuur-link is verlopen of de lijst is verwijderd.")+'</div>'+
+      '<button class="mbtn" id="ss-back" style="margin-top:26px;background:var(--green);color:var(--on-green);border-color:transparent">Terug naar Mandje</button>';
+    var back = scr.querySelector("#ss-back");
+    if(back) back.addEventListener("click", function(){
+      try{ history.replaceState({}, "", location.pathname); }catch(e){}
+      scr.classList.remove("show");
+    });
+  }
   function render(listName){
     Shortcuts.load();
     var alreadySaved = !!Shortcuts.byToken(token);
@@ -3097,9 +3226,13 @@ function openSendScreen(token){
       });
     }
   }
-  // lijstnaam ophalen
+  // lijstnaam ophalen — bij ongeldige token een duidelijke error-state ipv generic "de lijst"
   if(Cloud.sb){
-    Cloud.sb.rpc("list_name_by_token",{p_token:token}).then(function(r){ render(r&&r.data?r.data:null); },function(){ render(null); });
+    Cloud.sb.rpc("list_name_by_token",{p_token:token}).then(function(r){
+      if(r && r.data){ render(r.data); }
+      else if(r && r.error){ renderError("Deze stuur-link is verlopen of de lijst is verwijderd."); }
+      else { renderError("Deze stuur-link bestaat niet."); }
+    },function(){ renderError("Geen verbinding — probeer 't later opnieuw."); });
   } else render(null);
 }
 

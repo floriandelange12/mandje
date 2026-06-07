@@ -82,7 +82,7 @@
     position:absolute; top:0; left:0; right:0; z-index:30;
     padding-top:var(--safe-t); height:calc(var(--safe-t) + 50px);
     display:flex; align-items:center; justify-content:center;
-    background:transparent; transition:background .25s ease, border-color .25s ease;
+    background:transparent; transition:background .18s ease, border-color .18s ease;
     border-bottom:.5px solid transparent;
   }
   .topbar.scrolled{ background:color-mix(in srgb, var(--bg) 80%, transparent); -webkit-backdrop-filter:var(--blur); backdrop-filter:var(--blur); border-bottom-color:var(--line); }
@@ -96,7 +96,8 @@
   .pad-bottom.with-total{ height:calc(var(--tabbar-h) + var(--safe-b) + 132px); }
 
   .largehead{ padding:calc(var(--safe-t) + 54px) 4px 6px; }
-  h1{ font-family:var(--display); font-size:31px; line-height:1.06; font-weight:600; letter-spacing:-.01em; margin:2px 0 3px; }
+  h1{ font-family:var(--display); font-size:31px; line-height:1.06; font-weight:600; letter-spacing:-.01em; margin:2px 0 3px; transition:opacity .22s var(--ease); }
+  .largehead[data-loading] h1{ opacity:0; }
   h1.has-dot{ display:flex; align-items:center; gap:12px; }
   h1.has-dot::before{ content:""; width:14px; height:14px; border-radius:50%; background:var(--list-dot,transparent); flex:0 0 auto; box-shadow:0 0 0 1px color-mix(in srgb, var(--list-dot,transparent) 35%, transparent); }
   .subhead{ font-size:14px; color:var(--ink-soft); }
@@ -261,6 +262,7 @@
   .grip{ width:36px; height:4px; border-radius:99px; background:color-mix(in srgb, var(--ink-faint) 55%, transparent); margin:6px auto 14px; transition:background .15s ease; }
   .sheet h3{ font-family:var(--display); font-size:25px; font-weight:600; letter-spacing:-.01em; margin:0 0 16px; }
   .sheet-label{ font-size:12px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:var(--ink-soft); margin:14px 4px 8px; display:flex; align-items:center; gap:7px; }
+  .sheet h3 + .sheet-label{ margin-top:6px; }
   .sheet-label .lbl-cap{ flex:1; }
   .sheet-label .lbl-hint{ font-size:11px; font-weight:600; text-transform:none; letter-spacing:0; color:var(--ink-faint); }
   .frow{ display:flex; align-items:center; gap:12px; margin-bottom:14px; }
@@ -282,8 +284,9 @@
   .intro-pt b{ color:var(--ink); font-weight:700; }
 
   /* ---------- Toast ---------- */
-  .toast{ position:absolute; left:50%; bottom:calc(var(--tabbar-h) + var(--safe-b) + 20px); transform:translateX(-50%) translateY(16px); background:var(--ink); color:var(--bg); padding:11px 18px; border-radius:14px; font-size:14px; font-weight:600; opacity:0; z-index:60; pointer-events:none; box-shadow:var(--shadow-lg); transition:opacity .25s var(--ease), transform .25s var(--ease); white-space:nowrap; }
-  .toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
+  .toast{ position:absolute; left:50%; bottom:calc(var(--tabbar-h) + var(--safe-b) + 20px); transform:translateX(-50%) translateY(16px); background:var(--ink); color:var(--bg); padding:11px 18px; border-radius:14px; font-size:14px; font-weight:600; opacity:0; z-index:60; pointer-events:none; box-shadow:var(--shadow-lg); transition:opacity .25s var(--ease), transform .25s var(--ease); max-width:calc(100vw - 32px); white-space:normal; text-align:center; line-height:1.35; }
+  .toast.show{ opacity:1; transform:translateX(-50%) translateY(0); pointer-events:auto; }
+  .toast.has-action{ pointer-events:auto; }
 
   /* ---------- Cloud: list switch, members, share, send ---------- */
   .list-switch{ display:inline-flex; align-items:center; gap:7px; margin-top:8px; background:var(--surface); border:1px solid var(--line); border-radius:var(--r-pill); padding:6px 12px 6px 13px; box-shadow:var(--shadow-sm); font-size:14px; font-weight:600; max-width:100%; }
@@ -491,7 +494,7 @@
   window.MANDJE_CONFIG = {
     SUPABASE_URL:      "https://yctcpxgjpmhyohbsrygy.supabase.co",   /* ingevuld ✓ */
     SUPABASE_ANON_KEY: "sb_publishable_lT77Nkcrl6VsBIx-PFuMtw_mdJ6fyNj",   /* ingevuld ✓ (publishable key) */
-    BUILD:             "2026-06-07.2"  /* alleen onderaan Meer-tab zichtbaar — handig om cache-versie te verifiëren */
+    BUILD:             "2026-06-07.3"  /* alleen onderaan Meer-tab zichtbaar — handig om cache-versie te verifiëren */
   };
 </script>
 <!-- ===================================================================== -->
@@ -504,7 +507,7 @@
   </div>
 
   <main id="main">
-    <div class="largehead">
+    <div class="largehead" data-loading>
       <h1 id="title">Boodschappen</h1>
       <div class="subhead" id="subhead"></div>
       <div id="list-switch-wrap"></div>
