@@ -37,7 +37,7 @@ Na deploy: hard verversen op de telefoon (pagina sluiten/heropenen of "Herlaad z
 - **Altijd `npm test` draaien vóór een push.** Niet pushen bij rode tests.
 - **Geen `.env` of geheimen committen.** De Supabase *publishable* key (`sb_publishable_...`) mag wél in de frontend staan: de beveiliging zit in Row Level Security in Supabase.
 - **Niet force-pushen zonder back-up.** Bij twijfel eerst een branch/commit als vangnet.
-- Remotes: `origin` = `floriandelange12/mandje`. Backup-remote `fl-labs26` → `FL-labs26/mandje` (de oude host, behouden als vangnet — niet naartoe pushen tenzij gevraagd).
+- Remotes: `origin` = `floriandelange12/mandje`. `fl-labs26` → `FL-labs26/mandje` is omgebouwd tot **redirect-host** (oude URL stuurt door naar de nieuwe). Push naar fl-labs26 mag alleen wanneer het puur om de redirect-`index.html` gaat — geen app-content meer naar die remote.
 - Houd de app **single-file** en zonder externe build-tooling (alleen Node voor build+tests).
 
 ## Werkwijze
