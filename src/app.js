@@ -428,6 +428,12 @@ function parseQtyFromInput(s){
 function $(s){ return document.querySelector(s); }
 function el(tag, cls, html){ var e=document.createElement(tag); if(cls)e.className=cls; if(html!=null)e.innerHTML=html; return e; }
 function vibrate(ms){ if(navigator.vibrate){ try{navigator.vibrate(ms);}catch(e){} } }
+/* Haptic-layers — kies semantisch ipv elke keer een getal kiezen.
+   tap=micro (qty+/-), tick=hoofd-actie (afvinken/toevoegen), nudge=warning. */
+function vibe(level){
+  var map = { tap:6, tick:12, nudge:20 };
+  vibrate(map[level] || 10);
+}
 
 var CHECK_SVG='<svg viewBox="0 0 24 24" fill="none" stroke="var(--on-green)" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path pathLength="24" d="M20 6 9 17l-5-5"/></svg>';
 
@@ -444,6 +450,15 @@ function toast(msg, opts){
   span.className = "toast-msg";
   span.textContent = msg;
   t.appendChild(span);
+  var duration = opts.duration || 1500;
+  // Pause-on-hover/touch zodat user 'm niet mist tijdens lezen
+  var paused = false, remaining = duration, startedAt = 0;
+  var hide = function(){ t.classList.remove("show"); };
+  var schedule = function(ms){
+    clearTimeout(toastT);
+    startedAt = Date.now();
+    toastT = setTimeout(hide, ms);
+  };
   if(opts.action && typeof opts.onAction === "function"){
     t.classList.add("has-action");
     var btn = document.createElement("button");
@@ -452,17 +467,32 @@ function toast(msg, opts){
     btn.textContent = opts.action;
     btn.addEventListener("click", function(){
       try{ opts.onAction(); }catch(e){}
-      t.classList.remove("show");
-      clearTimeout(toastT);
+      hide(); clearTimeout(toastT);
     });
     t.appendChild(btn);
+    // Pauze auto-hide bij hover/touch
+    var pause = function(){
+      if(paused) return;
+      paused = true;
+      var elapsed = Date.now() - startedAt;
+      remaining = Math.max(800, remaining - elapsed);
+      clearTimeout(toastT);
+    };
+    var resume = function(){
+      if(!paused) return;
+      paused = false;
+      schedule(remaining);
+    };
+    t.addEventListener("mouseenter", pause);
+    t.addEventListener("mouseleave", resume);
+    t.addEventListener("touchstart", pause, {passive:true});
+    t.addEventListener("touchend", resume);
   }
   t.classList.add("show");
-  clearTimeout(toastT);
-  toastT = setTimeout(function(){ t.classList.remove("show"); }, opts.duration || 1500);
+  schedule(duration);
 }
 function undoToast(label, restoreFn){
-  toast(label, { action:"Ongedaan", onAction:restoreFn, duration:5000 });
+  toast(label, { action:"Ongedaan", onAction:restoreFn, duration:10000 });
 }
 
 /* ============================================================
@@ -496,11 +526,11 @@ function addToList(name, price, opts){
   return true;
 }
 function toggleDone(id){
-  if(Cloud.active){ Cloud.toggle(id); vibrate(8); return; }
+  if(Cloud.active){ Cloud.toggle(id); vibe("tick"); return; }
   var it=state.list.find(function(i){return i.id===id;}); if(!it) return;
   var wasDone = it.done;
   it.done = !it.done;
-  if(it.done) vibrate(8);
+  if(it.done) vibe("tick");
   save(); renderLijst();
   if(!wasDone && it.done){
     undoToast(it.name + " afgevinkt", function(){
@@ -510,6 +540,7 @@ function toggleDone(id){
   }
 }
 function setQty(id,delta){
+  vibe("tap");
   if(Cloud.active){ Cloud.qty(id,delta); return; }
   var it=state.list.find(function(i){return i.id===id;}); if(!it) return;
   it.qty=Math.max(1,it.qty+delta); save(); renderLijst();
@@ -534,7 +565,7 @@ function finishShopping(){
   state.list=state.list.filter(function(i){return !i.done;});
   save(); renderLijst(); renderDueBanner(); renderVaste();
   toast(done.length+(done.length===1?" boodschap gekocht":" boodschappen gekocht"));
-  vibrate(12);
+  vibe("nudge");
 }
 
 /* ============================================================
@@ -546,18 +577,21 @@ function renderLijst(){
   var openWrap=$("#open-list"); openWrap.innerHTML="";
   var doneWrap=$("#done-list"); doneWrap.innerHTML="";
   toggleSearchBar();
+  // Bouw in DocumentFragment om reflows te minimaliseren bij grote lijsten
+  var openFrag = document.createDocumentFragment();
+  var doneFrag = document.createDocumentFragment();
 
   if(state.list.length===0){
     if(typeof Cloud!=="undefined" && Cloud.active){
-      openWrap.appendChild(emptyState(
+      openFrag.appendChild(emptyState(
         "bag",
-        "Leeg mandje",
-        "Tik hierboven om iets toe te voegen — of deel de stuur-link zodat anderen items voor je droppen.",
+        "Je mandje is leeg",
+        "Tik hieronder om iets toe te voegen — of deel de stuur-link zodat anderen items voor je droppen.",
         "Delen",
         function(){ if(typeof openShareSheet==="function") openShareSheet(Cloud.active); }
       ));
     } else {
-      openWrap.appendChild(emptyState("bag","Leeg mandje","Typ hierboven wat je nodig hebt. Producten landen vanzelf in het juiste schap."));
+      openFrag.appendChild(emptyState("bag","Je mandje is leeg","Typ hieronder wat je nodig hebt. Producten landen vanzelf in het juiste schap."));
     }
   } else {
     // groepeer open per categorie volgens categoryOrder
@@ -568,10 +602,10 @@ function renderLijst(){
       var collapsed = !!(state.settings.collapsedCats && state.settings.collapsedCats[cid]);
       var sec=el("div","section collapsible"+(collapsed?" collapsed":""));
       sec.innerHTML='<span class="cat-emoji emoji">'+c.glyph+'</span><span>'+c.label+'</span><span class="count">'+arr.length+'</span><svg class="sec-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>';
-      openWrap.appendChild(sec);
+      openFrag.appendChild(sec);
       var ul=el("ul","list"+(collapsed?" collapsed":""));
       arr.forEach(function(it){ ul.appendChild(itemRow(it)); });
-      openWrap.appendChild(ul);
+      openFrag.appendChild(ul);
       sec.addEventListener("click", function(){
         state.settings.collapsedCats = state.settings.collapsedCats || {};
         state.settings.collapsedCats[cid] = !state.settings.collapsedCats[cid];
@@ -583,11 +617,14 @@ function renderLijst(){
     if(done.length){
       var s2=el("div","section");
       s2.innerHTML='<span>In mandje</span><span class="count">'+done.length+'</span>';
-      doneWrap.appendChild(s2);
+      doneFrag.appendChild(s2);
       var ul2=el("ul","list"); done.forEach(function(it){ ul2.appendChild(itemRow(it)); });
-      doneWrap.appendChild(ul2);
+      doneFrag.appendChild(ul2);
     }
   }
+  // Single append per wrap = minimum reflows
+  openWrap.appendChild(openFrag);
+  doneWrap.appendChild(doneFrag);
   updateTotals();
   updateSubhead();
 }
@@ -633,7 +670,8 @@ function itemRow(it){
 function updateTotals(){
   var total=0, cart=0, hasPrices=false;
   state.list.forEach(function(i){ var v=(i.price||0)*i.qty; total+=v; if(i.done) cart+=v; if(i.price!=null) hasPrices=true; });
-  var done=state.list.filter(function(i){return i.done;}).length;
+  var doneItems=state.list.filter(function(i){return i.done;});
+  var done=doneItems.length;
   $("#t-total").textContent=euro(total);
   $("#t-cart").textContent=euro(cart)+" in mandje";
   $("#t-prog").style.width=(total>0?Math.round(cart/total*100):0)+"%";
@@ -643,13 +681,51 @@ function updateTotals(){
   var show = activeTab==="lijst" && state.list.length>0 && state.settings.showPrices;
   $("#totals").classList.toggle("hide", !show);
   $("#pad-lijst").className = "pad-bottom"+(show?" with-total":"");
+  renderForgottenSuggest(doneItems);
+}
+
+/* "Wat ben je vergeten?" — toon co-buy-suggesties wanneer er items in 'in mandje'
+   zijn. Subtiele chip-rij in de totals-bar. */
+function renderForgottenSuggest(doneItems){
+  var wrap = $("#t-forgot"); if(!wrap) return;
+  if(!doneItems || !doneItems.length || activeTab!=="lijst"){ wrap.style.display="none"; wrap.innerHTML=""; return; }
+  // Aggregeer co-suggesties van alle done-items
+  var scores = {};
+  var listKeys = state.list.filter(function(i){return !i.done;}).map(function(i){return norm(i.name);});
+  var doneKeys = doneItems.map(function(i){return norm(i.name);});
+  doneItems.forEach(function(it){
+    var sugg = getCoSuggestions(norm(it.name), 5);
+    sugg.forEach(function(s){
+      // Skip items die al op de lijst of in mandje staan
+      if(listKeys.indexOf(s.key)!==-1) return;
+      if(doneKeys.indexOf(s.key)!==-1) return;
+      scores[s.key] = (scores[s.key]||0) + s.count;
+    });
+  });
+  var keys = Object.keys(scores);
+  if(!keys.length){ wrap.style.display="none"; wrap.innerHTML=""; return; }
+  keys.sort(function(a,b){ return scores[b]-scores[a]; });
+  var top = keys.slice(0, 3);
+  var html = '<span class="forgot-lbl">Vergeten?</span>';
+  top.forEach(function(k){
+    var cat = state.catalog[k]; if(!cat) return;
+    html += '<button class="forgot-pill" data-name="'+escapeAttr(cat.name)+'" type="button"><span class="plus">+</span>'+escapeHtml(cat.name)+'</button>';
+  });
+  wrap.innerHTML = html;
+  wrap.style.display = "flex";
+  wrap.querySelectorAll(".forgot-pill").forEach(function(b){
+    b.addEventListener("click", function(e){
+      e.stopPropagation();
+      addToList(b.dataset.name, null);
+    });
+  });
 }
 
 function updateSubhead(){
   if(activeTab!=="lijst") return;
   var open=state.list.filter(function(i){return !i.done;}).length;
   var done=state.list.filter(function(i){return i.done;}).length;
-  var base = state.list.length===0 ? "Niets op de lijst" : (open+" te halen · "+done+" in mandje");
+  var base = state.list.length===0 ? "Je mandje is leeg" : (open+" te halen · "+done+" in mandje");
   $("#subhead").textContent = base;
 }
 
@@ -777,7 +853,7 @@ function renderMeer(){
 
   // Back-up
   wrap.appendChild(el("div","section",'<span>Back-up</span>'));
-  wrap.appendChild(el("div","hint","Gedeelde lijsten staan veilig in de cloud. Je persoonlijke lijst staat op dit toestel — exporteer 'm af en toe als back-up, of zet 'm terug op een nieuw toestel."));
+  wrap.appendChild(el("div","hint","Gedeelde lijsten staan veilig online. Je persoonlijke lijst staat op dit toestel — exporteer 'm af en toe als back-up, of zet 'm terug op een nieuw toestel."));
   var expf=el("button","mbtn","Exporteer mijn lijst (bestand)");
   expf.addEventListener("click",exportFile);
   wrap.appendChild(expf);
@@ -865,7 +941,11 @@ function buildSheet(d){
   if(d.a){
     if(d.a.mode==="auto" && d.a.regular) statusLine=cadenceLabel(d.a)+" · "+lastSeenLabel(d.a);
     else if(d.a.mode==="manual") statusLine=cadenceLabel(d.a)+(d.a.last?(" · "+lastSeenLabel(d.a)):"");
-    else if(d.a.count) statusLine="Nog "+(state.settings.minPurchases-d.a.count)+"× kopen voor een automatisch ritme";
+    else if(d.a.count){
+      var togo = state.settings.minPurchases - d.a.count;
+      if(togo <= 1) statusLine = "Bijna! Nog 1× kopen en ik herken je ritme";
+      else statusLine = "Nog "+togo+"× kopen, dan leer ik je ritme";
+    }
   }
 
   var html='<div class="grip"></div><h3></h3>';
@@ -878,7 +958,7 @@ function buildSheet(d){
       var _hintKey = (sheetCtx && sheetCtx.key) || norm(d.name||"");
       var lastPriceCat = (state.catalog[_hintKey] && state.catalog[_hintKey].defaultPrice);
       if(lastPriceCat != null && (d.price == null || Number(d.price) !== Number(lastPriceCat))){
-        html += '<div class="price-hint" id="s-price-hint" role="button">Vorige keer <b>'+euro(lastPriceCat)+'</b> — tik om over te nemen</div>';
+        html += '<div class="price-hint" id="s-price-hint" role="button">Vorige keer <b>'+euro(lastPriceCat)+'</b> — tik om te gebruiken</div>';
       }
     }
     html+='<div class="frow"><div class="fl">Notitie</div><input class="txt" id="s-note" placeholder="bijv. 1 liter, merk…" value="'+escapeAttr(d.note||"")+'"></div>';
@@ -1022,8 +1102,11 @@ function saveSheet(cat, cad, qty, price, note, catalogOnly, assignee, autoAdd){
   toast("Opgeslagen");
 }
 
-function openSheetUI(){ $("#scrim").classList.add("show"); $("#sheet").classList.add("show"); }
-function closeSheet(){ $("#scrim").classList.remove("show"); $("#sheet").classList.remove("show"); sheetCtx=null; }
+function openSheetUI(){ $("#scrim").classList.add("show"); $("#sheet").classList.add("show"); document.body.classList.add("sheet-open"); }
+function closeSheet(){
+  $("#scrim").classList.remove("show"); $("#sheet").classList.remove("show"); sheetCtx=null;
+  if(!$("#sheet2").classList.contains("show")) document.body.classList.remove("sheet-open");
+}
 $("#scrim").addEventListener("click",closeSheet);
 
 /* ============================================================
@@ -1056,9 +1139,11 @@ function doAdd(){
   var raw = $("#add-name").value;
   var p = parseQtyFromInput(raw);
   if(!p.name) return;
+  hideAC();  // direct sluiten zodat AC-popover niet "kort flikkert" tussen items
   if(addToList(p.name, null, {qty: p.qty})){
     $("#add-name").value="";
-    hideAC(); $("#add-name").focus();
+    $("#add-name").focus();
+    vibe("tick");
   }
 }
 function buildAC(q){
@@ -1370,6 +1455,8 @@ function switchTab(tab){
   $("#view-lijst").classList.toggle("active",tab==="lijst");
   $("#view-vaste").classList.toggle("active",tab==="vaste");
   $("#view-meer").classList.toggle("active",tab==="meer");
+  // Add-bar alleen op Lijst — toggle body-class voor de pad-bottom CSS
+  document.body.classList.toggle("no-addbar", tab !== "lijst");
   var m=TAB_META[tab];
   $("#title").textContent=m.title; $("#ctitle").textContent=m.title;
   var gear=$("#gear-btn");
@@ -1569,10 +1656,15 @@ function maybeIntro(){
     {glyph:"👥", title:"Samen of solo", body:"Maak meerdere lijsten — privé of gedeeld. Deel een stuur-link en iemand kan items naar jou droppen zonder app."}
   ];
   var idx = 0;
+  var dismiss = function(){
+    state.settings.seenIntro=true; save(); closeSheet();
+    setTimeout(function(){ var i=$("#add-name"); if(i) i.focus(); }, 320);
+  };
   var render = function(){
     var s = stages[idx];
     var isLast = (idx === stages.length-1);
     sh.innerHTML = '<div class="grip"></div>'+
+      '<button id="intro-skip" type="button" aria-label="Sla over" style="position:absolute;top:14px;right:14px;border:0;background:transparent;color:var(--ink-faint);font-size:14px;font-weight:600;padding:6px 10px;border-radius:8px">Sla over</button>'+
       '<div class="intro-stage">'+
         '<div class="intro-card">'+
           '<div class="ic-glyph emoji">'+s.glyph+'</div>'+
@@ -1586,11 +1678,9 @@ function maybeIntro(){
           ? '<button class="save" id="intro-go">Aan de slag</button>'
           : '<button class="save" id="intro-next">Volgende</button>')+
       '</div>';
+    $("#intro-skip").addEventListener("click", dismiss);
     if(isLast){
-      $("#intro-go").addEventListener("click", function(){
-        state.settings.seenIntro=true; save(); closeSheet();
-        setTimeout(function(){ var i=$("#add-name"); if(i) i.focus(); }, 320);
-      });
+      $("#intro-go").addEventListener("click", dismiss);
     } else {
       $("#intro-next").addEventListener("click", function(){ idx++; render(); });
     }
@@ -1639,11 +1729,20 @@ function init(){
 
   document.querySelectorAll(".tab").forEach(function(b){ b.addEventListener("click",function(){ switchTab(b.dataset.tab); }); });
 
+  // requestAnimationFrame-debounce zodat we niet 60×/sec class togglen tijdens scroll
+  var _scrollRaf = 0;
+  var _wasScrolled = false;
   $("#main").addEventListener("scroll",function(){
-    var s=this.scrollTop;
-    $("#topbar").classList.toggle("scrolled", s>26);
-    var aw=document.getElementById("addwrap");
-    if(aw) aw.classList.toggle("stuck", s>6);
+    if(_scrollRaf) return;
+    var main = this;
+    _scrollRaf = requestAnimationFrame(function(){
+      _scrollRaf = 0;
+      var isScrolled = main.scrollTop > 26;
+      if(isScrolled !== _wasScrolled){
+        $("#topbar").classList.toggle("scrolled", isScrolled);
+        _wasScrolled = isScrolled;
+      }
+    });
   },{passive:true});
 
   document.addEventListener("dblclick",function(e){ e.preventDefault(); },{passive:false});

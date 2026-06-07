@@ -22,7 +22,7 @@ function loadSupabaseSDK(){
   return new Promise(function(resolve, reject){
     var lastErr=null, i=0;
     function tryNext(){
-      if(i>=SUPABASE_SDK_CDNS.length){ reject(lastErr || new Error("Alle CDN's faalden")); return; }
+      if(i>=SUPABASE_SDK_CDNS.length){ reject(lastErr || new Error("Geen verbinding gevonden")); return; }
       var cdn=SUPABASE_SDK_CDNS[i++]; var done=false;
       var timeout=setTimeout(function(){
         if(done) return; done=true;
@@ -77,7 +77,7 @@ var Cloud = {
         var r=await this.sb.auth.signInAnonymously();
         if(r.error){
           console.warn("Mandje: anonieme aanmelding faalde —", r.error);
-          this.initError = "Anonieme aanmelding: " + (r.error.message || "onbekend");
+          this.initError = "Niet ingelogd kunnen krijgen — check je internet";
           throw r.error;
         }
       }
@@ -115,7 +115,7 @@ var Cloud = {
     if(r.error){
       console.warn("loadLists faalde:", r.error);
       this.lists=[];
-      toast("Lijsten laden mislukt — check verbinding");
+      toast("Kon je lijsten niet ophalen — internet aan?");
       renderListSwitch();
       return;
     }
@@ -156,14 +156,25 @@ var Cloud = {
       // Voorkom dat items van een vorige lijst blijven plakken — leeg de view
       state.list=[];
       if(activeTab==="lijst"){ renderLijst(); renderDueBanner(); }
-      toast("Items laden mislukt — check verbinding");
+      toast("Items willen niet laden — probeer 't straks");
       return;
     }
-    state.list=(r.data||[]).map(function(it){ return {
-      id:it.id, name:it.name, category:it.category||classify(it.name), qty:it.qty||1,
-      price:(it.price==null?null:Number(it.price)), note:it.note||"", done:!!it.done,
-      assigned_to:it.assigned_to||null, added_by_name:it.added_by_name||"", addedAt:it.created_at
-    };});
+    // Diff-merge per ID — voorkomt onnodige scroll-jank/animation-reset bij realtime updates
+    var oldById = {};
+    state.list.forEach(function(it){ oldById[it.id]=it; });
+    state.list = (r.data||[]).map(function(it){
+      var fresh = {
+        id:it.id, name:it.name, category:it.category||classify(it.name), qty:it.qty||1,
+        price:(it.price==null?null:Number(it.price)), note:it.note||"", done:!!it.done,
+        assigned_to:it.assigned_to||null, added_by_name:it.added_by_name||"", addedAt:it.created_at
+      };
+      var old = oldById[it.id];
+      // Hergebruik object-reference voor unchanged rows zodat itemRow-animaties niet opnieuw starten
+      if(old && old.name===fresh.name && old.qty===fresh.qty && old.done===fresh.done && old.price===fresh.price && old.note===fresh.note && old.assigned_to===fresh.assigned_to){
+        return old;
+      }
+      return fresh;
+    });
     if(activeTab==="lijst"){ renderLijst(); renderDueBanner(); }
   },
   refreshMembers:async function(){
@@ -229,7 +240,7 @@ var Cloud = {
     state.list.unshift({ id:"tmp_"+uid(), name:name, category:cat, qty:addQty, price:price, note:"", done:false, assigned_to:null, added_by_name:this.myName(), addedAt:nowISO() });
     renderLijst();
     if(!opts.silent && addQty>1) toast(name + " ×" + addQty);
-    this.sb.from("items").insert({list_id:this.active, name:name, category:cat, qty:addQty, price:(price==null?null:price), added_by_name:this.myName()}).then(function(r){ if(r.error) toast("Toevoegen mislukt"); },function(){});
+    this.sb.from("items").insert({list_id:this.active, name:name, category:cat, qty:addQty, price:(price==null?null:price), added_by_name:this.myName()}).then(function(r){ if(r.error) toast("Toevoegen lukte niet"); },function(){});
   },
   toggle:function(id){
     var it=state.list.find(function(i){return i.id===id;}); if(!it) return;
@@ -265,13 +276,13 @@ var Cloud = {
   createList:async function(name){
     if(!this.ready){
       console.warn("Mandje: createList terwijl Cloud niet ready —", this.initError);
-      toast("Cloud nog niet klaar: " + (this.initError || "onbekend"));
+      toast("Even moment — we zijn nog niet klaar");
       return null;
     }
     var r=await this.sb.rpc("create_list",{p_name:name||"Boodschappen", p_display_name:this.myName(), p_color:this.me.color});
     if(r.error){
       console.warn("Mandje: create_list RPC faalde —", r.error);
-      toast("Aanmaken mislukt: " + (r.error.message || "onbekend"));
+      toast("Aanmaken lukte niet — probeer 't nog eens");
       return null;
     }
     await this.loadLists(); await this.open(r.data.id); switchTab("lijst");
@@ -279,7 +290,7 @@ var Cloud = {
   },
   joinList:async function(code){
     var r=await this.sb.rpc("join_list",{p_code:(code||"").trim(), p_display_name:this.myName(), p_color:this.me.color});
-    if(r.error){ toast(r.error.message||"Join mislukt"); return null; }
+    if(r.error){ toast(r.error.message||"Joinen lukte niet"); return null; }
     try{ history.replaceState({}, "", location.pathname); }catch(e){}
     await this.loadLists(); await this.open(r.data.id); switchTab("lijst");
     toast("Welkom bij "+r.data.name); return r.data;
@@ -295,7 +306,7 @@ var Cloud = {
     if(!l) return false;
     if(l.owner_user_id !== this.userId){ toast("Alleen de eigenaar kan deze lijst verwijderen"); return false; }
     var r = await this.sb.from("lists").delete().eq("id", listId);
-    if(r.error){ toast("Verwijderen mislukt: " + (r.error.message||"")); return false; }
+    if(r.error){ toast("Verwijderen lukte niet"); return false; }
     // FK cascade ruimt members + items op. Refresh lokale state en val terug op persoonlijk.
     if(this.active === listId) this.openLocal();
     await this.loadLists();
@@ -306,7 +317,7 @@ var Cloud = {
   renameList:async function(listId, newName){
     newName=(newName||"").trim(); if(!newName) return null;
     var r=await this.sb.from("lists").update({name:newName}).eq("id",listId).select().single();
-    if(r.error){ toast("Hernoemen mislukt: "+(r.error.message||"")); return null; }
+    if(r.error){ toast("Naam wijzigen lukte niet"); return null; }
     await this.loadLists();
     if(this.active===listId){ applyListHeader(); }
     renderListSwitch();
@@ -315,7 +326,7 @@ var Cloud = {
   },
   kickMember:async function(listId, userId){
     var r=await this.sb.from("members").delete().eq("list_id",listId).eq("user_id",userId);
-    if(r.error){ toast("Verwijderen mislukt: "+(r.error.message||"")); return false; }
+    if(r.error){ toast("Verwijderen lukte niet"); return false; }
     // FK ON DELETE SET NULL clearde assigned_to op zijn items, maar onze lokale state
     // ziet dat pas via realtime — forceer een refresh zodat de UI direct klopt.
     await this.refreshMembers();
@@ -350,13 +361,13 @@ var Cloud = {
 
 function whenCloudReady(cb){
   if(Cloud.ready){ cb(); return; }
-  if(!Cloud.enabled){ toast("Cloud niet geconfigureerd"); return; }
-  if(Cloud.initError){ toast("Cloud: " + Cloud.initError); return; }
-  toast("Verbinding maken…");
+  if(!Cloud.enabled){ toast("Delen is niet aangezet"); return; }
+  if(Cloud.initError){ toast(Cloud.initError); return; }
+  toast("Even ophalen…");
   Cloud.waitReady(28000).then(function(ok){
     if(ok) cb();
-    else if(Cloud.initError) toast("Cloud: " + Cloud.initError);
-    else toast("Verbinding lukt niet — check je internet of probeer later");
+    else if(Cloud.initError) toast(Cloud.initError);
+    else toast("Geen verbinding — probeer 't straks");
   });
 }
 
@@ -499,7 +510,7 @@ function openSendSheet(scId){
           sh.querySelector("#sc-sent").innerHTML=sent.map(function(n){return '<span class="chip"><span class="emoji">✓</span>'+escapeHtml(n)+'</span>';}).join("");
           inp.focus();
           Shortcuts.touch(s.id);
-        },function(){ toast("Versturen mislukt"); });
+        },function(){ toast("Versturen lukte niet"); });
       });
     }
     btn.addEventListener("click", send);
@@ -533,11 +544,27 @@ function openSendSheet(scId){
 function openAddShortcutSheet(prefilledToken){
   var html='<div class="grip"></div>'+
     '<h3>Snelkoppeling toevoegen</h3>'+
-    '<div class="hint" style="margin:0 6px 14px;line-height:1.5">Vraag de ander om in <b>hun Mandje</b> op de <b>Delen-knop</b> te tikken en daarna op <b>"Deel \'stuur items\'-link"</b>. Ze sturen \'m bv. via WhatsApp naar jou — plak die link hier.</div>'+
-    '<div class="frow"><input class="txt" id="sc-tokin" placeholder="Plak stuur-link" value="'+escapeAttr(prefilledToken||"")+'" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" inputmode="url"></div>'+
+    '<div class="hint" style="margin:0 6px 14px;line-height:1.5">Plak hieronder de link die iemand jou stuurde. Tik <b>📋 Plak</b> om \'m direct uit je klembord te halen.</div>'+
+    '<div class="frow"><input class="txt" id="sc-tokin" placeholder="Plak iemands link" value="'+escapeAttr(prefilledToken||"")+'" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" inputmode="url"></div>'+
+    '<button class="mbtn" id="sc-paste" type="button" style="margin:0 0 4px;font-weight:600">📋 Plak uit klembord</button>'+
     '<div class="sheet-actions"><button class="save" id="sc-save-add">Opslaan</button></div>';
   var sh=openSheet2(html);
   setTimeout(function(){ var t=sh.querySelector("#sc-tokin"); if(t) t.focus(); }, 280);
+  var pasteBtn = sh.querySelector("#sc-paste");
+  if(pasteBtn){
+    pasteBtn.addEventListener("click", function(){
+      if(navigator.clipboard && navigator.clipboard.readText){
+        navigator.clipboard.readText().then(function(text){
+          if(text && sh.querySelector("#sc-tokin")){
+            sh.querySelector("#sc-tokin").value = text.trim();
+            sh.querySelector("#sc-tokin").focus();
+          } else { toast("Klembord is leeg"); }
+        }, function(){ toast("Geen toegang tot klembord — plak handmatig"); });
+      } else {
+        toast("Plak handmatig in het veld");
+      }
+    });
+  }
   sh.querySelector("#sc-save-add").addEventListener("click", function(){
     var saveBtn=sh.querySelector("#sc-save-add");
     var raw=sh.querySelector("#sc-tokin").value;
@@ -654,8 +681,16 @@ function renderMembersRow(){
 }
 
 /* --- tweede sheet helpers --- */
-function openSheet2(html){ var s=$("#sheet2"); s.innerHTML='<div class="grip"></div>'+html; $("#scrim2").classList.add("show"); s.classList.add("show"); return s; }
-function closeSheet2(){ $("#scrim2").classList.remove("show"); $("#sheet2").classList.remove("show"); }
+function openSheet2(html){
+  var s=$("#sheet2"); s.innerHTML='<div class="grip"></div>'+html;
+  $("#scrim2").classList.add("show"); s.classList.add("show");
+  document.body.classList.add("sheet-open");
+  return s;
+}
+function closeSheet2(){
+  $("#scrim2").classList.remove("show"); $("#sheet2").classList.remove("show");
+  if(!$("#sheet").classList.contains("show")) document.body.classList.remove("sheet-open");
+}
 $("#scrim2").addEventListener("click",closeSheet2);
 
 function openSwitchSheet(){
@@ -684,11 +719,9 @@ function openSwitchSheet(){
       (Cloud.active===l.id?'<span class="lsi-check">✓</span>':'')+
     '</div>';
   });
-  // Acties: prominent + Nieuwe lijst, daaronder code-invoeren
-  html+='<div class="sheet-actions" style="flex-direction:column;gap:10px;margin-top:14px">'+
-    '<button class="save" id="ls-new" style="display:flex;align-items:center;justify-content:center;gap:8px"><span style="font-size:20px;font-weight:800;line-height:1">+</span><span>Nieuwe lijst</span></button>'+
-    '<button class="mbtn" id="ls-join" style="width:100%">Lijst-code invoeren</button>'+
-  '</div>';
+  // Inline aanmaken — type+Enter = direct nieuwe lijst, geen extra sheet nodig
+  html+='<div class="quick-create"><input class="txt" id="ls-new-name" type="text" placeholder="+ Nieuwe lijst… (Thuis, Weekend, Vakantie)" autocapitalize="words" autocomplete="off" enterkeyhint="done"></div>'+
+    '<button class="mbtn" id="ls-join" style="width:100%;margin-top:8px">Code invoeren</button>';
   var s=openSheet2(html);
   s.querySelectorAll(".ls-item").forEach(function(it){
     it.addEventListener("click",function(){
@@ -696,7 +729,17 @@ function openSwitchSheet(){
       if(act==="local") Cloud.openLocal(); else Cloud.open(act).then(function(){ switchTab("lijst"); });
     });
   });
-  s.querySelector("#ls-new").addEventListener("click",function(){ closeSheet2(); ensureIdentity(function(){ promptNewList(); }); });
+  var newInp = s.querySelector("#ls-new-name");
+  if(newInp){
+    newInp.addEventListener("keydown", function(e){
+      if(e.key !== "Enter") return;
+      var nm = (newInp.value||"").trim();
+      if(!nm) return;
+      newInp.value = "";
+      closeSheet2();
+      ensureIdentity(function(){ Cloud.createList(nm); });
+    });
+  }
   s.querySelector("#ls-join").addEventListener("click",function(){ closeSheet2(); ensureIdentity(function(){ promptJoin(); }); });
 }
 
@@ -779,15 +822,20 @@ function openShareSheet(listId){
     var titleHtml = '<h3 id="sh-title-row" style="display:flex;align-items:center;gap:10px"><span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:'+dotCol+';flex:0 0 auto"></span><span id="sh-title-name" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">'+escapeHtml(prettyName)+'</span>'+
       (isOwner?'<button id="sh-rename" type="button" aria-label="Hernoem" style="border:0;background:transparent;color:var(--ink-soft);padding:6px;border-radius:8px"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>':'')+
     '</h3>';
+    // Join-code prettier: spaties tussen halves voor leesbaarheid
+    var codePretty = l.join_code.length === 6 ? l.join_code.slice(0,3)+" "+l.join_code.slice(3) : l.join_code;
     return titleHtml +
-      '<div class="code-box"><div class="cb-lbl">Join-code</div><div class="cb-code">'+l.join_code+'</div></div>'+
-      '<button class="mbtn" id="sh-invite" style="background:var(--green);color:var(--on-green);border-color:transparent">Deel uitnodiging</button>'+
-      '<button class="mbtn" id="sh-link">Kopieer uitnodig-link</button>'+
-      '<button class="mbtn" id="sh-send">Deel "stuur items"-link</button>'+
-      '<div class="hint" style="margin:2px 6px 14px;line-height:1.5">De <b>uitnodig-link</b> laat iemand meedoen en alles zien. De <b>stuur-link</b> geeft iemand alleen een drop-pagina om dingen aan jou te sturen — zonder app, zonder mee te kijken.</div>'+
+      '<div class="code-box"><div class="cb-lbl">Code</div><div class="cb-code">'+codePretty+'</div></div>'+
+      '<button class="mbtn" id="sh-invite" style="background:var(--green);color:var(--on-green);border-color:transparent">Stuur uitnodiging</button>'+
+      '<button class="mbtn" id="sh-more-toggle" type="button" style="font-weight:500;color:var(--ink-soft);background:transparent;border:0;box-shadow:none;padding:8px 4px;margin:4px 0 6px">Andere opties ▾</button>'+
+      '<div id="sh-more" style="display:none">'+
+        '<button class="mbtn" id="sh-link">Kopieer uitnodig-link</button>'+
+        '<button class="mbtn" id="sh-send">Deel "stuur items"-link</button>'+
+        '<div class="hint" style="margin:2px 6px 14px;line-height:1.5">De <b>uitnodig-link</b> laat iemand meedoen en alles zien. De <b>stuur-link</b> geeft iemand alleen een drop-pagina om dingen aan jou te sturen — zonder app, zonder mee te kijken.</div>'+
+      '</div>'+
       (memberHtml?('<div class="sheet-label"><span class="lbl-cap">Leden ('+Cloud.members.length+')</span></div>'+memberHtml):'')+
       (activityHtml||'')+
-      (isOwner ? '<div class="sheet-label" style="margin-top:22px"><span class="lbl-cap">Gevaren-zone</span></div><button class="mbtn danger" id="sh-delete-list" type="button" style="width:100%;color:var(--red);border-color:color-mix(in srgb, var(--red) 25%, var(--line))">Lijst verwijderen</button><div class="hint" style="margin:4px 6px 0">Items en leden worden definitief verwijderd. Niet terug te halen.</div>' : '');
+      (isOwner ? '<div class="sheet-label" style="margin-top:22px"><span class="lbl-cap">Let op</span></div><button class="mbtn danger" id="sh-delete-list" type="button" style="width:100%;color:var(--red);border-color:color-mix(in srgb, var(--red) 25%, var(--line))">Lijst verwijderen</button><div class="hint" style="margin:4px 6px 0">Alle items en leden zijn dan weg voor altijd.</div>' : '');
   }
 
   var s = openSheet2(buildHtml(''));
@@ -811,6 +859,15 @@ function wireShareSheet(s, l, isOwner, prettyName){
   var invite = s.querySelector("#sh-invite");
   var lnk = s.querySelector("#sh-link");
   var snd = s.querySelector("#sh-send");
+  var moreT = s.querySelector("#sh-more-toggle");
+  var moreW = s.querySelector("#sh-more");
+  if(moreT && moreW){
+    moreT.addEventListener("click", function(){
+      var open = moreW.style.display !== "none";
+      moreW.style.display = open ? "none" : "block";
+      moreT.textContent = open ? "Andere opties ▾" : "Andere opties ▴";
+    });
+  }
   if(invite) invite.addEventListener("click",function(){ shareNative(Cloud.shareLink(l), "Doe mee met onze boodschappenlijst \""+prettyName+"\" in Mandje 🧺", "Uitnodig-link gekopieerd"); });
   if(lnk) lnk.addEventListener("click",function(){ copyText(Cloud.shareLink(l),"Uitnodig-link gekopieerd"); });
   if(snd) snd.addEventListener("click",function(){ shareNative(Cloud.sendLink(l), "Stuur boodschappen naar onze lijst \""+prettyName+"\" 🧺", "Stuur-link gekopieerd"); });
@@ -912,11 +969,11 @@ function openSendScreen(token){
       var nm=(nameI.value||"").trim(); if(!nm) return;
       var from=(scr.querySelector("#ss-from").value||"").trim();
       Cloud.sb.rpc("add_item_via_token",{p_token:token,p_name:nm,p_qty:1,p_note:"",p_from:from}).then(function(r){
-        if(r.error){ toast("Versturen mislukt"); return; }
+        if(r.error){ toast("Versturen lukte niet"); return; }
         added.unshift(nm); nameI.value="";
         scr.querySelector("#ss-chips").innerHTML=added.map(function(n){return '<span class="chip"><span class="emoji">✓</span>'+escapeHtml(n)+'</span>';}).join("");
         nameI.focus();
-      },function(){ toast("Versturen mislukt"); });
+      },function(){ toast("Versturen lukte niet"); });
     }
     scr.querySelector("#ss-add").addEventListener("click",send);
     nameI.addEventListener("keydown",function(e){ if(e.key==="Enter") send(); });

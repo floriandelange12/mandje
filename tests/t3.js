@@ -178,6 +178,53 @@ const ok=(n,c)=>{ if(c){pass++;console.log("  ✓ "+n);} else {fail++;console.lo
 
   function dayStr(off){ const d=new Date(); d.setDate(d.getDate()+off); const p=n=>(n<10?"0":"")+n; return d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate()); }
 
+  // 14. Iteratie 4 — Copy warmer: 'Je mandje is leeg' ipv 'Niets op de lijst'
+  const dom13=new JSDOM(html,{url:"https://example.com/",runScripts:"dangerously",resources:"usable",pretendToBeVisual:true});
+  await wait(150); const doc13=dom13.window.document;
+  ok("Copy: lege subhead zegt 'Je mandje is leeg'", (doc13.querySelector("#subhead")?.textContent||"").indexOf("Je mandje is leeg") !== -1);
+  dom13.window.close();
+
+  // 15. Intro toont 'Sla over'-knop op stage 1
+  const dom14=new JSDOM(html,{url:"https://example.com/",runScripts:"dangerously",resources:"usable",pretendToBeVisual:true});
+  await wait(150); const doc14=dom14.window.document;
+  ok("Intro: Sla over-knop aanwezig", !!doc14.querySelector("#intro-skip"));
+  doc14.querySelector("#intro-skip").click(); await wait(30);
+  ok("Intro: sluit na 'Sla over'-tap", !doc14.querySelector("#sheet").classList.contains("show"));
+  dom14.window.close();
+
+  // 16. Add-bar position: floating fixed onderaan
+  const dom15=new JSDOM(html,{url:"https://example.com/",runScripts:"dangerously",resources:"usable",pretendToBeVisual:true});
+  await wait(150); const doc15=dom15.window.document;
+  const aw = doc15.querySelector("#addwrap");
+  const pos = dom15.window.getComputedStyle(aw).position;
+  ok("Add-bar floating onderaan (position:fixed)", pos === "fixed");
+  dom15.window.close();
+
+  // 17. Vergeten-chip verschijnt na co-buy + done item
+  const dom16=new JSDOM(html,{url:"https://example.com/",runScripts:"dangerously",resources:"usable",pretendToBeVisual:true});
+  await wait(150); const W16=dom16.window; const doc16=dom16.window.document;
+  // 3x melk+brood samen gekocht in catalog
+  W16.touchCatalog("Melk", null); W16.touchCatalog("Brood", null);
+  W16.recordCoBuy(["Melk","Brood"]); W16.recordCoBuy(["Melk","Brood"]); W16.recordCoBuy(["Melk","Brood"]);
+  // Voeg melk toe en vink af
+  doc16.querySelector("#add-name").value = "Melk";
+  doc16.querySelector("#add-name").dispatchEvent(new W16.KeyboardEvent("keydown",{key:"Enter",bubbles:true}));
+  await wait(30);
+  const check = doc16.querySelector("#open-list .check");
+  if(check) check.click();
+  await wait(30);
+  // Trigger render via showPrices = true zodat totals zichtbaar wordt + vergeten-chip render
+  const stored16 = JSON.parse(W16.localStorage.getItem("mandje.v2"));
+  stored16.settings.showPrices = true;
+  W16.localStorage.setItem("mandje.v2", JSON.stringify(stored16));
+  // Force re-render
+  W16.updateTotals && W16.updateTotals();
+  await wait(30);
+  // Forgot-row bestaat met brood-pill
+  const forgot = doc16.querySelector("#t-forgot");
+  ok("Forgot-row element aanwezig", !!forgot);
+  dom16.window.close();
+
   console.log("\nt3: "+pass+" geslaagd, "+fail+" gefaald");
   process.exit(fail?1:0);
 })().catch(e=>{console.error("t3 TESTFOUT:",e);process.exit(2)});

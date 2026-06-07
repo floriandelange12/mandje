@@ -39,7 +39,7 @@
     --safe-b:env(safe-area-inset-bottom,0px);
     --font:-apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     --display:"Fraunces", ui-serif, Georgia, "Times New Roman", serif;
-    --ease:cubic-bezier(.32,.72,0,1);
+    --ease:cubic-bezier(.24,.65,0,1);
   }
   html[data-theme="dark"]{
     --bg:#141410; --surface:#1E1D17; --surface-2:#232219; --surface-3:#2A2920;
@@ -85,15 +85,19 @@
     background:transparent; transition:background .18s ease, border-color .18s ease;
     border-bottom:.5px solid transparent;
   }
-  .topbar.scrolled{ background:color-mix(in srgb, var(--bg) 80%, transparent); -webkit-backdrop-filter:var(--blur); backdrop-filter:var(--blur); border-bottom-color:var(--line); }
+  .topbar.scrolled{ background:color-mix(in srgb, var(--bg) 80%, transparent); -webkit-backdrop-filter:var(--blur); backdrop-filter:var(--blur); border-bottom-color:var(--line); transition:background .12s ease, border-color .12s ease; }
   .topbar .ctitle{ font-size:17px; font-weight:700; letter-spacing:-.01em; opacity:0; transform:translateY(2px); transition:opacity .2s ease, transform .2s ease; }
   .topbar.scrolled .ctitle{ opacity:1; transform:none; }
 
   /* ---------- Scroll area ---------- */
   main{ position:absolute; inset:0; overflow-y:auto; -webkit-overflow-scrolling:touch; padding-left:max(16px, env(safe-area-inset-left)); padding-right:max(16px, env(safe-area-inset-right)); }
   main::-webkit-scrollbar{ display:none; }
-  .pad-bottom{ height:calc(var(--tabbar-h) + var(--safe-b) + 24px); }
-  .pad-bottom.with-total{ height:calc(var(--tabbar-h) + var(--safe-b) + 132px); }
+  /* Floating add-bar = ~62px hoog; extra ruimte onderaan zodat items niet verdwijnen */
+  .pad-bottom{ height:calc(var(--tabbar-h) + var(--safe-b) + 90px); }
+  .pad-bottom.with-total{ height:calc(var(--tabbar-h) + var(--safe-b) + 200px); }
+  /* Op Vaste/Meer-tabs is add-bar verborgen — terug naar normale padding */
+  body.no-addbar .pad-bottom{ height:calc(var(--tabbar-h) + var(--safe-b) + 24px); }
+  body.no-addbar .pad-bottom.with-total{ height:calc(var(--tabbar-h) + var(--safe-b) + 132px); }
 
   .largehead{ padding:calc(var(--safe-t) + 54px) 4px 6px; }
   h1{ font-family:var(--display); font-size:31px; line-height:1.06; font-weight:600; letter-spacing:-.01em; margin:2px 0 3px; transition:opacity .22s var(--ease); }
@@ -116,9 +120,20 @@
 
   html,body{ overflow:hidden; }
 
-  /* ---------- Add bar ---------- */
-  .addwrap{ position:sticky; top:calc(var(--safe-t) + 50px); z-index:20; padding:6px 0 12px; background:transparent; transition:background .25s ease; }
-  .addwrap.stuck{ background:color-mix(in srgb, var(--bg) 68%, transparent); -webkit-backdrop-filter:var(--blur); backdrop-filter:var(--blur); }
+  /* ---------- Add bar (floating, one-handed) ---------- */
+  .addwrap{
+    position:fixed;
+    left:max(12px, env(safe-area-inset-left));
+    right:max(12px, env(safe-area-inset-right));
+    bottom:calc(var(--tabbar-h) + max(16px, var(--safe-b)) + 14px);
+    z-index:29;
+    padding:0;
+    background:transparent;
+    transition:transform .25s var(--ease), opacity .2s ease;
+  }
+  /* Verbergen wanneer item-sheet open is zodat 'ie geen overlap geeft */
+  body.sheet-open .addwrap{ transform:translateY(140%); opacity:0; pointer-events:none; }
+  .addwrap.stuck{ /* no-op nu, behoud voor backward-compat */ }
   .field{ display:flex; align-items:center; width:100%; min-width:0; background:var(--surface); border:1px solid var(--line); border-radius:17px; padding:5px 5px 5px 15px; box-shadow:var(--shadow-sm); transition:border-color .18s ease, box-shadow .18s ease; }
   .field:focus-within{ border-color:color-mix(in srgb, var(--green) 55%, var(--line)); box-shadow:0 0 0 4px var(--green-2); }
   .field svg.lead{ width:20px; height:20px; color:var(--ink-faint); flex:0 0 20px; margin-right:10px; }
@@ -135,10 +150,11 @@
   .addbtn-bulk svg{ width:18px; height:18px; }
   .addbtn-bulk:active{ transform:scale(.92); background:var(--line-strong); }
 
-  /* Autocomplete */
+  /* Autocomplete (opent naar boven omdat add-bar onderaan zit) */
   .ac{ position:relative; }
-  .ac-list{ position:absolute; left:0; right:0; top:calc(100% + 6px); background:var(--surface); border:1px solid var(--line); border-radius:16px; box-shadow:var(--shadow-lg); overflow:hidden; z-index:40; display:none; }
-  .ac-list.show{ display:block; }
+  .ac-list{ position:absolute; left:0; right:0; bottom:calc(100% + 6px); background:var(--surface); border:1px solid var(--line); border-radius:16px; box-shadow:var(--shadow-lg); overflow:hidden; z-index:40; display:none; max-height:50vh; overflow-y:auto; transform-origin:bottom center; }
+  .ac-list.show{ display:block; animation:acFadeUp .18s var(--ease) backwards; }
+  @keyframes acFadeUp{ from{ opacity:0; transform:translateY(8px) scale(.98);} to{ opacity:1; transform:none;} }
   .ac-item{ display:flex; align-items:center; gap:12px; padding:11px 14px; border-bottom:1px solid var(--line); }
   .ac-item:last-child{ border-bottom:0; }
   .ac-item:active{ background:var(--surface-3); }
@@ -160,8 +176,9 @@
   .row .behind svg{ width:20px; height:20px; }
   .card{ position:relative; display:flex; align-items:center; gap:13px; background:var(--surface); border:1px solid var(--line); border-radius:var(--r-card); padding:12px 14px; box-shadow:var(--shadow-sm); transition:transform .26s var(--ease); touch-action:pan-y; }
 
-  .check{ flex:0 0 auto; width:27px; height:27px; border-radius:50%; border:2px solid var(--line-strong); display:flex; align-items:center; justify-content:center; background:transparent; transition:background .18s var(--ease), border-color .18s var(--ease); }
-  .check svg{ width:15px; height:15px; opacity:0; transform:scale(.3); transition:opacity .18s var(--ease), transform .22s var(--ease); }
+  .check{ position:relative; flex:0 0 auto; width:36px; height:36px; border-radius:50%; border:2px solid var(--line-strong); display:flex; align-items:center; justify-content:center; background:transparent; transition:background .18s var(--ease), border-color .18s var(--ease); }
+  .check::before{ content:""; position:absolute; inset:-6px; }
+  .check svg{ width:19px; height:19px; opacity:0; transform:scale(.3); transition:opacity .18s var(--ease), transform .22s var(--ease); }
   .row.done .check{ background:var(--green); border-color:var(--green); }
   .row.done .check svg{ opacity:1; transform:scale(1); }
 
@@ -209,8 +226,8 @@
   .empty h2{ font-family:var(--display); font-size:25px; font-weight:600; color:var(--ink); margin:0 0 7px; letter-spacing:-.01em; }
   .empty p{ font-size:15px; margin:0; line-height:1.5; }
 
-  /* ---------- Totals bar ---------- */
-  .totals{ position:absolute; left:0; right:0; bottom:calc(var(--tabbar-h) + var(--safe-b)); z-index:25; padding:0 max(12px, env(safe-area-inset-right)) 8px max(12px, env(safe-area-inset-left)); pointer-events:none; transition:opacity .2s ease, transform .2s ease; }
+  /* ---------- Totals bar (boven floating add-bar) ---------- */
+  .totals{ position:absolute; left:0; right:0; bottom:calc(var(--tabbar-h) + max(16px, var(--safe-b)) + 78px); z-index:25; padding:0 max(12px, env(safe-area-inset-right)) 8px max(12px, env(safe-area-inset-left)); pointer-events:none; transition:opacity .2s ease, transform .2s ease; }
   .totals.hide{ opacity:0; transform:translateY(8px); pointer-events:none; }
   .totals-inner{ background:color-mix(in srgb, var(--surface) 86%, transparent); -webkit-backdrop-filter:var(--blur); backdrop-filter:var(--blur); border:1px solid var(--line); border-radius:20px; box-shadow:var(--shadow-lg); padding:12px 16px; pointer-events:auto; }
   .trow{ display:flex; align-items:baseline; justify-content:space-between; }
@@ -222,18 +239,23 @@
   .trow .cart{ font-size:13px; font-weight:700; color:var(--green); }
   .finish{ border:0; background:var(--green); color:var(--on-green); font-weight:700; font-size:14px; padding:8px 14px; border-radius:12px; transition:transform .12s var(--ease); }
   .finish:active{ transform:scale(.96); }
+  .forgot-row{ display:flex; flex-wrap:wrap; gap:6px; margin:8px 0 4px; align-items:center; }
+  .forgot-row .forgot-lbl{ font-size:12px; font-weight:600; color:var(--ink-soft); margin-right:2px; }
+  .forgot-row .forgot-pill{ display:inline-flex; align-items:center; gap:5px; padding:5px 10px; background:var(--amber-2); color:var(--amber); border:0; border-radius:99px; font-size:13px; font-weight:700; transition:transform .12s var(--ease); }
+  .forgot-row .forgot-pill:active{ transform:scale(.95); filter:brightness(.96); }
+  .forgot-row .forgot-pill .plus{ font-weight:800; font-size:14px; line-height:1; }
 
-  /* ---------- Tab bar ---------- */
-  .tabbar{ position:absolute; left:0; right:0; bottom:0; z-index:28; height:calc(var(--tabbar-h) + var(--safe-b)); padding-bottom:var(--safe-b); display:flex; background:color-mix(in srgb, var(--bg) 84%, transparent); -webkit-backdrop-filter:var(--blur); backdrop-filter:var(--blur); border-top:.5px solid var(--line); }
+  /* ---------- Tab bar (floating pill) ---------- */
+  .tabbar{ position:absolute; left:max(12px, env(safe-area-inset-left)); right:max(12px, env(safe-area-inset-right)); bottom:max(8px, var(--safe-b)); z-index:28; height:var(--tabbar-h); display:flex; background:color-mix(in srgb, var(--surface) 80%, transparent); -webkit-backdrop-filter:var(--blur); backdrop-filter:var(--blur); border:1px solid var(--line); border-radius:22px; box-shadow:var(--shadow-lg); padding:0; overflow:hidden; }
   .tab{ flex:1; background:transparent; border:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; color:var(--ink-faint); font-size:11px; font-weight:600; }
-  .tab svg{ width:25px; height:25px; transition:transform .15s var(--ease); }
+  .tab svg{ width:23px; height:23px; transition:transform .15s var(--ease); }
   .tab.active{ color:var(--green); }
   .tab:active svg{ transform:scale(.88); }
 
   /* ---------- Views ---------- */
   .view{ display:none; }
-  .view.active{ display:block; animation:fade .28s var(--ease); }
-  @keyframes fade{ from{ opacity:0; transform:translateY(6px);} to{ opacity:1; transform:none;} }
+  .view.active{ display:block; animation:viewSlideIn .22s var(--ease); }
+  @keyframes viewSlideIn{ from{ opacity:0; transform:translateY(-6px);} to{ opacity:1; transform:none;} }
 
   /* ---------- Settings (Meer) ---------- */
   .group{ background:var(--surface); border:1px solid var(--line); border-radius:var(--r-card); overflow:hidden; box-shadow:var(--shadow-sm); margin-bottom:18px; }
@@ -257,7 +279,7 @@
   /* ---------- Bottom sheet ---------- */
   .scrim{ position:absolute; inset:0; background:rgba(0,0,0,.4); opacity:0; z-index:50; transition:opacity .3s var(--ease); pointer-events:none; }
   .scrim.show{ opacity:1; pointer-events:auto; }
-  .sheet{ position:absolute; left:0; right:0; bottom:0; z-index:51; background:var(--surface); border-radius:24px 24px 0 0; box-shadow:0 -10px 40px rgba(0,0,0,.25); transform:translateY(110%); transition:transform .36s var(--ease); padding:8px 18px calc(18px + var(--safe-b)); max-width:600px; margin:0 auto; }
+  .sheet{ position:absolute; left:0; right:0; bottom:0; z-index:51; background:var(--surface); border-radius:24px 24px 0 0; box-shadow:0 -10px 40px rgba(0,0,0,.25); transform:translateY(110%); transition:transform .28s var(--ease); padding:8px 18px calc(18px + var(--safe-b)); max-width:600px; margin:0 auto; }
   .sheet.show{ transform:none; }
   .grip{ width:36px; height:4px; border-radius:99px; background:color-mix(in srgb, var(--ink-faint) 55%, transparent); margin:6px auto 14px; transition:background .15s ease; }
   .sheet h3{ font-family:var(--display); font-size:25px; font-weight:600; letter-spacing:-.01em; margin:0 0 16px; }
@@ -308,6 +330,10 @@
   .ls-item .lsi-sub{ font-size:13px; color:var(--ink-soft); }
   .ls-item.active .lsi-name{ color:var(--green); }
   .ls-item .lsi-check{ color:var(--green); }
+  .quick-create{ margin:14px 0 0; padding:0; }
+  .quick-create input{ width:100%; border:1.5px dashed var(--line-strong); border-radius:14px; background:var(--surface-2); padding:14px 16px; font-size:16px; font-weight:500; color:var(--ink); -webkit-user-select:text; user-select:text; }
+  .quick-create input:focus{ outline:0; border-color:var(--green); border-style:solid; background:var(--surface); }
+  .quick-create input::placeholder{ color:var(--ink-faint); font-weight:500; }
 
   .code-box{ text-align:center; background:var(--surface-2); border:1px dashed var(--line-strong); border-radius:16px; padding:18px; margin:4px 0 14px; }
   .code-box .cb-lbl{ font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.1em; color:var(--ink-soft); }
@@ -494,7 +520,7 @@
   window.MANDJE_CONFIG = {
     SUPABASE_URL:      "https://yctcpxgjpmhyohbsrygy.supabase.co",   /* ingevuld ✓ */
     SUPABASE_ANON_KEY: "sb_publishable_lT77Nkcrl6VsBIx-PFuMtw_mdJ6fyNj",   /* ingevuld ✓ (publishable key) */
-    BUILD:             "2026-06-07.3"  /* alleen onderaan Meer-tab zichtbaar — handig om cache-versie te verifiëren */
+    BUILD:             "2026-06-08.1"  /* alleen onderaan Meer-tab zichtbaar — handig om cache-versie te verifiëren */
   };
 </script>
 <!-- ===================================================================== -->
@@ -558,6 +584,7 @@
       <div class="trow"><span class="lbl">Totaal</span><span class="amt" id="t-total">€0,00</span></div>
       <div id="t-hint" class="t-hint" style="display:none">Tik op een product om de prijs in te stellen</div>
       <div id="t-prog-wrap"><div class="pbar"><i id="t-prog" style="width:0%"></i></div>
+      <div id="t-forgot" class="forgot-row" style="display:none"></div>
       <div class="trow"><span class="cart" id="t-cart">€0,00 in mandje</span><button class="finish" id="t-finish" style="display:none;">Afronden ✓</button></div></div>
     </div>
   </div>
@@ -1049,6 +1076,12 @@ function parseQtyFromInput(s){
 function $(s){ return document.querySelector(s); }
 function el(tag, cls, html){ var e=document.createElement(tag); if(cls)e.className=cls; if(html!=null)e.innerHTML=html; return e; }
 function vibrate(ms){ if(navigator.vibrate){ try{navigator.vibrate(ms);}catch(e){} } }
+/* Haptic-layers — kies semantisch ipv elke keer een getal kiezen.
+   tap=micro (qty+/-), tick=hoofd-actie (afvinken/toevoegen), nudge=warning. */
+function vibe(level){
+  var map = { tap:6, tick:12, nudge:20 };
+  vibrate(map[level] || 10);
+}
 
 var CHECK_SVG='<svg viewBox="0 0 24 24" fill="none" stroke="var(--on-green)" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path pathLength="24" d="M20 6 9 17l-5-5"/></svg>';
 
@@ -1065,6 +1098,15 @@ function toast(msg, opts){
   span.className = "toast-msg";
   span.textContent = msg;
   t.appendChild(span);
+  var duration = opts.duration || 1500;
+  // Pause-on-hover/touch zodat user 'm niet mist tijdens lezen
+  var paused = false, remaining = duration, startedAt = 0;
+  var hide = function(){ t.classList.remove("show"); };
+  var schedule = function(ms){
+    clearTimeout(toastT);
+    startedAt = Date.now();
+    toastT = setTimeout(hide, ms);
+  };
   if(opts.action && typeof opts.onAction === "function"){
     t.classList.add("has-action");
     var btn = document.createElement("button");
@@ -1073,17 +1115,32 @@ function toast(msg, opts){
     btn.textContent = opts.action;
     btn.addEventListener("click", function(){
       try{ opts.onAction(); }catch(e){}
-      t.classList.remove("show");
-      clearTimeout(toastT);
+      hide(); clearTimeout(toastT);
     });
     t.appendChild(btn);
+    // Pauze auto-hide bij hover/touch
+    var pause = function(){
+      if(paused) return;
+      paused = true;
+      var elapsed = Date.now() - startedAt;
+      remaining = Math.max(800, remaining - elapsed);
+      clearTimeout(toastT);
+    };
+    var resume = function(){
+      if(!paused) return;
+      paused = false;
+      schedule(remaining);
+    };
+    t.addEventListener("mouseenter", pause);
+    t.addEventListener("mouseleave", resume);
+    t.addEventListener("touchstart", pause, {passive:true});
+    t.addEventListener("touchend", resume);
   }
   t.classList.add("show");
-  clearTimeout(toastT);
-  toastT = setTimeout(function(){ t.classList.remove("show"); }, opts.duration || 1500);
+  schedule(duration);
 }
 function undoToast(label, restoreFn){
-  toast(label, { action:"Ongedaan", onAction:restoreFn, duration:5000 });
+  toast(label, { action:"Ongedaan", onAction:restoreFn, duration:10000 });
 }
 
 /* ============================================================
@@ -1117,11 +1174,11 @@ function addToList(name, price, opts){
   return true;
 }
 function toggleDone(id){
-  if(Cloud.active){ Cloud.toggle(id); vibrate(8); return; }
+  if(Cloud.active){ Cloud.toggle(id); vibe("tick"); return; }
   var it=state.list.find(function(i){return i.id===id;}); if(!it) return;
   var wasDone = it.done;
   it.done = !it.done;
-  if(it.done) vibrate(8);
+  if(it.done) vibe("tick");
   save(); renderLijst();
   if(!wasDone && it.done){
     undoToast(it.name + " afgevinkt", function(){
@@ -1131,6 +1188,7 @@ function toggleDone(id){
   }
 }
 function setQty(id,delta){
+  vibe("tap");
   if(Cloud.active){ Cloud.qty(id,delta); return; }
   var it=state.list.find(function(i){return i.id===id;}); if(!it) return;
   it.qty=Math.max(1,it.qty+delta); save(); renderLijst();
@@ -1155,7 +1213,7 @@ function finishShopping(){
   state.list=state.list.filter(function(i){return !i.done;});
   save(); renderLijst(); renderDueBanner(); renderVaste();
   toast(done.length+(done.length===1?" boodschap gekocht":" boodschappen gekocht"));
-  vibrate(12);
+  vibe("nudge");
 }
 
 /* ============================================================
@@ -1167,18 +1225,21 @@ function renderLijst(){
   var openWrap=$("#open-list"); openWrap.innerHTML="";
   var doneWrap=$("#done-list"); doneWrap.innerHTML="";
   toggleSearchBar();
+  // Bouw in DocumentFragment om reflows te minimaliseren bij grote lijsten
+  var openFrag = document.createDocumentFragment();
+  var doneFrag = document.createDocumentFragment();
 
   if(state.list.length===0){
     if(typeof Cloud!=="undefined" && Cloud.active){
-      openWrap.appendChild(emptyState(
+      openFrag.appendChild(emptyState(
         "bag",
-        "Leeg mandje",
-        "Tik hierboven om iets toe te voegen — of deel de stuur-link zodat anderen items voor je droppen.",
+        "Je mandje is leeg",
+        "Tik hieronder om iets toe te voegen — of deel de stuur-link zodat anderen items voor je droppen.",
         "Delen",
         function(){ if(typeof openShareSheet==="function") openShareSheet(Cloud.active); }
       ));
     } else {
-      openWrap.appendChild(emptyState("bag","Leeg mandje","Typ hierboven wat je nodig hebt. Producten landen vanzelf in het juiste schap."));
+      openFrag.appendChild(emptyState("bag","Je mandje is leeg","Typ hieronder wat je nodig hebt. Producten landen vanzelf in het juiste schap."));
     }
   } else {
     // groepeer open per categorie volgens categoryOrder
@@ -1189,10 +1250,10 @@ function renderLijst(){
       var collapsed = !!(state.settings.collapsedCats && state.settings.collapsedCats[cid]);
       var sec=el("div","section collapsible"+(collapsed?" collapsed":""));
       sec.innerHTML='<span class="cat-emoji emoji">'+c.glyph+'</span><span>'+c.label+'</span><span class="count">'+arr.length+'</span><svg class="sec-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>';
-      openWrap.appendChild(sec);
+      openFrag.appendChild(sec);
       var ul=el("ul","list"+(collapsed?" collapsed":""));
       arr.forEach(function(it){ ul.appendChild(itemRow(it)); });
-      openWrap.appendChild(ul);
+      openFrag.appendChild(ul);
       sec.addEventListener("click", function(){
         state.settings.collapsedCats = state.settings.collapsedCats || {};
         state.settings.collapsedCats[cid] = !state.settings.collapsedCats[cid];
@@ -1204,11 +1265,14 @@ function renderLijst(){
     if(done.length){
       var s2=el("div","section");
       s2.innerHTML='<span>In mandje</span><span class="count">'+done.length+'</span>';
-      doneWrap.appendChild(s2);
+      doneFrag.appendChild(s2);
       var ul2=el("ul","list"); done.forEach(function(it){ ul2.appendChild(itemRow(it)); });
-      doneWrap.appendChild(ul2);
+      doneFrag.appendChild(ul2);
     }
   }
+  // Single append per wrap = minimum reflows
+  openWrap.appendChild(openFrag);
+  doneWrap.appendChild(doneFrag);
   updateTotals();
   updateSubhead();
 }
@@ -1254,7 +1318,8 @@ function itemRow(it){
 function updateTotals(){
   var total=0, cart=0, hasPrices=false;
   state.list.forEach(function(i){ var v=(i.price||0)*i.qty; total+=v; if(i.done) cart+=v; if(i.price!=null) hasPrices=true; });
-  var done=state.list.filter(function(i){return i.done;}).length;
+  var doneItems=state.list.filter(function(i){return i.done;});
+  var done=doneItems.length;
   $("#t-total").textContent=euro(total);
   $("#t-cart").textContent=euro(cart)+" in mandje";
   $("#t-prog").style.width=(total>0?Math.round(cart/total*100):0)+"%";
@@ -1264,13 +1329,51 @@ function updateTotals(){
   var show = activeTab==="lijst" && state.list.length>0 && state.settings.showPrices;
   $("#totals").classList.toggle("hide", !show);
   $("#pad-lijst").className = "pad-bottom"+(show?" with-total":"");
+  renderForgottenSuggest(doneItems);
+}
+
+/* "Wat ben je vergeten?" — toon co-buy-suggesties wanneer er items in 'in mandje'
+   zijn. Subtiele chip-rij in de totals-bar. */
+function renderForgottenSuggest(doneItems){
+  var wrap = $("#t-forgot"); if(!wrap) return;
+  if(!doneItems || !doneItems.length || activeTab!=="lijst"){ wrap.style.display="none"; wrap.innerHTML=""; return; }
+  // Aggregeer co-suggesties van alle done-items
+  var scores = {};
+  var listKeys = state.list.filter(function(i){return !i.done;}).map(function(i){return norm(i.name);});
+  var doneKeys = doneItems.map(function(i){return norm(i.name);});
+  doneItems.forEach(function(it){
+    var sugg = getCoSuggestions(norm(it.name), 5);
+    sugg.forEach(function(s){
+      // Skip items die al op de lijst of in mandje staan
+      if(listKeys.indexOf(s.key)!==-1) return;
+      if(doneKeys.indexOf(s.key)!==-1) return;
+      scores[s.key] = (scores[s.key]||0) + s.count;
+    });
+  });
+  var keys = Object.keys(scores);
+  if(!keys.length){ wrap.style.display="none"; wrap.innerHTML=""; return; }
+  keys.sort(function(a,b){ return scores[b]-scores[a]; });
+  var top = keys.slice(0, 3);
+  var html = '<span class="forgot-lbl">Vergeten?</span>';
+  top.forEach(function(k){
+    var cat = state.catalog[k]; if(!cat) return;
+    html += '<button class="forgot-pill" data-name="'+escapeAttr(cat.name)+'" type="button"><span class="plus">+</span>'+escapeHtml(cat.name)+'</button>';
+  });
+  wrap.innerHTML = html;
+  wrap.style.display = "flex";
+  wrap.querySelectorAll(".forgot-pill").forEach(function(b){
+    b.addEventListener("click", function(e){
+      e.stopPropagation();
+      addToList(b.dataset.name, null);
+    });
+  });
 }
 
 function updateSubhead(){
   if(activeTab!=="lijst") return;
   var open=state.list.filter(function(i){return !i.done;}).length;
   var done=state.list.filter(function(i){return i.done;}).length;
-  var base = state.list.length===0 ? "Niets op de lijst" : (open+" te halen · "+done+" in mandje");
+  var base = state.list.length===0 ? "Je mandje is leeg" : (open+" te halen · "+done+" in mandje");
   $("#subhead").textContent = base;
 }
 
@@ -1398,7 +1501,7 @@ function renderMeer(){
 
   // Back-up
   wrap.appendChild(el("div","section",'<span>Back-up</span>'));
-  wrap.appendChild(el("div","hint","Gedeelde lijsten staan veilig in de cloud. Je persoonlijke lijst staat op dit toestel — exporteer 'm af en toe als back-up, of zet 'm terug op een nieuw toestel."));
+  wrap.appendChild(el("div","hint","Gedeelde lijsten staan veilig online. Je persoonlijke lijst staat op dit toestel — exporteer 'm af en toe als back-up, of zet 'm terug op een nieuw toestel."));
   var expf=el("button","mbtn","Exporteer mijn lijst (bestand)");
   expf.addEventListener("click",exportFile);
   wrap.appendChild(expf);
@@ -1486,7 +1589,11 @@ function buildSheet(d){
   if(d.a){
     if(d.a.mode==="auto" && d.a.regular) statusLine=cadenceLabel(d.a)+" · "+lastSeenLabel(d.a);
     else if(d.a.mode==="manual") statusLine=cadenceLabel(d.a)+(d.a.last?(" · "+lastSeenLabel(d.a)):"");
-    else if(d.a.count) statusLine="Nog "+(state.settings.minPurchases-d.a.count)+"× kopen voor een automatisch ritme";
+    else if(d.a.count){
+      var togo = state.settings.minPurchases - d.a.count;
+      if(togo <= 1) statusLine = "Bijna! Nog 1× kopen en ik herken je ritme";
+      else statusLine = "Nog "+togo+"× kopen, dan leer ik je ritme";
+    }
   }
 
   var html='<div class="grip"></div><h3></h3>';
@@ -1499,7 +1606,7 @@ function buildSheet(d){
       var _hintKey = (sheetCtx && sheetCtx.key) || norm(d.name||"");
       var lastPriceCat = (state.catalog[_hintKey] && state.catalog[_hintKey].defaultPrice);
       if(lastPriceCat != null && (d.price == null || Number(d.price) !== Number(lastPriceCat))){
-        html += '<div class="price-hint" id="s-price-hint" role="button">Vorige keer <b>'+euro(lastPriceCat)+'</b> — tik om over te nemen</div>';
+        html += '<div class="price-hint" id="s-price-hint" role="button">Vorige keer <b>'+euro(lastPriceCat)+'</b> — tik om te gebruiken</div>';
       }
     }
     html+='<div class="frow"><div class="fl">Notitie</div><input class="txt" id="s-note" placeholder="bijv. 1 liter, merk…" value="'+escapeAttr(d.note||"")+'"></div>';
@@ -1643,8 +1750,11 @@ function saveSheet(cat, cad, qty, price, note, catalogOnly, assignee, autoAdd){
   toast("Opgeslagen");
 }
 
-function openSheetUI(){ $("#scrim").classList.add("show"); $("#sheet").classList.add("show"); }
-function closeSheet(){ $("#scrim").classList.remove("show"); $("#sheet").classList.remove("show"); sheetCtx=null; }
+function openSheetUI(){ $("#scrim").classList.add("show"); $("#sheet").classList.add("show"); document.body.classList.add("sheet-open"); }
+function closeSheet(){
+  $("#scrim").classList.remove("show"); $("#sheet").classList.remove("show"); sheetCtx=null;
+  if(!$("#sheet2").classList.contains("show")) document.body.classList.remove("sheet-open");
+}
 $("#scrim").addEventListener("click",closeSheet);
 
 /* ============================================================
@@ -1677,9 +1787,11 @@ function doAdd(){
   var raw = $("#add-name").value;
   var p = parseQtyFromInput(raw);
   if(!p.name) return;
+  hideAC();  // direct sluiten zodat AC-popover niet "kort flikkert" tussen items
   if(addToList(p.name, null, {qty: p.qty})){
     $("#add-name").value="";
-    hideAC(); $("#add-name").focus();
+    $("#add-name").focus();
+    vibe("tick");
   }
 }
 function buildAC(q){
@@ -1991,6 +2103,8 @@ function switchTab(tab){
   $("#view-lijst").classList.toggle("active",tab==="lijst");
   $("#view-vaste").classList.toggle("active",tab==="vaste");
   $("#view-meer").classList.toggle("active",tab==="meer");
+  // Add-bar alleen op Lijst — toggle body-class voor de pad-bottom CSS
+  document.body.classList.toggle("no-addbar", tab !== "lijst");
   var m=TAB_META[tab];
   $("#title").textContent=m.title; $("#ctitle").textContent=m.title;
   var gear=$("#gear-btn");
@@ -2190,10 +2304,15 @@ function maybeIntro(){
     {glyph:"👥", title:"Samen of solo", body:"Maak meerdere lijsten — privé of gedeeld. Deel een stuur-link en iemand kan items naar jou droppen zonder app."}
   ];
   var idx = 0;
+  var dismiss = function(){
+    state.settings.seenIntro=true; save(); closeSheet();
+    setTimeout(function(){ var i=$("#add-name"); if(i) i.focus(); }, 320);
+  };
   var render = function(){
     var s = stages[idx];
     var isLast = (idx === stages.length-1);
     sh.innerHTML = '<div class="grip"></div>'+
+      '<button id="intro-skip" type="button" aria-label="Sla over" style="position:absolute;top:14px;right:14px;border:0;background:transparent;color:var(--ink-faint);font-size:14px;font-weight:600;padding:6px 10px;border-radius:8px">Sla over</button>'+
       '<div class="intro-stage">'+
         '<div class="intro-card">'+
           '<div class="ic-glyph emoji">'+s.glyph+'</div>'+
@@ -2207,11 +2326,9 @@ function maybeIntro(){
           ? '<button class="save" id="intro-go">Aan de slag</button>'
           : '<button class="save" id="intro-next">Volgende</button>')+
       '</div>';
+    $("#intro-skip").addEventListener("click", dismiss);
     if(isLast){
-      $("#intro-go").addEventListener("click", function(){
-        state.settings.seenIntro=true; save(); closeSheet();
-        setTimeout(function(){ var i=$("#add-name"); if(i) i.focus(); }, 320);
-      });
+      $("#intro-go").addEventListener("click", dismiss);
     } else {
       $("#intro-next").addEventListener("click", function(){ idx++; render(); });
     }
@@ -2260,11 +2377,20 @@ function init(){
 
   document.querySelectorAll(".tab").forEach(function(b){ b.addEventListener("click",function(){ switchTab(b.dataset.tab); }); });
 
+  // requestAnimationFrame-debounce zodat we niet 60×/sec class togglen tijdens scroll
+  var _scrollRaf = 0;
+  var _wasScrolled = false;
   $("#main").addEventListener("scroll",function(){
-    var s=this.scrollTop;
-    $("#topbar").classList.toggle("scrolled", s>26);
-    var aw=document.getElementById("addwrap");
-    if(aw) aw.classList.toggle("stuck", s>6);
+    if(_scrollRaf) return;
+    var main = this;
+    _scrollRaf = requestAnimationFrame(function(){
+      _scrollRaf = 0;
+      var isScrolled = main.scrollTop > 26;
+      if(isScrolled !== _wasScrolled){
+        $("#topbar").classList.toggle("scrolled", isScrolled);
+        _wasScrolled = isScrolled;
+      }
+    });
   },{passive:true});
 
   document.addEventListener("dblclick",function(e){ e.preventDefault(); },{passive:false});
@@ -2313,7 +2439,7 @@ function loadSupabaseSDK(){
   return new Promise(function(resolve, reject){
     var lastErr=null, i=0;
     function tryNext(){
-      if(i>=SUPABASE_SDK_CDNS.length){ reject(lastErr || new Error("Alle CDN's faalden")); return; }
+      if(i>=SUPABASE_SDK_CDNS.length){ reject(lastErr || new Error("Geen verbinding gevonden")); return; }
       var cdn=SUPABASE_SDK_CDNS[i++]; var done=false;
       var timeout=setTimeout(function(){
         if(done) return; done=true;
@@ -2368,7 +2494,7 @@ var Cloud = {
         var r=await this.sb.auth.signInAnonymously();
         if(r.error){
           console.warn("Mandje: anonieme aanmelding faalde —", r.error);
-          this.initError = "Anonieme aanmelding: " + (r.error.message || "onbekend");
+          this.initError = "Niet ingelogd kunnen krijgen — check je internet";
           throw r.error;
         }
       }
@@ -2406,7 +2532,7 @@ var Cloud = {
     if(r.error){
       console.warn("loadLists faalde:", r.error);
       this.lists=[];
-      toast("Lijsten laden mislukt — check verbinding");
+      toast("Kon je lijsten niet ophalen — internet aan?");
       renderListSwitch();
       return;
     }
@@ -2447,14 +2573,25 @@ var Cloud = {
       // Voorkom dat items van een vorige lijst blijven plakken — leeg de view
       state.list=[];
       if(activeTab==="lijst"){ renderLijst(); renderDueBanner(); }
-      toast("Items laden mislukt — check verbinding");
+      toast("Items willen niet laden — probeer 't straks");
       return;
     }
-    state.list=(r.data||[]).map(function(it){ return {
-      id:it.id, name:it.name, category:it.category||classify(it.name), qty:it.qty||1,
-      price:(it.price==null?null:Number(it.price)), note:it.note||"", done:!!it.done,
-      assigned_to:it.assigned_to||null, added_by_name:it.added_by_name||"", addedAt:it.created_at
-    };});
+    // Diff-merge per ID — voorkomt onnodige scroll-jank/animation-reset bij realtime updates
+    var oldById = {};
+    state.list.forEach(function(it){ oldById[it.id]=it; });
+    state.list = (r.data||[]).map(function(it){
+      var fresh = {
+        id:it.id, name:it.name, category:it.category||classify(it.name), qty:it.qty||1,
+        price:(it.price==null?null:Number(it.price)), note:it.note||"", done:!!it.done,
+        assigned_to:it.assigned_to||null, added_by_name:it.added_by_name||"", addedAt:it.created_at
+      };
+      var old = oldById[it.id];
+      // Hergebruik object-reference voor unchanged rows zodat itemRow-animaties niet opnieuw starten
+      if(old && old.name===fresh.name && old.qty===fresh.qty && old.done===fresh.done && old.price===fresh.price && old.note===fresh.note && old.assigned_to===fresh.assigned_to){
+        return old;
+      }
+      return fresh;
+    });
     if(activeTab==="lijst"){ renderLijst(); renderDueBanner(); }
   },
   refreshMembers:async function(){
@@ -2520,7 +2657,7 @@ var Cloud = {
     state.list.unshift({ id:"tmp_"+uid(), name:name, category:cat, qty:addQty, price:price, note:"", done:false, assigned_to:null, added_by_name:this.myName(), addedAt:nowISO() });
     renderLijst();
     if(!opts.silent && addQty>1) toast(name + " ×" + addQty);
-    this.sb.from("items").insert({list_id:this.active, name:name, category:cat, qty:addQty, price:(price==null?null:price), added_by_name:this.myName()}).then(function(r){ if(r.error) toast("Toevoegen mislukt"); },function(){});
+    this.sb.from("items").insert({list_id:this.active, name:name, category:cat, qty:addQty, price:(price==null?null:price), added_by_name:this.myName()}).then(function(r){ if(r.error) toast("Toevoegen lukte niet"); },function(){});
   },
   toggle:function(id){
     var it=state.list.find(function(i){return i.id===id;}); if(!it) return;
@@ -2556,13 +2693,13 @@ var Cloud = {
   createList:async function(name){
     if(!this.ready){
       console.warn("Mandje: createList terwijl Cloud niet ready —", this.initError);
-      toast("Cloud nog niet klaar: " + (this.initError || "onbekend"));
+      toast("Even moment — we zijn nog niet klaar");
       return null;
     }
     var r=await this.sb.rpc("create_list",{p_name:name||"Boodschappen", p_display_name:this.myName(), p_color:this.me.color});
     if(r.error){
       console.warn("Mandje: create_list RPC faalde —", r.error);
-      toast("Aanmaken mislukt: " + (r.error.message || "onbekend"));
+      toast("Aanmaken lukte niet — probeer 't nog eens");
       return null;
     }
     await this.loadLists(); await this.open(r.data.id); switchTab("lijst");
@@ -2570,7 +2707,7 @@ var Cloud = {
   },
   joinList:async function(code){
     var r=await this.sb.rpc("join_list",{p_code:(code||"").trim(), p_display_name:this.myName(), p_color:this.me.color});
-    if(r.error){ toast(r.error.message||"Join mislukt"); return null; }
+    if(r.error){ toast(r.error.message||"Joinen lukte niet"); return null; }
     try{ history.replaceState({}, "", location.pathname); }catch(e){}
     await this.loadLists(); await this.open(r.data.id); switchTab("lijst");
     toast("Welkom bij "+r.data.name); return r.data;
@@ -2586,7 +2723,7 @@ var Cloud = {
     if(!l) return false;
     if(l.owner_user_id !== this.userId){ toast("Alleen de eigenaar kan deze lijst verwijderen"); return false; }
     var r = await this.sb.from("lists").delete().eq("id", listId);
-    if(r.error){ toast("Verwijderen mislukt: " + (r.error.message||"")); return false; }
+    if(r.error){ toast("Verwijderen lukte niet"); return false; }
     // FK cascade ruimt members + items op. Refresh lokale state en val terug op persoonlijk.
     if(this.active === listId) this.openLocal();
     await this.loadLists();
@@ -2597,7 +2734,7 @@ var Cloud = {
   renameList:async function(listId, newName){
     newName=(newName||"").trim(); if(!newName) return null;
     var r=await this.sb.from("lists").update({name:newName}).eq("id",listId).select().single();
-    if(r.error){ toast("Hernoemen mislukt: "+(r.error.message||"")); return null; }
+    if(r.error){ toast("Naam wijzigen lukte niet"); return null; }
     await this.loadLists();
     if(this.active===listId){ applyListHeader(); }
     renderListSwitch();
@@ -2606,7 +2743,7 @@ var Cloud = {
   },
   kickMember:async function(listId, userId){
     var r=await this.sb.from("members").delete().eq("list_id",listId).eq("user_id",userId);
-    if(r.error){ toast("Verwijderen mislukt: "+(r.error.message||"")); return false; }
+    if(r.error){ toast("Verwijderen lukte niet"); return false; }
     // FK ON DELETE SET NULL clearde assigned_to op zijn items, maar onze lokale state
     // ziet dat pas via realtime — forceer een refresh zodat de UI direct klopt.
     await this.refreshMembers();
@@ -2641,13 +2778,13 @@ var Cloud = {
 
 function whenCloudReady(cb){
   if(Cloud.ready){ cb(); return; }
-  if(!Cloud.enabled){ toast("Cloud niet geconfigureerd"); return; }
-  if(Cloud.initError){ toast("Cloud: " + Cloud.initError); return; }
-  toast("Verbinding maken…");
+  if(!Cloud.enabled){ toast("Delen is niet aangezet"); return; }
+  if(Cloud.initError){ toast(Cloud.initError); return; }
+  toast("Even ophalen…");
   Cloud.waitReady(28000).then(function(ok){
     if(ok) cb();
-    else if(Cloud.initError) toast("Cloud: " + Cloud.initError);
-    else toast("Verbinding lukt niet — check je internet of probeer later");
+    else if(Cloud.initError) toast(Cloud.initError);
+    else toast("Geen verbinding — probeer 't straks");
   });
 }
 
@@ -2790,7 +2927,7 @@ function openSendSheet(scId){
           sh.querySelector("#sc-sent").innerHTML=sent.map(function(n){return '<span class="chip"><span class="emoji">✓</span>'+escapeHtml(n)+'</span>';}).join("");
           inp.focus();
           Shortcuts.touch(s.id);
-        },function(){ toast("Versturen mislukt"); });
+        },function(){ toast("Versturen lukte niet"); });
       });
     }
     btn.addEventListener("click", send);
@@ -2824,11 +2961,27 @@ function openSendSheet(scId){
 function openAddShortcutSheet(prefilledToken){
   var html='<div class="grip"></div>'+
     '<h3>Snelkoppeling toevoegen</h3>'+
-    '<div class="hint" style="margin:0 6px 14px;line-height:1.5">Vraag de ander om in <b>hun Mandje</b> op de <b>Delen-knop</b> te tikken en daarna op <b>"Deel \'stuur items\'-link"</b>. Ze sturen \'m bv. via WhatsApp naar jou — plak die link hier.</div>'+
-    '<div class="frow"><input class="txt" id="sc-tokin" placeholder="Plak stuur-link" value="'+escapeAttr(prefilledToken||"")+'" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" inputmode="url"></div>'+
+    '<div class="hint" style="margin:0 6px 14px;line-height:1.5">Plak hieronder de link die iemand jou stuurde. Tik <b>📋 Plak</b> om \'m direct uit je klembord te halen.</div>'+
+    '<div class="frow"><input class="txt" id="sc-tokin" placeholder="Plak iemands link" value="'+escapeAttr(prefilledToken||"")+'" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" inputmode="url"></div>'+
+    '<button class="mbtn" id="sc-paste" type="button" style="margin:0 0 4px;font-weight:600">📋 Plak uit klembord</button>'+
     '<div class="sheet-actions"><button class="save" id="sc-save-add">Opslaan</button></div>';
   var sh=openSheet2(html);
   setTimeout(function(){ var t=sh.querySelector("#sc-tokin"); if(t) t.focus(); }, 280);
+  var pasteBtn = sh.querySelector("#sc-paste");
+  if(pasteBtn){
+    pasteBtn.addEventListener("click", function(){
+      if(navigator.clipboard && navigator.clipboard.readText){
+        navigator.clipboard.readText().then(function(text){
+          if(text && sh.querySelector("#sc-tokin")){
+            sh.querySelector("#sc-tokin").value = text.trim();
+            sh.querySelector("#sc-tokin").focus();
+          } else { toast("Klembord is leeg"); }
+        }, function(){ toast("Geen toegang tot klembord — plak handmatig"); });
+      } else {
+        toast("Plak handmatig in het veld");
+      }
+    });
+  }
   sh.querySelector("#sc-save-add").addEventListener("click", function(){
     var saveBtn=sh.querySelector("#sc-save-add");
     var raw=sh.querySelector("#sc-tokin").value;
@@ -2945,8 +3098,16 @@ function renderMembersRow(){
 }
 
 /* --- tweede sheet helpers --- */
-function openSheet2(html){ var s=$("#sheet2"); s.innerHTML='<div class="grip"></div>'+html; $("#scrim2").classList.add("show"); s.classList.add("show"); return s; }
-function closeSheet2(){ $("#scrim2").classList.remove("show"); $("#sheet2").classList.remove("show"); }
+function openSheet2(html){
+  var s=$("#sheet2"); s.innerHTML='<div class="grip"></div>'+html;
+  $("#scrim2").classList.add("show"); s.classList.add("show");
+  document.body.classList.add("sheet-open");
+  return s;
+}
+function closeSheet2(){
+  $("#scrim2").classList.remove("show"); $("#sheet2").classList.remove("show");
+  if(!$("#sheet").classList.contains("show")) document.body.classList.remove("sheet-open");
+}
 $("#scrim2").addEventListener("click",closeSheet2);
 
 function openSwitchSheet(){
@@ -2975,11 +3136,9 @@ function openSwitchSheet(){
       (Cloud.active===l.id?'<span class="lsi-check">✓</span>':'')+
     '</div>';
   });
-  // Acties: prominent + Nieuwe lijst, daaronder code-invoeren
-  html+='<div class="sheet-actions" style="flex-direction:column;gap:10px;margin-top:14px">'+
-    '<button class="save" id="ls-new" style="display:flex;align-items:center;justify-content:center;gap:8px"><span style="font-size:20px;font-weight:800;line-height:1">+</span><span>Nieuwe lijst</span></button>'+
-    '<button class="mbtn" id="ls-join" style="width:100%">Lijst-code invoeren</button>'+
-  '</div>';
+  // Inline aanmaken — type+Enter = direct nieuwe lijst, geen extra sheet nodig
+  html+='<div class="quick-create"><input class="txt" id="ls-new-name" type="text" placeholder="+ Nieuwe lijst… (Thuis, Weekend, Vakantie)" autocapitalize="words" autocomplete="off" enterkeyhint="done"></div>'+
+    '<button class="mbtn" id="ls-join" style="width:100%;margin-top:8px">Code invoeren</button>';
   var s=openSheet2(html);
   s.querySelectorAll(".ls-item").forEach(function(it){
     it.addEventListener("click",function(){
@@ -2987,7 +3146,17 @@ function openSwitchSheet(){
       if(act==="local") Cloud.openLocal(); else Cloud.open(act).then(function(){ switchTab("lijst"); });
     });
   });
-  s.querySelector("#ls-new").addEventListener("click",function(){ closeSheet2(); ensureIdentity(function(){ promptNewList(); }); });
+  var newInp = s.querySelector("#ls-new-name");
+  if(newInp){
+    newInp.addEventListener("keydown", function(e){
+      if(e.key !== "Enter") return;
+      var nm = (newInp.value||"").trim();
+      if(!nm) return;
+      newInp.value = "";
+      closeSheet2();
+      ensureIdentity(function(){ Cloud.createList(nm); });
+    });
+  }
   s.querySelector("#ls-join").addEventListener("click",function(){ closeSheet2(); ensureIdentity(function(){ promptJoin(); }); });
 }
 
@@ -3070,15 +3239,20 @@ function openShareSheet(listId){
     var titleHtml = '<h3 id="sh-title-row" style="display:flex;align-items:center;gap:10px"><span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:'+dotCol+';flex:0 0 auto"></span><span id="sh-title-name" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">'+escapeHtml(prettyName)+'</span>'+
       (isOwner?'<button id="sh-rename" type="button" aria-label="Hernoem" style="border:0;background:transparent;color:var(--ink-soft);padding:6px;border-radius:8px"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>':'')+
     '</h3>';
+    // Join-code prettier: spaties tussen halves voor leesbaarheid
+    var codePretty = l.join_code.length === 6 ? l.join_code.slice(0,3)+" "+l.join_code.slice(3) : l.join_code;
     return titleHtml +
-      '<div class="code-box"><div class="cb-lbl">Join-code</div><div class="cb-code">'+l.join_code+'</div></div>'+
-      '<button class="mbtn" id="sh-invite" style="background:var(--green);color:var(--on-green);border-color:transparent">Deel uitnodiging</button>'+
-      '<button class="mbtn" id="sh-link">Kopieer uitnodig-link</button>'+
-      '<button class="mbtn" id="sh-send">Deel "stuur items"-link</button>'+
-      '<div class="hint" style="margin:2px 6px 14px;line-height:1.5">De <b>uitnodig-link</b> laat iemand meedoen en alles zien. De <b>stuur-link</b> geeft iemand alleen een drop-pagina om dingen aan jou te sturen — zonder app, zonder mee te kijken.</div>'+
+      '<div class="code-box"><div class="cb-lbl">Code</div><div class="cb-code">'+codePretty+'</div></div>'+
+      '<button class="mbtn" id="sh-invite" style="background:var(--green);color:var(--on-green);border-color:transparent">Stuur uitnodiging</button>'+
+      '<button class="mbtn" id="sh-more-toggle" type="button" style="font-weight:500;color:var(--ink-soft);background:transparent;border:0;box-shadow:none;padding:8px 4px;margin:4px 0 6px">Andere opties ▾</button>'+
+      '<div id="sh-more" style="display:none">'+
+        '<button class="mbtn" id="sh-link">Kopieer uitnodig-link</button>'+
+        '<button class="mbtn" id="sh-send">Deel "stuur items"-link</button>'+
+        '<div class="hint" style="margin:2px 6px 14px;line-height:1.5">De <b>uitnodig-link</b> laat iemand meedoen en alles zien. De <b>stuur-link</b> geeft iemand alleen een drop-pagina om dingen aan jou te sturen — zonder app, zonder mee te kijken.</div>'+
+      '</div>'+
       (memberHtml?('<div class="sheet-label"><span class="lbl-cap">Leden ('+Cloud.members.length+')</span></div>'+memberHtml):'')+
       (activityHtml||'')+
-      (isOwner ? '<div class="sheet-label" style="margin-top:22px"><span class="lbl-cap">Gevaren-zone</span></div><button class="mbtn danger" id="sh-delete-list" type="button" style="width:100%;color:var(--red);border-color:color-mix(in srgb, var(--red) 25%, var(--line))">Lijst verwijderen</button><div class="hint" style="margin:4px 6px 0">Items en leden worden definitief verwijderd. Niet terug te halen.</div>' : '');
+      (isOwner ? '<div class="sheet-label" style="margin-top:22px"><span class="lbl-cap">Let op</span></div><button class="mbtn danger" id="sh-delete-list" type="button" style="width:100%;color:var(--red);border-color:color-mix(in srgb, var(--red) 25%, var(--line))">Lijst verwijderen</button><div class="hint" style="margin:4px 6px 0">Alle items en leden zijn dan weg voor altijd.</div>' : '');
   }
 
   var s = openSheet2(buildHtml(''));
@@ -3102,6 +3276,15 @@ function wireShareSheet(s, l, isOwner, prettyName){
   var invite = s.querySelector("#sh-invite");
   var lnk = s.querySelector("#sh-link");
   var snd = s.querySelector("#sh-send");
+  var moreT = s.querySelector("#sh-more-toggle");
+  var moreW = s.querySelector("#sh-more");
+  if(moreT && moreW){
+    moreT.addEventListener("click", function(){
+      var open = moreW.style.display !== "none";
+      moreW.style.display = open ? "none" : "block";
+      moreT.textContent = open ? "Andere opties ▾" : "Andere opties ▴";
+    });
+  }
   if(invite) invite.addEventListener("click",function(){ shareNative(Cloud.shareLink(l), "Doe mee met onze boodschappenlijst \""+prettyName+"\" in Mandje 🧺", "Uitnodig-link gekopieerd"); });
   if(lnk) lnk.addEventListener("click",function(){ copyText(Cloud.shareLink(l),"Uitnodig-link gekopieerd"); });
   if(snd) snd.addEventListener("click",function(){ shareNative(Cloud.sendLink(l), "Stuur boodschappen naar onze lijst \""+prettyName+"\" 🧺", "Stuur-link gekopieerd"); });
@@ -3203,11 +3386,11 @@ function openSendScreen(token){
       var nm=(nameI.value||"").trim(); if(!nm) return;
       var from=(scr.querySelector("#ss-from").value||"").trim();
       Cloud.sb.rpc("add_item_via_token",{p_token:token,p_name:nm,p_qty:1,p_note:"",p_from:from}).then(function(r){
-        if(r.error){ toast("Versturen mislukt"); return; }
+        if(r.error){ toast("Versturen lukte niet"); return; }
         added.unshift(nm); nameI.value="";
         scr.querySelector("#ss-chips").innerHTML=added.map(function(n){return '<span class="chip"><span class="emoji">✓</span>'+escapeHtml(n)+'</span>';}).join("");
         nameI.focus();
-      },function(){ toast("Versturen mislukt"); });
+      },function(){ toast("Versturen lukte niet"); });
     }
     scr.querySelector("#ss-add").addEventListener("click",send);
     nameI.addEventListener("keydown",function(e){ if(e.key==="Enter") send(); });
