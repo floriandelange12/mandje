@@ -785,6 +785,16 @@ function prettyListName(name){
   var m=String(name).match(/^\s*boodschappen van\s+(.+?)\s*$/i);
   return m ? m[1] : name;
 }
+/* Is dit lijst-object de eigen inbox van de gebruiker? */
+function isInboxList(l){
+  return !!(l && Cloud.profile && Cloud.profile.inbox_list_id && l.id === Cloud.profile.inbox_list_id);
+}
+/* Vriendelijke weergavenaam voor een lijst — eigen inbox krijgt "Naar mij gestuurd". */
+function listDisplayName(l){
+  if(!l) return "Gedeeld";
+  if(isInboxList(l)) return "Naar mij gestuurd";
+  return prettyListName(l.name);
+}
 function ownerColor(l){
   if(l && Cloud.members && l.owner_user_id){
     for(var i=0;i<Cloud.members.length;i++){
@@ -800,7 +810,7 @@ function applyListHeader(){
   var lh=document.querySelector(".largehead"); if(lh) lh.removeAttribute("data-loading");
   if(Cloud.active){
     var l=Cloud.activeList();
-    var nm=prettyListName(l?l.name:"Gedeeld");
+    var nm=l?listDisplayName(l):"Gedeeld";
     var col=ownerColor(l);
     title.textContent=nm;
     title.classList.add("has-dot");
@@ -826,10 +836,12 @@ function renderListSwitch(){
   if(activeTab!=="lijst") return;          // pill alleen op de lijst-tab
   if(!Cloud.enabled) return; // sharing niet geconfigureerd → niets tonen
   var l=Cloud.activeList();
-  var name = Cloud.active ? prettyListName(l?l.name:"Gedeeld") : "Persoonlijk";
-  // Gedeeld = gekleurde owner-stip (consistent met de rest), Persoonlijk = mandje-emoji
+  var name = Cloud.active ? (l?listDisplayName(l):"Gedeeld") : "Persoonlijk";
+  // Gedeeld = gekleurde owner-stip; inbox = 📥; Persoonlijk = mandje-emoji
   var icoHtml;
-  if(Cloud.active){
+  if(Cloud.active && isInboxList(l)){
+    icoHtml = '<span class="ls-ico">📥</span>';
+  } else if(Cloud.active){
     var col = ownerColor(l);
     icoHtml = '<span class="ls-ico-dot" style="background:'+col+'"></span>';
   } else {
@@ -883,19 +895,25 @@ function openSwitchSheet(){
     '<div class="lsi-sub">Alleen op dit toestel</div></div>'+
     (!Cloud.active?'<span class="lsi-check">✓</span>':'')+
   '</div>';
-  // Cloud-lijsten
-  Cloud.lists.forEach(function(l){
+  // Cloud-lijsten — inbox eerst, rest daarna
+  var sortedLists = Cloud.lists.slice().sort(function(a,b){ return (isInboxList(b)?1:0)-(isInboxList(a)?1:0); });
+  sortedLists.forEach(function(l){
     var col=ownerColor(l);
-    var nm=prettyListName(l.name);
+    var inbox=isInboxList(l);
+    var nm=inbox?"Naar mij gestuurd":prettyListName(l.name);
     var cnt=l.member_count||1;
     var iOwn=l.owner_user_id===Cloud.userId;
     var badge;
-    if(cnt<=1) badge=iOwn?'Alleen jij · niet gedeeld':'Alleen jij';
+    if(inbox) badge="Wat vrienden je sturen";
+    else if(cnt<=1) badge=iOwn?'Alleen jij · niet gedeeld':'Alleen jij';
     else if(iOwn) badge='Jij + '+(cnt-1)+' ander'+(cnt-1>1?'en':'');
     else badge=cnt+' leden';
+    var ico = inbox
+      ? '<div class="lsi-ico" style="background:var(--green-2)">📥</div>'
+      : '<div class="lsi-ico" style="background:'+col+';color:#fff;font-size:13px;font-weight:700;letter-spacing:.02em">'+escapeHtml(initials(nm))+'</div>';
     html+='<div class="ls-item'+(Cloud.active===l.id?" active":"")+'" data-act="'+l.id+'">'+
-      '<div class="lsi-ico" style="background:'+col+';color:#fff;font-size:13px;font-weight:700;letter-spacing:.02em">'+escapeHtml(initials(nm))+'</div>'+
-      '<div style="flex:1;min-width:0"><div class="lsi-name" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+escapeHtml(nm)+'</div>'+
+      ico+
+      '<div class="lsi-meta"><div class="lsi-name lsi-text">'+escapeHtml(nm)+'</div>'+
       '<div class="lsi-sub">'+escapeHtml(badge)+'</div></div>'+
       (Cloud.active===l.id?'<span class="lsi-check">✓</span>':'')+
     '</div>';
@@ -1017,7 +1035,7 @@ function openShareSheet(listId){
   var l=Cloud.listById(listId); if(!l) return;
   var isOwner = (l.owner_user_id === Cloud.userId);
   var dotCol = ownerColor(l);
-  var prettyName = prettyListName(l.name);
+  var prettyName = listDisplayName(l);
 
   function memberRowHtml(m){
     var isYou = (m.user_id === Cloud.userId);
