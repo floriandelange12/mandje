@@ -83,6 +83,17 @@
     transition:background-color 100000s ease-in-out 0s !important;
     font-family:var(--font) !important;
   }
+  /* Consistente, on-brand focus-ring i.p.v. de oranje UA-default-outline */
+  input:focus, textarea:focus, select:focus{ outline:none; }
+  .sheet input.txt:focus, .sheet input.num:focus, .inline-rename input:focus,
+  textarea.io:focus, .quick-create input:focus{
+    border-color:color-mix(in srgb, var(--green) 55%, var(--line));
+    box-shadow:0 0 0 3px var(--green-2);
+  }
+  .search-bar:focus-within{
+    border-color:color-mix(in srgb, var(--green) 55%, var(--line));
+    box-shadow:0 0 0 3px var(--green-2);
+  }
 
   .app{max-width:600px; margin:0 auto; height:100%; position:relative; overflow:hidden; z-index:1;}
   body::before{ content:""; position:fixed; inset:0; pointer-events:none; z-index:0;
@@ -566,7 +577,7 @@
   window.MANDJE_CONFIG = {
     SUPABASE_URL:      "https://yctcpxgjpmhyohbsrygy.supabase.co",   /* ingevuld ✓ */
     SUPABASE_ANON_KEY: "sb_publishable_lT77Nkcrl6VsBIx-PFuMtw_mdJ6fyNj",   /* ingevuld ✓ (publishable key) */
-    BUILD:             "2026-06-09.3", /* alleen onderaan Meer-tab zichtbaar — handig om cache-versie te verifiëren */
+    BUILD:             "2026-06-09.4", /* alleen onderaan Meer-tab zichtbaar — handig om cache-versie te verifiëren */
     EMAIL_AUTH:        false  /* zet op true zodra e-mail magic-link aan staat in Supabase → toont "Beveilig je account" */
   };
 </script>
