@@ -296,6 +296,10 @@ const ok=(n,c)=>{ if(c){pass++;console.log("  ✓ "+n);} else {fail++;console.lo
   ok(".mbtn.primary klasse gedefinieerd", html.indexOf(".mbtn.primary") !== -1);
   ok("Vriendcode-box klasse aanwezig", html.indexOf("friend-code-box") !== -1);
 
+  // 25. Cross-platform input-hardening
+  ok("Autofill-override aanwezig (-webkit-autofill)", html.indexOf("-webkit-autofill") !== -1);
+  ok("text-size-adjust aanwezig", html.indexOf("text-size-adjust") !== -1);
+
   console.log("\nt3: "+pass+" geslaagd, "+fail+" gefaald");
   process.exit(fail?1:0);
 })().catch(e=>{console.error("t3 TESTFOUT:",e);process.exit(2)});

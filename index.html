@@ -59,11 +59,30 @@
     font-family:var(--font); background:var(--bg); color:var(--ink);
     -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
     overscroll-behavior-y:none; -webkit-user-select:none; user-select:none;
+    -webkit-text-size-adjust:100%; text-size-adjust:100%;
     font-size:17px; line-height:1.4;
   }
   input,button,select,textarea{font-family:var(--font); color:inherit;}
+  /* Cross-platform input-reset: weg met iOS' standaard inner-shadow/afronding + Android-tics */
+  input[type="text"],input[type="search"],input[type="email"],input[type="url"],input[type="tel"],input[type="number"],input:not([type]),textarea{
+    -webkit-appearance:none; appearance:none; background-clip:padding-box;
+  }
   button{cursor:pointer;}
-  ::placeholder{color:var(--ink-faint);}
+  ::placeholder{color:var(--ink-faint); opacity:1;}
+  /* Autofill (iOS Safari + Chrome/Android): voorkom de gele/blauwe achtergrond.
+     De ultralange transition zorgt dat de browser-achtergrond nooit zichtbaar "inverft";
+     text-fill-color houdt de tekst leesbaar — ook in dark mode. */
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus,
+  input:-webkit-autofill:active,
+  textarea:-webkit-autofill,
+  select:-webkit-autofill{
+    -webkit-text-fill-color:var(--ink) !important;
+    caret-color:var(--ink);
+    transition:background-color 100000s ease-in-out 0s !important;
+    font-family:var(--font) !important;
+  }
 
   .app{max-width:600px; margin:0 auto; height:100%; position:relative; overflow:hidden; z-index:1;}
   body::before{ content:""; position:fixed; inset:0; pointer-events:none; z-index:0;
@@ -547,7 +566,7 @@
   window.MANDJE_CONFIG = {
     SUPABASE_URL:      "https://yctcpxgjpmhyohbsrygy.supabase.co",   /* ingevuld ✓ */
     SUPABASE_ANON_KEY: "sb_publishable_lT77Nkcrl6VsBIx-PFuMtw_mdJ6fyNj",   /* ingevuld ✓ (publishable key) */
-    BUILD:             "2026-06-09.2", /* alleen onderaan Meer-tab zichtbaar — handig om cache-versie te verifiëren */
+    BUILD:             "2026-06-09.3", /* alleen onderaan Meer-tab zichtbaar — handig om cache-versie te verifiëren */
     EMAIL_AUTH:        false  /* zet op true zodra e-mail magic-link aan staat in Supabase → toont "Beveilig je account" */
   };
 </script>
