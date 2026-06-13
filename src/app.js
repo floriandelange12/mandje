@@ -884,6 +884,19 @@ function renderMeer(){
   addCat.addEventListener("click", openAddCategorySheet);
   wrap.appendChild(addCat);
 
+  // Account beveiligen (alleen als e-mail-auth aan staat in Supabase)
+  if(window.MANDJE_CONFIG && window.MANDJE_CONFIG.EMAIL_AUTH && typeof Cloud!=="undefined" && Cloud.enabled){
+    wrap.appendChild(el("div","section",'<span>Account</span>'));
+    wrap.appendChild(el("div","hint","Koppel een e-mail zodat je vrienden en lijsten bewaard blijven als je van telefoon wisselt. Optioneel — verder hoef je nooit in te loggen."));
+    var secure=el("button","mbtn","Beveilig je account met e-mail");
+    secure.addEventListener("click",function(){
+      var email=prompt("Je e-mailadres (we sturen een bevestigingslink):");
+      if(email===null) return;
+      Cloud.secureWithEmail(email);
+    });
+    wrap.appendChild(secure);
+  }
+
   // Back-up
   wrap.appendChild(el("div","section",'<span>Back-up</span>'));
   wrap.appendChild(el("div","hint","Gedeelde lijsten staan veilig online. Je persoonlijke lijst staat op dit toestel — exporteer 'm af en toe als back-up, of zet 'm terug op een nieuw toestel."));
@@ -1854,6 +1867,7 @@ if(typeof window!=="undefined"){
   window.touchCatalog = touchCatalog;
   window.removeFromList = removeFromList;
   window.runAutoAddDueItems = runAutoAddDueItems;
+  if(typeof avatarHtml==="function") window.avatarHtml = avatarHtml;
 }
 if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",init);
 else init();

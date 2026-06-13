@@ -367,6 +367,7 @@
   .sc-action-wide svg{ width:15px; height:15px; }
   .sc-action-wide .sc-act-lbl{ white-space:nowrap; }
   .sc-action-wide:active{ filter:brightness(.96); }
+  .friend-me{ display:flex; align-items:center; gap:12px; padding:12px 4px 16px; }
 
   /* ---------- Share-actions sheet (sa-) ---------- */
   .sa-row{ display:flex; align-items:center; gap:14px; width:100%; background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:14px; box-shadow:var(--shadow-sm); margin-bottom:10px; text-align:left; }
@@ -530,7 +531,8 @@
   window.MANDJE_CONFIG = {
     SUPABASE_URL:      "https://yctcpxgjpmhyohbsrygy.supabase.co",   /* ingevuld ✓ */
     SUPABASE_ANON_KEY: "sb_publishable_lT77Nkcrl6VsBIx-PFuMtw_mdJ6fyNj",   /* ingevuld ✓ (publishable key) */
-    BUILD:             "2026-06-08.2"  /* alleen onderaan Meer-tab zichtbaar — handig om cache-versie te verifiëren */
+    BUILD:             "2026-06-09.1", /* alleen onderaan Meer-tab zichtbaar — handig om cache-versie te verifiëren */
+    EMAIL_AUTH:        false  /* zet op true zodra e-mail magic-link aan staat in Supabase → toont "Beveilig je account" */
   };
 </script>
 <!-- ===================================================================== -->
@@ -1542,6 +1544,19 @@ function renderMeer(){
   addCat.addEventListener("click", openAddCategorySheet);
   wrap.appendChild(addCat);
 
+  // Account beveiligen (alleen als e-mail-auth aan staat in Supabase)
+  if(window.MANDJE_CONFIG && window.MANDJE_CONFIG.EMAIL_AUTH && typeof Cloud!=="undefined" && Cloud.enabled){
+    wrap.appendChild(el("div","section",'<span>Account</span>'));
+    wrap.appendChild(el("div","hint","Koppel een e-mail zodat je vrienden en lijsten bewaard blijven als je van telefoon wisselt. Optioneel — verder hoef je nooit in te loggen."));
+    var secure=el("button","mbtn","Beveilig je account met e-mail");
+    secure.addEventListener("click",function(){
+      var email=prompt("Je e-mailadres (we sturen een bevestigingslink):");
+      if(email===null) return;
+      Cloud.secureWithEmail(email);
+    });
+    wrap.appendChild(secure);
+  }
+
   // Back-up
   wrap.appendChild(el("div","section",'<span>Back-up</span>'));
   wrap.appendChild(el("div","hint","Gedeelde lijsten staan veilig online. Je persoonlijke lijst staat op dit toestel — exporteer 'm af en toe als back-up, of zet 'm terug op een nieuw toestel."));
@@ -2512,6 +2527,7 @@ if(typeof window!=="undefined"){
   window.touchCatalog = touchCatalog;
   window.removeFromList = removeFromList;
   window.runAutoAddDueItems = runAutoAddDueItems;
+  if(typeof avatarHtml==="function") window.avatarHtml = avatarHtml;
 }
 
 /* ===== CLOUD MODULE ===== */
@@ -2566,6 +2582,7 @@ var Cloud = {
   enabled:false, sb:null, ready:false,
   me:null, userId:null,
   lists:[], active:null, members:[], channel:null, presenceTimer:null,
+  profile:null, friends:[],
 
   cfg:function(){ return !!(SUPABASE_URL && SUPABASE_ANON_KEY); },
 
@@ -2575,6 +2592,67 @@ var Cloud = {
   },
   saveMe:function(){ try{ localStorage.setItem("mandje.me", JSON.stringify(this.me)); }catch(e){} },
   myName:function(){ return (this.me && this.me.display_name) || "Ik"; },
+  myEmoji:function(){ return (this.me && this.me.emoji) || ""; },
+
+  /* ---- profiel + vrienden ---- */
+  syncProfile:async function(){
+    if(!this.ready || !this.me || !this.me.display_name) return null;
+    var r=await this.sb.rpc("ensure_profile",{p_name:this.me.display_name, p_color:this.me.color, p_emoji:this.me.emoji||""});
+    if(r.error){ console.warn("ensure_profile faalde —", r.error); return null; }
+    this.profile=r.data;
+    // friendCode + inboxToken cachen in lokaal me-object
+    if(r.data){ this.me.friendCode=r.data.friend_code; this.me.inboxToken=r.data.inbox_token; this.saveMe(); }
+    return r.data;
+  },
+  loadFriends:async function(){
+    if(!this.ready) return;
+    var r=await this.sb.rpc("list_friends");
+    if(r.error){ console.warn("list_friends faalde —", r.error); this.friends=[]; return; }
+    this.friends=(r.data||[]).map(function(f){
+      return { user_id:f.to_user_id, name:f.to_display_name||"Vriend", color:f.to_color||"#2F7A4F",
+               emoji:f.to_emoji||"", friend_code:f.to_friend_code||"", inbox_token:f.to_inbox_token||null };
+    });
+    if(typeof renderShortcutsRow==="function") renderShortcutsRow();
+  },
+  friendByUser:function(uid){ for(var i=0;i<this.friends.length;i++) if(this.friends[i].user_id===uid) return this.friends[i]; return null; },
+  addFriend:async function(code){
+    code=(code||"").trim(); if(!code) return null;
+    if(!this.ready){ toast("Even moment — we zijn nog niet klaar"); return null; }
+    var r=await this.sb.rpc("add_friend",{p_friend_code:code});
+    if(r.error){ toast(r.error.message||"Toevoegen lukte niet"); return null; }
+    await this.loadFriends();
+    var nm=(r.data && r.data.to_display_name) || "Je vriend";
+    toast(nm+" is nu je vriend 🎉");
+    return r.data;
+  },
+  removeFriend:async function(uid){
+    var r=await this.sb.from("friendships").delete().eq("from_user_id", this.userId).eq("to_user_id", uid);
+    if(r.error){ toast("Verwijderen lukte niet"); return false; }
+    await this.loadFriends();
+    return true;
+  },
+  sendToFriend:function(friend, itemName){
+    var nm=(itemName||"").trim(); if(!nm || !friend || !friend.inbox_token) return Promise.resolve(false);
+    var from=this.myName();
+    return this.sb.rpc("add_item_via_token",{p_token:friend.inbox_token, p_name:nm, p_qty:1, p_note:"", p_from:from})
+      .then(function(r){ return !r.error; }, function(){ return false; });
+  },
+  addFriendToList:async function(listId, friendUserId){
+    var r=await this.sb.rpc("add_friend_to_list",{p_list_id:listId, p_friend_user_id:friendUserId});
+    if(r.error){ toast(r.error.message||"Toevoegen lukte niet"); return false; }
+    await this.refreshMembers(); await this.loadLists();
+    toast("Vriend toegevoegd aan de lijst");
+    return true;
+  },
+  /* Optioneel account beveiligen: koppelt een e-mail aan de huidige (anonieme) user.
+     Zelfde user_id blijft → vrienden/lijsten overleven een nieuw toestel na inloggen. */
+  secureWithEmail:async function(email){
+    email=(email||"").trim(); if(!email || !this.ready) return false;
+    var r=await this.sb.auth.updateUser({email:email});
+    if(r.error){ toast(r.error.message||"Lukte niet — klopt het e-mailadres?"); return false; }
+    toast("Check je mail om te bevestigen ✉️");
+    return true;
+  },
   memberById:function(id){ for(var i=0;i<this.members.length;i++) if(this.members[i].id===id) return this.members[i]; return null; },
   listById:function(id){ for(var i=0;i<this.lists.length;i++) if(this.lists[i].id===id) return this.lists[i]; return null; },
   activeList:function(){ return this.active ? this.listById(this.active) : null; },
@@ -2605,6 +2683,20 @@ var Cloud = {
       if(params.get("send")){ openSendScreen(params.get("send")); return; }
 
       await this.loadLists();
+
+      // Profiel + vrienden: alleen als er al een naam is (anders pas na ensureIdentity)
+      if(this.me && this.me.display_name){ await this.syncProfile(); }
+      await this.loadFriends();
+
+      // Vriend-uitnodiging via ?friend=CODE
+      if(params.get("friend")){
+        var fcode = params.get("friend");
+        try{ history.replaceState({}, "", location.pathname); }catch(e){}
+        ensureIdentity(function(){
+          Cloud.syncProfile().then(function(){ Cloud.addFriend(fcode); });
+        });
+      }
+
       if(params.get("join")){ await ensureIdentity(function(){ Cloud.joinList(params.get("join")); }); }
       else{
         var act=localStorage.getItem("mandje.activeList");
@@ -2922,26 +3014,38 @@ function renderShortcutsRow(){
   var wrap=document.getElementById("shortcuts-row"); if(!wrap) return;
   if(activeTab!=="lijst" || !Cloud.enabled){ wrap.innerHTML=""; wrap.className="shortcuts-row empty"; return; }
   wrap.className="shortcuts-row";
+  var inner='<div class="sc-scroll">';
+  // Vrienden eerst (sturen = 1 tap)
+  (Cloud.friends||[]).forEach(function(f){
+    inner+='<button class="sc-chip" data-friend="'+f.user_id+'">'+
+      avatarHtml(f.name, f.color, f.emoji, 22)+
+      '<span class="sc-name">'+escapeHtml(f.name)+'</span>'+
+    '</button>';
+  });
+  // Legacy snelkoppelingen (stuur-tokens zonder vriend) blijven werken
   var sorted=Shortcuts.items.slice().sort(function(a,b){
     return new Date(b.lastUsed||0).getTime() - new Date(a.lastUsed||0).getTime();
   });
-  var inner='<div class="sc-scroll">';
   sorted.forEach(function(s){
     inner+='<button class="sc-chip" data-id="'+s.id+'">'+
       '<span class="sc-dot" style="background:'+s.color+'"></span>'+
       '<span class="sc-name">'+escapeHtml(prettyListName(s.name))+'</span>'+
     '</button>';
   });
-  if(sorted.length===0){
-    inner+='<button class="sc-chip sc-action sc-action-wide" data-actions="1"><span class="sc-act-ico">+</span><span class="sc-act-lbl">Snelkoppeling</span></button>';
+  var hasAny = (Cloud.friends&&Cloud.friends.length) || sorted.length;
+  if(!hasAny){
+    inner+='<button class="sc-chip sc-action sc-action-wide" data-actions="1"><span class="sc-act-ico">+</span><span class="sc-act-lbl">Vriend toevoegen</span></button>';
   } else {
-    inner+='<button class="sc-chip sc-action" data-actions="1" aria-label="Snelkoppeling-acties">+</button>';
+    inner+='<button class="sc-chip sc-action" data-actions="1" aria-label="Vrienden">+</button>';
   }
   inner+='</div>';
   wrap.innerHTML=inner;
   wrap.querySelectorAll(".sc-chip").forEach(function(b){
     if(b.dataset.actions){
-      b.addEventListener("click", function(){ openShareActionSheet(); });
+      b.addEventListener("click", function(){ openFriendsSheet(); });
+    } else if(b.dataset.friend){
+      var uid=b.dataset.friend;
+      b.addEventListener("click", function(){ var f=Cloud.friendByUser(uid); if(f) openSendToFriendSheet(f); });
     } else {
       var id=b.dataset.id;
       b.addEventListener("click", function(){ openSendSheet(id); });
@@ -2953,6 +3057,78 @@ function renderShortcutsRow(){
       b.addEventListener("touchmove", clrLP);
       b.addEventListener("touchcancel", clrLP);
     }
+  });
+}
+
+/* Sturen naar een vriend — hergebruikt add_item_via_token op diens inbox-token */
+function openSendToFriendSheet(friend){
+  if(!friend) return;
+  var sent=[];
+  var html='<div class="grip"></div>'+
+    '<h3 style="display:flex;align-items:center;gap:10px">'+avatarHtml(friend.name, friend.color, friend.emoji, 30)+'<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">Sturen naar '+escapeHtml(friend.name)+'</span></h3>'+
+    '<div class="field" style="margin-bottom:6px">'+
+      '<svg class="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>'+
+      '<input class="name" id="sf-input" type="search" enterkeyhint="send" placeholder="Bijv. melk, brood…" autocapitalize="sentences" autocomplete="off" autocorrect="off" spellcheck="false">'+
+      '<button class="addbtn" id="sf-send" aria-label="Stuur"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg></button>'+
+    '</div>'+
+    '<div class="chips" id="sf-sent" style="margin:14px 0 4px"></div>'+
+    '<div class="hint" style="margin:8px 6px 4px">'+escapeHtml(friend.name)+' ziet je toevoegingen direct.</div>';
+  var sh=openSheet2(html);
+  var inp=sh.querySelector("#sf-input"), btn=sh.querySelector("#sf-send");
+  function send(){
+    var nm=(inp.value||"").trim(); if(!nm) return;
+    Cloud.sendToFriend(friend, nm).then(function(ok){
+      if(!ok){ toast("Versturen lukte niet"); return; }
+      sent.unshift(nm); inp.value="";
+      sh.querySelector("#sf-sent").innerHTML=sent.map(function(n){return '<span class="chip"><span class="emoji">✓</span>'+escapeHtml(n)+'</span>';}).join("");
+      inp.focus(); vibrate(10);
+    });
+  }
+  btn.addEventListener("click", send);
+  inp.addEventListener("keydown", function(e){ if(e.key==="Enter") send(); });
+  setTimeout(function(){ if(inp) inp.focus(); }, 280);
+}
+
+/* Vrienden-scherm: jouw profiel + vriendcode delen + je vrienden + toevoegen */
+function openFriendsSheet(){
+  whenCloudReady(function(){
+    ensureIdentity(function(){
+      Cloud.syncProfile().then(function(){ Cloud.loadFriends().then(renderFriendsSheet); });
+    });
+  });
+}
+function renderFriendsSheet(){
+  var me=Cloud.me||{};
+  var code=(me.friendCode||"");
+  var friendsHtml=(Cloud.friends||[]).map(function(f){
+    return '<div class="ls-item" data-friend="'+f.user_id+'">'+
+      avatarHtml(f.name, f.color, f.emoji, 38)+
+      '<div class="lsi-name" style="flex:1;min-width:0;font-size:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+escapeHtml(f.name)+'</div>'+
+      '<button class="lsi-member-action friend-send" data-friend="'+f.user_id+'" type="button" style="color:var(--green);font-weight:700">Stuur</button>'+
+    '</div>';
+  }).join("");
+  var html='<div class="grip"></div>'+
+    '<h3>Vrienden</h3>'+
+    '<div class="friend-me">'+avatarHtml(me.display_name, me.color, me.emoji, 44)+
+      '<div style="flex:1;min-width:0"><div style="font-weight:700;font-size:16px">'+escapeHtml(me.display_name||"Jij")+'</div>'+
+      '<div style="font-size:13px;color:var(--ink-soft)">Jouw vriendcode: <b>'+escapeHtml(code||"…")+'</b></div></div>'+
+    '</div>'+
+    '<button class="mbtn" id="fr-share" style="background:var(--green);color:var(--on-green);border-color:transparent">Deel je vriendcode</button>'+
+    '<button class="mbtn" id="fr-add">Vriend toevoegen via code</button>'+
+    (friendsHtml ? ('<div class="sheet-label"><span class="lbl-cap">Jouw vrienden ('+Cloud.friends.length+')</span></div>'+friendsHtml)
+                 : '<div class="hint" style="margin:14px 6px 0">Nog geen vrienden. Deel je code, of voeg iemand toe — daarna stuur je elkaar boodschappen in één tik.</div>');
+  var sh=openSheet2(html);
+  var link=location.origin+location.pathname+"?friend="+encodeURIComponent(code);
+  sh.querySelector("#fr-share").addEventListener("click", function(){
+    shareNative(link, "Voeg me toe in Mandje 🧺 — mijn vriendcode is "+code, "Vriend-link gekopieerd");
+  });
+  sh.querySelector("#fr-add").addEventListener("click", function(){
+    var c=prompt("Vriendcode van je vriend:");
+    if(c===null) return;
+    Cloud.addFriend(c).then(function(ok){ if(ok) openFriendsSheet(); });
+  });
+  sh.querySelectorAll(".friend-send").forEach(function(b){
+    b.addEventListener("click", function(e){ e.stopPropagation(); var f=Cloud.friendByUser(b.dataset.friend); if(f){ closeSheet2(); openSendToFriendSheet(f); } });
   });
 }
 
@@ -2974,22 +3150,22 @@ function openReceiveFlow(){
 }
 
 function openShareActionSheet(){
-  var shareSvg='<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5 8.6 10.5"/></svg>';
+  // Vrienden zijn nu de hoofdweg; oude stuur-link-snelkoppeling blijft als extra optie.
   var html='<div class="grip"></div>'+
-    '<h3>Snelkoppelingen</h3>'+
-    '<button class="sa-row" id="sa-add">'+
-      '<span class="sa-ico"><span style="font-size:21px;font-weight:800;line-height:1">+</span></span>'+
-      '<span class="sa-meta"><span class="sa-ttl">Naar iemand sturen</span><span class="sa-sub">Plak iemands stuur-link en sla op als chip.</span></span>'+
+    '<h3>Sturen & delen</h3>'+
+    '<button class="sa-row" id="sa-friends">'+
+      '<span class="sa-ico"><span style="font-size:19px;line-height:1">👥</span></span>'+
+      '<span class="sa-meta"><span class="sa-ttl">Vrienden</span><span class="sa-sub">Voeg een vriend toe en stuur elkaar boodschappen in één tik.</span></span>'+
       '<span class="sa-chev">›</span>'+
     '</button>'+
-    '<button class="sa-row" id="sa-receive">'+
-      '<span class="sa-ico">'+shareSvg+'</span>'+
-      '<span class="sa-meta"><span class="sa-ttl">Laat iemand sturen</span><span class="sa-sub">Deel jouw stuur-link via WhatsApp.</span></span>'+
+    '<button class="sa-row" id="sa-add">'+
+      '<span class="sa-ico"><span style="font-size:17px;font-weight:800;line-height:1">🔗</span></span>'+
+      '<span class="sa-meta"><span class="sa-ttl">Stuur-link plakken</span><span class="sa-sub">Iemand stuurde je een link? Plak \'m hier.</span></span>'+
       '<span class="sa-chev">›</span>'+
     '</button>';
   var sh=openSheet2(html);
+  sh.querySelector("#sa-friends").addEventListener("click", function(){ closeSheet2(); openFriendsSheet(); });
   sh.querySelector("#sa-add").addEventListener("click", function(){ closeSheet2(); openAddShortcutSheet(); });
-  sh.querySelector("#sa-receive").addEventListener("click", function(){ closeSheet2(); openReceiveFlow(); });
 }
 
 function openSendSheet(scId){
@@ -3289,24 +3465,46 @@ function promptJoin(code){
   s.querySelector("#jn-go").addEventListener("click",function(){ var c=(s.querySelector("#jn-code").value||"").trim(); if(!c){toast("Vul een code in");return;} closeSheet2(); Cloud.joinList(c); });
 }
 
-/* vraag eenmalig naam + kleur; daarna callback */
+/* Avatar-render: emoji indien gekozen, anders initialen-cirkel in de kleur.
+   Eén helper voor leden, vrienden en de switcher. */
+var AVATAR_EMOJI = ["😀","😎","🥳","🤓","😺","🐶","🦊","🐻","🐼","🐧","🦉","🦄","🌟","🌈","🍀","🌸","🔥","⚡","🍩","🍕","🥑","☕","🎈","🎧","⚽","🚀","👑","💎","🌊","🍋"];
+function avatarHtml(name, color, emoji, size){
+  size = size || 34;
+  var inner, bg;
+  if(emoji){ inner = '<span class="emoji" style="font-size:'+Math.round(size*0.56)+'px">'+emoji+'</span>'; bg = "color-mix(in srgb, "+color+" 18%, var(--surface))"; }
+  else { inner = '<span style="color:#fff;font-weight:700;font-size:'+Math.round(size*0.4)+'px;letter-spacing:.02em">'+escapeHtml(initials(name))+'</span>'; bg = color; }
+  return '<span class="avatar" style="width:'+size+'px;height:'+size+'px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;background:'+bg+'">'+inner+'</span>';
+}
+
+/* vraag eenmalig naam + kleur + avatar-emoji; daarna callback */
 function ensureIdentity(cb){
   if(Cloud.me && Cloud.me.display_name){ cb(); return; }
   var color=Cloud.me ? Cloud.me.color : pickColor();
+  var chosen=color, chosenEmoji="";
   var dots=MEMBER_COLORS.map(function(c){ return '<button class="cadchip clr" data-c="'+c+'" style="width:34px;height:34px;border-radius:50%;padding:0;background:'+c+';'+(c===color?'outline:3px solid var(--ink);outline-offset:2px':'border-color:transparent')+'"></button>'; }).join("");
-  var html='<h3>Hoe heet je?</h3><div class="frow"><input class="txt" id="id-name" placeholder="Je naam" autocapitalize="words"></div>'+
-    '<div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-soft);margin:6px 6px 10px">Kleur</div>'+
+  var emojis='<button class="ep-cell on" data-em="" type="button" aria-label="Initialen">Aa</button>'+
+    AVATAR_EMOJI.map(function(em){ return '<button class="ep-cell" data-em="'+em+'" type="button">'+em+'</button>'; }).join("");
+  var html='<h3>Hoe heet je?</h3>'+
+    '<div class="frow"><input class="txt" id="id-name" placeholder="Je naam" autocapitalize="words"></div>'+
+    '<div class="sheet-label"><span class="lbl-cap">Kleur</span></div>'+
     '<div class="cadrow" id="id-colors" style="gap:10px">'+dots+'</div>'+
+    '<div class="sheet-label"><span class="lbl-cap">Avatar</span></div>'+
+    '<div class="emoji-picker" id="id-emojis">'+emojis+'</div>'+
     '<div class="sheet-actions"><button class="save" id="id-go">Doorgaan</button></div>';
   var s=openSheet2(html);
   setTimeout(function(){ var i=s.querySelector("#id-name"); if(i) i.focus(); },250);
-  var chosen=color;
   s.querySelectorAll("#id-colors .clr").forEach(function(b){
     b.addEventListener("click",function(){ chosen=b.dataset.c; s.querySelectorAll("#id-colors .clr").forEach(function(x){x.style.outline="";}); b.style.outline="3px solid var(--ink)"; b.style.outlineOffset="2px"; });
   });
+  s.querySelectorAll("#id-emojis .ep-cell").forEach(function(b){
+    b.addEventListener("click",function(){ chosenEmoji=b.dataset.em; s.querySelectorAll("#id-emojis .ep-cell").forEach(function(x){x.classList.remove("on");}); b.classList.add("on"); });
+  });
   s.querySelector("#id-go").addEventListener("click",function(){
     var nm=(s.querySelector("#id-name").value||"").trim(); if(!nm){ toast("Vul je naam in"); return; }
-    Cloud.me={display_name:nm, color:chosen}; Cloud.saveMe(); closeSheet2(); cb();
+    Cloud.me={display_name:nm, color:chosen, emoji:chosenEmoji}; Cloud.saveMe(); closeSheet2();
+    // Profiel server-side aanmaken/bijwerken (inbox-lijst + friend_code), dan door
+    if(Cloud.ready){ Cloud.syncProfile().then(function(){ if(typeof cb==="function") cb(); }); }
+    else if(typeof cb==="function") cb();
   });
 }
 
@@ -3359,6 +3557,18 @@ function openShareSheet(listId){
         '<div class="hint" style="margin:2px 6px 14px;line-height:1.5">De <b>uitnodig-link</b> laat iemand meedoen en alles zien. De <b>stuur-link</b> geeft iemand alleen een drop-pagina om dingen aan jou te sturen — zonder app, zonder mee te kijken.</div>'+
       '</div>'+
       (memberHtml?('<div class="sheet-label"><span class="lbl-cap">Leden ('+Cloud.members.length+')</span></div>'+memberHtml):'')+
+      // Vrienden die nog geen lid zijn → 1-tap toevoegen
+      (function(){
+        var memberIds = Cloud.members.map(function(m){return m.user_id;});
+        var addable = (Cloud.friends||[]).filter(function(f){ return memberIds.indexOf(f.user_id)===-1; });
+        if(!addable.length) return '';
+        return '<div class="sheet-label" style="margin-top:14px"><span class="lbl-cap">Vrienden toevoegen</span></div>'+
+          addable.map(function(f){
+            return '<div class="ls-item"><span style="flex:0 0 auto">'+avatarHtml(f.name,f.color,f.emoji,32)+'</span>'+
+              '<div class="lsi-name" style="flex:1;min-width:0;font-size:16px">'+escapeHtml(f.name)+'</div>'+
+              '<button class="lsi-member-action add-friend-to-list" data-user="'+f.user_id+'" type="button" style="color:var(--green);font-weight:700">+ Toevoegen</button></div>';
+          }).join("");
+      })()+
       (activityHtml||'')+
       (isOwner ? '<div class="sheet-label" style="margin-top:22px"><span class="lbl-cap">Let op</span></div><button class="mbtn danger" id="sh-delete-list" type="button" style="width:100%;color:var(--red);border-color:color-mix(in srgb, var(--red) 25%, var(--line))">Lijst verwijderen</button><div class="hint" style="margin:4px 6px 0">Alle items en leden zijn dan weg voor altijd.</div>' : '');
   }
@@ -3406,6 +3616,12 @@ function wireShareSheet(s, l, isOwner, prettyName){
       if(confirm(nm+" uit deze lijst verwijderen?")){
         Cloud.kickMember(l.id, b.dataset.user).then(function(){ openShareSheet(l.id); });
       }
+    });
+  });
+
+  s.querySelectorAll(".add-friend-to-list").forEach(function(b){
+    b.addEventListener("click", function(){
+      Cloud.addFriendToList(l.id, b.dataset.user).then(function(ok){ if(ok) openShareSheet(l.id); });
     });
   });
 

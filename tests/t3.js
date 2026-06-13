@@ -268,6 +268,26 @@ const ok=(n,c)=>{ if(c){pass++;console.log("  ✓ "+n);} else {fail++;console.lo
   ok("Prijzen-nudge: seenPriceNudge gezet na 5 items", st20.settings.seenPriceNudge === true);
   dom20.window.close();
 
+  // 22. Iteratie 6 — avatarHtml: emoji vs initialen
+  const dom21=new JSDOM(html,{url:"https://example.com/",runScripts:"dangerously",resources:"usable",pretendToBeVisual:true});
+  await wait(150); const W21=dom21.window;
+  if(typeof W21.avatarHtml === "function"){
+    const withEmoji = W21.avatarHtml("Florian", "#2F7A4F", "🦊", 34);
+    const withInit  = W21.avatarHtml("Florian Delange", "#2F7A4F", "", 34);
+    ok("avatarHtml: emoji-variant toont de emoji", withEmoji.indexOf("🦊") !== -1);
+    ok("avatarHtml: zonder emoji toont initialen (FD)", withInit.indexOf("FD") !== -1);
+  } else {
+    ok("avatarHtml beschikbaar op window", false);
+  }
+  dom21.window.close();
+
+  // 23. Vrienden-laag aanwezig in build (SQL-RPC's + UI-hooks)
+  ok("Build bevat ensure_profile-aanroep", html.indexOf("ensure_profile") !== -1);
+  ok("Build bevat add_friend-aanroep", html.indexOf("add_friend") !== -1);
+  ok("Build bevat openFriendsSheet", html.indexOf("openFriendsSheet") !== -1);
+  ok("Build bevat ?friend= afhandeling", html.indexOf('params.get("friend")') !== -1);
+  ok("Build bevat sendToFriend", html.indexOf("sendToFriend") !== -1);
+
   console.log("\nt3: "+pass+" geslaagd, "+fail+" gefaald");
   process.exit(fail?1:0);
 })().catch(e=>{console.error("t3 TESTFOUT:",e);process.exit(2)});
