@@ -435,6 +435,51 @@ function vibe(level){
   vibrate(map[level] || 10);
 }
 
+/* Subtiele confetti — kort, weinig deeltjes, brand-kleuren. Respecteert reduce-motion. */
+function celebrate(){
+  try{
+    if(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    var app=document.getElementById("app"); if(!app) return;
+    var layer=document.createElement("div"); layer.className="confetti-layer";
+    var colors=["#2F7A4F","#E0772E","#3D8BFF","#E5446D","#C9A227","#1FB6A8"];
+    var N=16;
+    for(var i=0;i<N;i++){
+      var b=document.createElement("span"); b.className="confetti-bit";
+      b.style.left=(8 + Math.random()*84)+"%";
+      b.style.background=colors[i%colors.length];
+      b.style.animationDelay=(Math.random()*120)+"ms";
+      b.style.animationDuration=(800+Math.random()*500)+"ms";
+      b.style.transform="translateY(-10px)";
+      layer.appendChild(b);
+    }
+    app.appendChild(layer);
+    setTimeout(function(){ if(layer.parentNode) layer.parentNode.removeChild(layer); }, 1600);
+  }catch(e){}
+}
+
+/* Item "vliegt" van het invoerveld naar een doel-avatar (bij sturen naar vriend). */
+function flyToAvatar(fromEl, toEl, label){
+  try{
+    if(!fromEl || !toEl) return;
+    if(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    var a=fromEl.getBoundingClientRect(), b=toEl.getBoundingClientRect();
+    var bit=document.createElement("div"); bit.className="fly-bit";
+    bit.textContent=(label||"").slice(0,18);
+    bit.style.left=(a.left+14)+"px"; bit.style.top=(a.top+a.height/2-14)+"px";
+    bit.style.transition="transform .55s var(--ease,cubic-bezier(.24,.65,0,1)), opacity .55s ease";
+    document.body.appendChild(bit);
+    var dx=(b.left+b.width/2)-(a.left+14)-bit.offsetWidth/2;
+    var dy=(b.top+b.height/2)-(a.top+a.height/2);
+    requestAnimationFrame(function(){
+      bit.style.transform="translate("+dx+"px,"+dy+"px) scale(.3)";
+      bit.style.opacity="0";
+    });
+    // doel-avatar even laten "poppen"
+    setTimeout(function(){ try{ toEl.style.transition="transform .2s var(--ease)"; toEl.style.transform="scale(1.18)"; setTimeout(function(){ toEl.style.transform=""; },200);}catch(e){} }, 430);
+    setTimeout(function(){ if(bit.parentNode) bit.parentNode.removeChild(bit); }, 650);
+  }catch(e){}
+}
+
 var CHECK_SVG='<svg viewBox="0 0 24 24" fill="none" stroke="var(--on-green)" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path pathLength="24" d="M20 6 9 17l-5-5"/></svg>';
 
 /* ============================================================
@@ -574,7 +619,7 @@ function finishShopping(){
   state.list=state.list.filter(function(i){return !i.done;});
   save(); renderLijst(); renderDueBanner(); renderVaste();
   toast(done.length+(done.length===1?" boodschap gekocht":" boodschappen gekocht"));
-  vibe("nudge");
+  vibe("nudge"); celebrate();
 }
 
 /* ============================================================
@@ -1551,6 +1596,7 @@ function switchTab(tab){
   if(tab==="vaste"){ var n=getRecurring().length; $("#subhead").textContent=n?(n+" "+(n===1?"vast product":"vaste producten")):""; }
   if(tab==="meer"){ $("#subhead").textContent=""; }
   renderListSwitch(); renderMembersRow();
+  if(typeof renderPresence==="function") renderPresence();
   if(typeof renderShortcutsRow==="function") renderShortcutsRow();
   updateTotals();
 }

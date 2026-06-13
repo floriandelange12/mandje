@@ -563,6 +563,24 @@
   .empty.hero .ico svg{ width:100%; height:100%; color:var(--ink-faint); opacity:.7; }
   .empty.hero h2{ margin-top:6px; }
 
+  /* ---------- Delight (Fase 3) ---------- */
+  /* Confetti — subtiel, kort, brand-kleuren */
+  .confetti-layer{ position:absolute; inset:0; pointer-events:none; z-index:70; overflow:hidden; }
+  .confetti-bit{ position:absolute; top:-12px; width:8px; height:10px; border-radius:2px; opacity:0; will-change:transform,opacity; animation:confetti-fall 900ms var(--ease) forwards; }
+  @keyframes confetti-fall{
+    0%{ opacity:1; transform:translateY(-10px) rotate(0deg); }
+    100%{ opacity:0; transform:translateY(70vh) rotate(360deg); }
+  }
+  /* Fly-to-avatar — item vliegt naar de vriend-avatar bij versturen */
+  .fly-bit{ position:absolute; z-index:75; pointer-events:none; background:var(--green); color:var(--on-green); font-size:13px; font-weight:700; padding:6px 12px; border-radius:var(--r-pill); box-shadow:var(--shadow); white-space:nowrap; will-change:transform,opacity; }
+  /* Presence — "kijkt mee" pulserende stip op online leden */
+  .av.live{ position:relative; }
+  .av.live::after{ content:""; position:absolute; right:-1px; bottom:-1px; width:9px; height:9px; border-radius:50%; background:#34c759; border:2px solid var(--bg); animation:live-pulse 2s ease-in-out infinite; }
+  @keyframes live-pulse{ 0%,100%{ box-shadow:0 0 0 0 rgba(52,199,89,.5);} 50%{ box-shadow:0 0 0 5px rgba(52,199,89,0);} }
+  .presence-bar{ display:flex; align-items:center; gap:7px; margin:2px 4px 8px; font-size:13px; color:var(--green); font-weight:600; animation:rowSlideIn .3s var(--ease) backwards; }
+  .presence-bar.empty{ display:none; }
+  .presence-bar .pb-dot{ width:8px; height:8px; border-radius:50%; background:#34c759; flex:0 0 auto; animation:live-pulse 2s ease-in-out infinite; }
+
   @media (prefers-reduced-motion: reduce){
     *{ transition:none !important; animation:none !important; }
   }
@@ -577,7 +595,7 @@
   window.MANDJE_CONFIG = {
     SUPABASE_URL:      "https://yctcpxgjpmhyohbsrygy.supabase.co",   /* ingevuld ✓ */
     SUPABASE_ANON_KEY: "sb_publishable_lT77Nkcrl6VsBIx-PFuMtw_mdJ6fyNj",   /* ingevuld ✓ (publishable key) */
-    BUILD:             "2026-06-09.5", /* alleen onderaan Meer-tab zichtbaar — handig om cache-versie te verifiëren */
+    BUILD:             "2026-06-09.6", /* alleen onderaan Meer-tab zichtbaar — handig om cache-versie te verifiëren */
     EMAIL_AUTH:        false  /* zet op true zodra e-mail magic-link aan staat in Supabase → toont "Beveilig je account" */
   };
 </script>
@@ -617,6 +635,7 @@
       <div class="co-suggest hide" id="co-suggest" aria-live="polite"></div>
       <div class="shortcuts-row empty" id="shortcuts-row"></div>
       <div class="members-row empty" id="members-row"></div>
+      <div class="presence-bar empty" id="presence-bar"></div>
       <div id="due-banner"></div>
       <div id="open-list"></div>
       <div id="done-list"></div>
@@ -1141,6 +1160,51 @@ function vibe(level){
   vibrate(map[level] || 10);
 }
 
+/* Subtiele confetti — kort, weinig deeltjes, brand-kleuren. Respecteert reduce-motion. */
+function celebrate(){
+  try{
+    if(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    var app=document.getElementById("app"); if(!app) return;
+    var layer=document.createElement("div"); layer.className="confetti-layer";
+    var colors=["#2F7A4F","#E0772E","#3D8BFF","#E5446D","#C9A227","#1FB6A8"];
+    var N=16;
+    for(var i=0;i<N;i++){
+      var b=document.createElement("span"); b.className="confetti-bit";
+      b.style.left=(8 + Math.random()*84)+"%";
+      b.style.background=colors[i%colors.length];
+      b.style.animationDelay=(Math.random()*120)+"ms";
+      b.style.animationDuration=(800+Math.random()*500)+"ms";
+      b.style.transform="translateY(-10px)";
+      layer.appendChild(b);
+    }
+    app.appendChild(layer);
+    setTimeout(function(){ if(layer.parentNode) layer.parentNode.removeChild(layer); }, 1600);
+  }catch(e){}
+}
+
+/* Item "vliegt" van het invoerveld naar een doel-avatar (bij sturen naar vriend). */
+function flyToAvatar(fromEl, toEl, label){
+  try{
+    if(!fromEl || !toEl) return;
+    if(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    var a=fromEl.getBoundingClientRect(), b=toEl.getBoundingClientRect();
+    var bit=document.createElement("div"); bit.className="fly-bit";
+    bit.textContent=(label||"").slice(0,18);
+    bit.style.left=(a.left+14)+"px"; bit.style.top=(a.top+a.height/2-14)+"px";
+    bit.style.transition="transform .55s var(--ease,cubic-bezier(.24,.65,0,1)), opacity .55s ease";
+    document.body.appendChild(bit);
+    var dx=(b.left+b.width/2)-(a.left+14)-bit.offsetWidth/2;
+    var dy=(b.top+b.height/2)-(a.top+a.height/2);
+    requestAnimationFrame(function(){
+      bit.style.transform="translate("+dx+"px,"+dy+"px) scale(.3)";
+      bit.style.opacity="0";
+    });
+    // doel-avatar even laten "poppen"
+    setTimeout(function(){ try{ toEl.style.transition="transform .2s var(--ease)"; toEl.style.transform="scale(1.18)"; setTimeout(function(){ toEl.style.transform=""; },200);}catch(e){} }, 430);
+    setTimeout(function(){ if(bit.parentNode) bit.parentNode.removeChild(bit); }, 650);
+  }catch(e){}
+}
+
 var CHECK_SVG='<svg viewBox="0 0 24 24" fill="none" stroke="var(--on-green)" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path pathLength="24" d="M20 6 9 17l-5-5"/></svg>';
 
 /* ============================================================
@@ -1280,7 +1344,7 @@ function finishShopping(){
   state.list=state.list.filter(function(i){return !i.done;});
   save(); renderLijst(); renderDueBanner(); renderVaste();
   toast(done.length+(done.length===1?" boodschap gekocht":" boodschappen gekocht"));
-  vibe("nudge");
+  vibe("nudge"); celebrate();
 }
 
 /* ============================================================
@@ -2257,6 +2321,7 @@ function switchTab(tab){
   if(tab==="vaste"){ var n=getRecurring().length; $("#subhead").textContent=n?(n+" "+(n===1?"vast product":"vaste producten")):""; }
   if(tab==="meer"){ $("#subhead").textContent=""; }
   renderListSwitch(); renderMembersRow();
+  if(typeof renderPresence==="function") renderPresence();
   if(typeof renderShortcutsRow==="function") renderShortcutsRow();
   updateTotals();
 }
@@ -2799,6 +2864,7 @@ var Cloud = {
   stop:function(){
     if(this.channel){ try{ this.sb.removeChannel(this.channel); }catch(e){} this.channel=null; }
     if(this.presenceTimer){ clearInterval(this.presenceTimer); this.presenceTimer=null; }
+    this.present=[]; if(typeof renderPresence==="function") renderPresence();
   },
 
   refreshItems:async function(){
@@ -2843,10 +2909,12 @@ var Cloud = {
     renderMembersRow();
   },
 
+  present:[],  // wie kijkt nu live mee op deze lijst
   subscribe:function(listId){
     if(this.channel){ try{ this.sb.removeChannel(this.channel); }catch(e){} }
+    this.present=[];
     var self=this;
-    this.channel=this.sb.channel("list-"+listId)
+    this.channel=this.sb.channel("list-"+listId, { config:{ presence:{ key: self.userId || ("u"+Math.random()) } } })
       .on("postgres_changes",{event:"*",schema:"public",table:"items",filter:"list_id=eq."+listId}, function(){ self.refreshItems(); })
       .on("postgres_changes",{event:"*",schema:"public",table:"members",filter:"list_id=eq."+listId}, function(){
         self.refreshMembers().then(function(){
@@ -2859,8 +2927,21 @@ var Cloud = {
           }
         });
       })
+      .on("presence",{event:"sync"}, function(){
+        // Wie is er nu live (behalve jezelf)?
+        var st=self.channel.presenceState(); var seen={}; var others=[];
+        Object.keys(st).forEach(function(key){
+          (st[key]||[]).forEach(function(m){
+            if(m.user_id && m.user_id!==self.userId && !seen[m.user_id]){ seen[m.user_id]=1; others.push(m); }
+          });
+        });
+        self.present=others;
+        renderPresence(); renderMembersRow();
+      })
       .subscribe(function(status){
-        if(status === "CHANNEL_ERROR" || status === "TIMED_OUT"){
+        if(status === "SUBSCRIBED"){
+          try{ self.channel.track({ user_id:self.userId, name:self.myName(), color:(self.me&&self.me.color)||"#2F7A4F", emoji:self.myEmoji() }); }catch(e){}
+        } else if(status === "CHANNEL_ERROR" || status === "TIMED_OUT"){
           console.warn("Cloud realtime channel:", status);
         }
       });
@@ -2923,6 +3004,7 @@ var Cloud = {
     state.list=state.list.filter(function(i){return !i.done;}); renderLijst();
     this.sb.from("items").delete().in("id",ids).then(function(){},function(){});
     toast(done.length+(done.length===1?" gekocht":" gekocht")); vibrate(12); renderVaste();
+    if(typeof celebrate==="function") celebrate();
   },
 
   /* ---- lijstbeheer ---- */
@@ -3109,7 +3191,7 @@ function openSendToFriendSheet(friend){
   if(!friend) return;
   var sent=[];
   var html='<div class="grip"></div>'+
-    '<h3 style="display:flex;align-items:center;gap:10px">'+avatarHtml(friend.name, friend.color, friend.emoji, 30)+'<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">Sturen naar '+escapeHtml(friend.name)+'</span></h3>'+
+    '<h3 style="display:flex;align-items:center;gap:10px"><span id="sf-avatar">'+avatarHtml(friend.name, friend.color, friend.emoji, 30)+'</span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">Sturen naar '+escapeHtml(friend.name)+'</span></h3>'+
     '<div class="field" style="margin-bottom:6px">'+
       '<svg class="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>'+
       '<input class="name" id="sf-input" type="search" enterkeyhint="send" placeholder="Bijv. melk, brood…" autocapitalize="sentences" autocomplete="off" autocorrect="off" spellcheck="false">'+
@@ -3121,11 +3203,12 @@ function openSendToFriendSheet(friend){
   var inp=sh.querySelector("#sf-input"), btn=sh.querySelector("#sf-send");
   function send(){
     var nm=(inp.value||"").trim(); if(!nm) return;
+    flyToAvatar(inp, sh.querySelector("#sf-avatar"), nm);  // item "vliegt" naar de vriend-avatar
     Cloud.sendToFriend(friend, nm).then(function(ok){
       if(!ok){ toast("Versturen lukte niet"); return; }
       sent.unshift(nm); inp.value="";
       sh.querySelector("#sf-sent").innerHTML=sent.map(function(n){return '<span class="chip"><span class="emoji">✓</span>'+escapeHtml(n)+'</span>';}).join("");
-      inp.focus(); vibrate(10);
+      inp.focus(); vibe("tick");
     });
   }
   btn.addEventListener("click", send);
@@ -3437,9 +3520,12 @@ function renderMembersRow(){
   var now=Date.now();
   // toon alleen ANDERE leden (jij ben je zelf al — geen zin in een avatar van jezelf)
   var others=Cloud.members.filter(function(m){ return m.user_id !== Cloud.userId; });
+  // wie is nu live aanwezig (via realtime presence)?
+  var liveIds = {}; (Cloud.present||[]).forEach(function(p){ liveIds[p.user_id]=1; });
   var avs=others.map(function(m){
-    var online = m.last_seen && (now-new Date(m.last_seen).getTime() < 120000);
-    return '<div class="av'+(online?'':' offline')+'" title="'+escapeHtml(m.display_name)+'" style="background:'+m.color+'">'+escapeHtml(initials(m.display_name).slice(0,1))+'</div>';
+    var live = !!liveIds[m.user_id];
+    var online = live || (m.last_seen && (now-new Date(m.last_seen).getTime() < 120000));
+    return '<div class="av'+(online?'':' offline')+(live?' live':'')+'" title="'+escapeHtml(m.display_name)+(live?' · kijkt nu mee':'')+'" style="background:'+m.color+'">'+escapeHtml(initials(m.display_name).slice(0,1))+'</div>';
   }).join("");
   var avBlock = others.length ? '<div class="avatars" aria-label="Leden">'+avs+'</div>' : '';
   row.innerHTML = avBlock +
@@ -3447,6 +3533,20 @@ function renderMembersRow(){
   var avEl=row.querySelector(".avatars");
   if(avEl) avEl.addEventListener("click",function(){ if(Cloud.active) openShareSheet(Cloud.active); });
   row.querySelector(".share-btn").addEventListener("click",function(){ if(Cloud.active) openShareSheet(Cloud.active); });
+}
+
+/* "Bob kijkt mee"-balkje op een gedeelde lijst (live presence) */
+function renderPresence(){
+  var bar=document.getElementById("presence-bar"); if(!bar) return;
+  var present=(Cloud.present||[]);
+  if(activeTab!=="lijst" || !Cloud.active || !present.length){ bar.className="presence-bar empty"; bar.innerHTML=""; return; }
+  var names=present.map(function(p){return p.name||"Iemand";});
+  var txt;
+  if(names.length===1) txt=names[0]+" kijkt mee";
+  else if(names.length===2) txt=names[0]+" en "+names[1]+" kijken mee";
+  else txt=names.length+" mensen kijken mee";
+  bar.className="presence-bar";
+  bar.innerHTML='<span class="pb-dot"></span><span>'+escapeHtml(txt)+'</span>';
 }
 
 /* --- tweede sheet helpers --- */

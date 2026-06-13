@@ -222,6 +222,7 @@ var Cloud = {
   stop:function(){
     if(this.channel){ try{ this.sb.removeChannel(this.channel); }catch(e){} this.channel=null; }
     if(this.presenceTimer){ clearInterval(this.presenceTimer); this.presenceTimer=null; }
+    this.present=[]; if(typeof renderPresence==="function") renderPresence();
   },
 
   refreshItems:async function(){
@@ -266,10 +267,12 @@ var Cloud = {
     renderMembersRow();
   },
 
+  present:[],  // wie kijkt nu live mee op deze lijst
   subscribe:function(listId){
     if(this.channel){ try{ this.sb.removeChannel(this.channel); }catch(e){} }
+    this.present=[];
     var self=this;
-    this.channel=this.sb.channel("list-"+listId)
+    this.channel=this.sb.channel("list-"+listId, { config:{ presence:{ key: self.userId || ("u"+Math.random()) } } })
       .on("postgres_changes",{event:"*",schema:"public",table:"items",filter:"list_id=eq."+listId}, function(){ self.refreshItems(); })
       .on("postgres_changes",{event:"*",schema:"public",table:"members",filter:"list_id=eq."+listId}, function(){
         self.refreshMembers().then(function(){
@@ -282,8 +285,21 @@ var Cloud = {
           }
         });
       })
+      .on("presence",{event:"sync"}, function(){
+        // Wie is er nu live (behalve jezelf)?
+        var st=self.channel.presenceState(); var seen={}; var others=[];
+        Object.keys(st).forEach(function(key){
+          (st[key]||[]).forEach(function(m){
+            if(m.user_id && m.user_id!==self.userId && !seen[m.user_id]){ seen[m.user_id]=1; others.push(m); }
+          });
+        });
+        self.present=others;
+        renderPresence(); renderMembersRow();
+      })
       .subscribe(function(status){
-        if(status === "CHANNEL_ERROR" || status === "TIMED_OUT"){
+        if(status === "SUBSCRIBED"){
+          try{ self.channel.track({ user_id:self.userId, name:self.myName(), color:(self.me&&self.me.color)||"#2F7A4F", emoji:self.myEmoji() }); }catch(e){}
+        } else if(status === "CHANNEL_ERROR" || status === "TIMED_OUT"){
           console.warn("Cloud realtime channel:", status);
         }
       });
@@ -346,6 +362,7 @@ var Cloud = {
     state.list=state.list.filter(function(i){return !i.done;}); renderLijst();
     this.sb.from("items").delete().in("id",ids).then(function(){},function(){});
     toast(done.length+(done.length===1?" gekocht":" gekocht")); vibrate(12); renderVaste();
+    if(typeof celebrate==="function") celebrate();
   },
 
   /* ---- lijstbeheer ---- */
@@ -532,7 +549,7 @@ function openSendToFriendSheet(friend){
   if(!friend) return;
   var sent=[];
   var html='<div class="grip"></div>'+
-    '<h3 style="display:flex;align-items:center;gap:10px">'+avatarHtml(friend.name, friend.color, friend.emoji, 30)+'<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">Sturen naar '+escapeHtml(friend.name)+'</span></h3>'+
+    '<h3 style="display:flex;align-items:center;gap:10px"><span id="sf-avatar">'+avatarHtml(friend.name, friend.color, friend.emoji, 30)+'</span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">Sturen naar '+escapeHtml(friend.name)+'</span></h3>'+
     '<div class="field" style="margin-bottom:6px">'+
       '<svg class="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>'+
       '<input class="name" id="sf-input" type="search" enterkeyhint="send" placeholder="Bijv. melk, brood…" autocapitalize="sentences" autocomplete="off" autocorrect="off" spellcheck="false">'+
@@ -544,11 +561,12 @@ function openSendToFriendSheet(friend){
   var inp=sh.querySelector("#sf-input"), btn=sh.querySelector("#sf-send");
   function send(){
     var nm=(inp.value||"").trim(); if(!nm) return;
+    flyToAvatar(inp, sh.querySelector("#sf-avatar"), nm);  // item "vliegt" naar de vriend-avatar
     Cloud.sendToFriend(friend, nm).then(function(ok){
       if(!ok){ toast("Versturen lukte niet"); return; }
       sent.unshift(nm); inp.value="";
       sh.querySelector("#sf-sent").innerHTML=sent.map(function(n){return '<span class="chip"><span class="emoji">✓</span>'+escapeHtml(n)+'</span>';}).join("");
-      inp.focus(); vibrate(10);
+      inp.focus(); vibe("tick");
     });
   }
   btn.addEventListener("click", send);
@@ -860,9 +878,12 @@ function renderMembersRow(){
   var now=Date.now();
   // toon alleen ANDERE leden (jij ben je zelf al — geen zin in een avatar van jezelf)
   var others=Cloud.members.filter(function(m){ return m.user_id !== Cloud.userId; });
+  // wie is nu live aanwezig (via realtime presence)?
+  var liveIds = {}; (Cloud.present||[]).forEach(function(p){ liveIds[p.user_id]=1; });
   var avs=others.map(function(m){
-    var online = m.last_seen && (now-new Date(m.last_seen).getTime() < 120000);
-    return '<div class="av'+(online?'':' offline')+'" title="'+escapeHtml(m.display_name)+'" style="background:'+m.color+'">'+escapeHtml(initials(m.display_name).slice(0,1))+'</div>';
+    var live = !!liveIds[m.user_id];
+    var online = live || (m.last_seen && (now-new Date(m.last_seen).getTime() < 120000));
+    return '<div class="av'+(online?'':' offline')+(live?' live':'')+'" title="'+escapeHtml(m.display_name)+(live?' · kijkt nu mee':'')+'" style="background:'+m.color+'">'+escapeHtml(initials(m.display_name).slice(0,1))+'</div>';
   }).join("");
   var avBlock = others.length ? '<div class="avatars" aria-label="Leden">'+avs+'</div>' : '';
   row.innerHTML = avBlock +
@@ -870,6 +891,20 @@ function renderMembersRow(){
   var avEl=row.querySelector(".avatars");
   if(avEl) avEl.addEventListener("click",function(){ if(Cloud.active) openShareSheet(Cloud.active); });
   row.querySelector(".share-btn").addEventListener("click",function(){ if(Cloud.active) openShareSheet(Cloud.active); });
+}
+
+/* "Bob kijkt mee"-balkje op een gedeelde lijst (live presence) */
+function renderPresence(){
+  var bar=document.getElementById("presence-bar"); if(!bar) return;
+  var present=(Cloud.present||[]);
+  if(activeTab!=="lijst" || !Cloud.active || !present.length){ bar.className="presence-bar empty"; bar.innerHTML=""; return; }
+  var names=present.map(function(p){return p.name||"Iemand";});
+  var txt;
+  if(names.length===1) txt=names[0]+" kijkt mee";
+  else if(names.length===2) txt=names[0]+" en "+names[1]+" kijken mee";
+  else txt=names.length+" mensen kijken mee";
+  bar.className="presence-bar";
+  bar.innerHTML='<span class="pb-dot"></span><span>'+escapeHtml(txt)+'</span>';
 }
 
 /* --- tweede sheet helpers --- */
