@@ -2,7 +2,7 @@
 <html lang="nl" data-theme="auto">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content">
 <title>Mandje</title>
 
 <!-- PWA / iPhone -->
@@ -121,6 +121,8 @@
   html,body{ overflow:hidden; }
 
   /* ---------- Add bar (floating, one-handed) ---------- */
+  /* --kb-lift wordt door JS op de toetsenbord-hoogte gezet (visualViewport).
+     Alleen de balk beweegt mee — de rest van de app blijft staan = geen scherm-sprong. */
   .addwrap{
     position:fixed;
     left:max(12px, env(safe-area-inset-left));
@@ -129,11 +131,14 @@
     z-index:29;
     padding:0;
     background:transparent;
-    transition:transform .25s var(--ease), opacity .2s ease;
+    transition:bottom .22s var(--ease), transform .22s var(--ease), opacity .2s ease;
   }
+  /* Toetsenbord open: balk zakt naar net boven de toetsenbord-rand; tabbar + totals weg */
+  body.kb-open .addwrap{ bottom:calc(var(--kb-lift, 0px) + 10px); }
+  body.kb-open .totals{ opacity:0; pointer-events:none; }
+  body.kb-open .tabbar{ opacity:0; pointer-events:none; }
   /* Verbergen wanneer item-sheet open is zodat 'ie geen overlap geeft */
   body.sheet-open .addwrap{ transform:translateY(140%); opacity:0; pointer-events:none; }
-  .addwrap.stuck{ /* no-op nu, behoud voor backward-compat */ }
   .field{ display:flex; align-items:center; width:100%; min-width:0; background:var(--surface); border:1px solid var(--line); border-radius:17px; padding:5px 5px 5px 15px; box-shadow:var(--shadow-sm); transition:border-color .18s ease, box-shadow .18s ease; }
   .field:focus-within{ border-color:color-mix(in srgb, var(--green) 55%, var(--line)); box-shadow:0 0 0 4px var(--green-2); }
   .field svg.lead{ width:20px; height:20px; color:var(--ink-faint); flex:0 0 20px; margin-right:10px; }
@@ -244,6 +249,9 @@
   .forgot-row .forgot-pill{ display:inline-flex; align-items:center; gap:5px; padding:5px 10px; background:var(--amber-2); color:var(--amber); border:0; border-radius:99px; font-size:13px; font-weight:700; transition:transform .12s var(--ease); }
   .forgot-row .forgot-pill:active{ transform:scale(.95); filter:brightness(.96); }
   .forgot-row .forgot-pill .plus{ font-weight:800; font-size:14px; line-height:1; }
+  .finish-inline{ display:flex; justify-content:center; margin:14px 0 4px; }
+  .finish-inline-btn{ border:0; background:var(--green); color:var(--on-green); font-weight:700; font-size:16px; padding:13px 28px; border-radius:14px; box-shadow:var(--shadow-sm); transition:transform .12s var(--ease), filter .12s ease; }
+  .finish-inline-btn:active{ transform:scale(.96); filter:brightness(.94); }
 
   /* ---------- Tab bar (floating pill) ---------- */
   .tabbar{ position:absolute; left:max(12px, env(safe-area-inset-left)); right:max(12px, env(safe-area-inset-right)); bottom:max(8px, var(--safe-b)); z-index:28; height:var(--tabbar-h); display:flex; background:color-mix(in srgb, var(--surface) 80%, transparent); -webkit-backdrop-filter:var(--blur); backdrop-filter:var(--blur); border:1px solid var(--line); border-radius:22px; box-shadow:var(--shadow-lg); padding:0; overflow:hidden; }
@@ -313,7 +321,9 @@
   /* ---------- Cloud: list switch, members, share, send ---------- */
   .list-switch{ display:inline-flex; align-items:center; gap:7px; margin-top:8px; background:var(--surface); border:1px solid var(--line); border-radius:var(--r-pill); padding:6px 12px 6px 13px; box-shadow:var(--shadow-sm); font-size:14px; font-weight:600; max-width:100%; }
   .list-switch .ls-ico{ font-size:15px; }
+  .list-switch .ls-ico-dot{ width:11px; height:11px; border-radius:50%; flex:0 0 auto; }
   .list-switch .ls-name{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .list-switch .ls-pill-sub{ font-size:11px; font-weight:600; color:var(--ink-faint); flex:0 0 auto; padding:1px 7px; background:var(--surface-3); border-radius:99px; }
   .list-switch .ls-chev{ width:16px; height:16px; color:var(--ink-faint); flex:0 0 auto; }
   .members-row{ display:flex; align-items:center; gap:8px; margin:6px 4px 6px; min-height:0; }
   .members-row.empty{ display:none; }
@@ -520,7 +530,7 @@
   window.MANDJE_CONFIG = {
     SUPABASE_URL:      "https://yctcpxgjpmhyohbsrygy.supabase.co",   /* ingevuld ✓ */
     SUPABASE_ANON_KEY: "sb_publishable_lT77Nkcrl6VsBIx-PFuMtw_mdJ6fyNj",   /* ingevuld ✓ (publishable key) */
-    BUILD:             "2026-06-08.1"  /* alleen onderaan Meer-tab zichtbaar — handig om cache-versie te verifiëren */
+    BUILD:             "2026-06-08.2"  /* alleen onderaan Meer-tab zichtbaar — handig om cache-versie te verifiëren */
   };
 </script>
 <!-- ===================================================================== -->
@@ -545,7 +555,7 @@
         <div class="ac">
         <div class="field">
           <svg class="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
-          <input class="name" id="add-name" type="search" inputmode="text" placeholder="Wat heb je nodig?" enterkeyhint="done" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+          <input class="name" id="add-name" type="search" inputmode="text" placeholder="Wat heb je nodig?  ·  bijv. melk 2" enterkeyhint="done" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
           <button class="addbtn" id="add-btn" aria-label="Toevoegen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
         </div>
         <div class="ac-list" id="ac-list"></div>
@@ -782,7 +792,7 @@ var COMMON = ["Melk","Brood","Eieren","Kaas","Boter","Yoghurt","Kwark","Karnemel
 var NS = "mandje.v2";
 var DEFAULTS = {
   version:2,
-  settings:{ theme:"auto", showPrices:false, seenIntro:false, categoryOrder:CATS.map(function(c){return c.id;}), minPurchases:3, cvThreshold:0.6, dueWindowDays:1, customCategories:[], customCatEmoji:{}, collapsedCats:{} },
+  settings:{ theme:"auto", showPrices:false, seenIntro:false, categoryOrder:CATS.map(function(c){return c.id;}), minPurchases:3, cvThreshold:0.6, dueWindowDays:1, customCategories:[], customCatEmoji:{}, collapsedCats:{}, seenQtyHint:false, seenBulkHint:false, seenPriceNudge:false },
   list:[],
   catalog:{},
   coBuy:{}
@@ -1187,8 +1197,17 @@ function toggleDone(id){
     });
   }
 }
+var _qtyTapCount = {};
 function setQty(id,delta){
   vibe("tap");
+  // Eenmalige ontdek-hint: wie vaak +/- tikt weet de "melk 2"-syntax nog niet
+  if(delta>0 && state && state.settings && !state.settings.seenQtyHint){
+    _qtyTapCount[id] = (_qtyTapCount[id]||0) + 1;
+    if(_qtyTapCount[id] >= 3){
+      state.settings.seenQtyHint = true; save();
+      toast("Tip: typ direct 'melk 2' om 2 stuks toe te voegen", {duration:3500});
+    }
+  }
   if(Cloud.active){ Cloud.qty(id,delta); return; }
   var it=state.list.find(function(i){return i.id===id;}); if(!it) return;
   it.qty=Math.max(1,it.qty+delta); save(); renderLijst();
@@ -1268,6 +1287,13 @@ function renderLijst(){
       doneFrag.appendChild(s2);
       var ul2=el("ul","list"); done.forEach(function(it){ ul2.appendChild(itemRow(it)); });
       doneFrag.appendChild(ul2);
+      // Afrond-knop direct onder de afgevinkte items — altijd binnen duim-bereik,
+      // ook als de prijzen-totals-bar (met z'n eigen afrond-knop) uit staat.
+      var finishWrap = el("div","finish-inline");
+      var finishBtn = el("button","finish-inline-btn","Afronden ✓");
+      finishBtn.addEventListener("click", finishShopping);
+      finishWrap.appendChild(finishBtn);
+      doneFrag.appendChild(finishWrap);
     }
   }
   // Single append per wrap = minimum reflows
@@ -1330,6 +1356,23 @@ function updateTotals(){
   $("#totals").classList.toggle("hide", !show);
   $("#pad-lijst").className = "pad-bottom"+(show?" with-total":"");
   renderForgottenSuggest(doneItems);
+  maybePriceNudge();
+}
+
+/* Eenmalige nudge: gebruiker met een volle lijst maar prijzen uit mist het
+   lopend-totaal. Toon 1× een toast met directe toegang tot de toggle. */
+function maybePriceNudge(){
+  if(!state || !state.settings) return;
+  if(state.settings.showPrices || state.settings.seenPriceNudge) return;
+  if(activeTab!=="lijst") return;
+  var open = state.list.filter(function(i){return !i.done;}).length;
+  if(open < 5) return;
+  state.settings.seenPriceNudge = true; save();
+  toast("Wil je een lopend totaal? Zet prijzen aan in Meer", {duration:4000, action:"Aanzetten", onAction:function(){
+    state.settings.showPrices = true; save();
+    applyPriceVisibility(); renderLijst();
+    toast("Prijzen staan aan — tik een product om de prijs te zetten", {duration:3000});
+  }});
 }
 
 /* "Wat ben je vergeten?" — toon co-buy-suggesties wanneer er items in 'in mandje'
@@ -1750,7 +1793,43 @@ function saveSheet(cat, cad, qty, price, note, catalogOnly, assignee, autoAdd){
   toast("Opgeslagen");
 }
 
-function openSheetUI(){ $("#scrim").classList.add("show"); $("#sheet").classList.add("show"); document.body.classList.add("sheet-open"); }
+/* Zorgt dat een gefocuste sheet-input boven 't toetsenbord komt (iOS).
+   Bind 1× per sheet-open op alle inputs/textareas erin. */
+function bindSheetKeyboardScroll(sheetEl){
+  if(!sheetEl) return;
+  sheetEl.querySelectorAll("input, textarea").forEach(function(inp){
+    inp.addEventListener("focus", function(){
+      setTimeout(function(){
+        try{ inp.scrollIntoView({behavior:"smooth", block:"center"}); }catch(e){}
+      }, 120);
+    });
+  });
+}
+/* Swipe-down-to-close: sleep vanaf de bovenkant (grip-zone) van een sheet
+   naar beneden om 'm te sluiten. Natuurlijk iOS-gebaar. */
+function attachSheetDismiss(sheetEl, closeFn){
+  if(!sheetEl) return;
+  var startY=0, curY=0, dragging=false;
+  sheetEl.addEventListener("touchstart", function(e){
+    // Alleen starten in de bovenste ~70px (grip + titel), niet midden in content
+    var rect = sheetEl.getBoundingClientRect();
+    if(e.touches[0].clientY - rect.top > 70){ dragging=false; return; }
+    startY = e.touches[0].clientY; curY = 0; dragging = true;
+    sheetEl.style.transition = "none";
+  }, {passive:true});
+  sheetEl.addEventListener("touchmove", function(e){
+    if(!dragging) return;
+    curY = e.touches[0].clientY - startY;
+    if(curY > 0) sheetEl.style.transform = "translateY("+curY+"px)";
+  }, {passive:true});
+  sheetEl.addEventListener("touchend", function(){
+    if(!dragging) return; dragging=false;
+    sheetEl.style.transition = "";
+    if(curY > 90){ sheetEl.style.transform=""; closeFn(); }
+    else { sheetEl.style.transform=""; }
+  });
+}
+function openSheetUI(){ $("#scrim").classList.add("show"); $("#sheet").classList.add("show"); document.body.classList.add("sheet-open"); bindSheetKeyboardScroll($("#sheet")); }
 function closeSheet(){
   $("#scrim").classList.remove("show"); $("#sheet").classList.remove("show"); sheetCtx=null;
   if(!$("#sheet2").classList.contains("show")) document.body.classList.remove("sheet-open");
@@ -1998,7 +2077,7 @@ function openAddCategorySheet(){
       '<button class="save" id="nc-go">Toevoegen</button>'+
       '<button class="del" id="nc-cancel">Annuleren</button>'+
     '</div>';
-  $("#scrim").classList.add("show"); sh.classList.add("show");
+  $("#scrim").classList.add("show"); sh.classList.add("show"); document.body.classList.add("sheet-open"); bindSheetKeyboardScroll(sh);
   setTimeout(function(){ var i=$("#nc-name"); if(i) i.focus(); }, 260);
   sh.querySelectorAll("#nc-emojis .ep-cell").forEach(function(b){
     b.addEventListener("click", function(){
@@ -2073,7 +2152,7 @@ function openBulkPasteSheet(){
       '<button class="save" id="bulk-go">Toevoegen</button>'+
       '<button class="del" id="bulk-cancel">Annuleren</button>'+
     '</div>';
-  $("#scrim").classList.add("show"); sh.classList.add("show");
+  $("#scrim").classList.add("show"); sh.classList.add("show"); document.body.classList.add("sheet-open"); bindSheetKeyboardScroll(sh);
   setTimeout(function(){ var i=$("#bulk-input"); if(i) i.focus(); }, 260);
   $("#bulk-cancel").addEventListener("click", closeSheet);
   $("#bulk-go").addEventListener("click", function(){
@@ -2351,23 +2430,44 @@ function init(){
   $("#add-name").addEventListener("keydown",function(e){ if(e.key==="Enter") doAdd(); });
   $("#add-name").addEventListener("input",function(){ buildAC(this.value); });
   $("#add-name").addEventListener("blur",function(){ setTimeout(hideAC,180); });
-  attachLongPress($("#add-btn"), openBulkPasteSheet);
+  attachLongPress($("#add-btn"), function(){
+    if(state && state.settings && !state.settings.seenBulkHint){
+      state.settings.seenBulkHint = true; save();
+    }
+    openBulkPasteSheet();
+  });
+  // Eenmalige ontdek-hint dat de +-knop óók bulk-plakken kan (kort na eerste paar items)
+  setTimeout(function(){
+    if(state && state.settings && !state.settings.seenBulkHint && Object.keys(state.catalog||{}).length>=4){
+      state.settings.seenBulkHint = true; save();
+      toast("Tip: houd + ingedrukt om meerdere tegelijk te plakken", {duration:3500});
+    }
+  }, 1500);
   setupSearchBar();
   setupOfflineIndicator();
   setupTopShareBtn();
   setupPullToRefresh();
   setupRipples();
+  // Swipe-down-to-close op beide sheets (1× binden — containers zijn persistent)
+  attachSheetDismiss($("#sheet"), closeSheet);
+  if(typeof closeSheet2==="function") attachSheetDismiss($("#sheet2"), closeSheet2);
   window.addEventListener("beforeunload", function(){
     if(typeof Cloud!=="undefined" && Cloud.stop) Cloud.stop();
   });
   var gb=$("#gear-btn"); if(gb) gb.addEventListener("click",function(){ switchTab(activeTab==="meer"?"lijst":"meer"); });
 
-  // Keyboard-avoidance via visualViewport (iOS PWA)
+  // Keyboard-avoidance via visualViewport (iOS PWA).
+  // Verschuift NIET de hele app (dat gaf scherm-sprong), maar tilt alleen
+  // de add-balk net boven het toetsenbord via de --kb-lift CSS-var.
   if(window.visualViewport){
     var onVP=function(){
       var vv=window.visualViewport;
-      var app=document.getElementById("app");
-      if(app){ app.style.height=vv.height+"px"; app.style.transform="translateY("+(vv.offsetTop||0)+"px)"; }
+      // Toetsenbord-hoogte = layout-viewport minus zichtbaar gebied (+ eventuele scroll-offset)
+      var kb = Math.max(0, window.innerHeight - vv.height - (vv.offsetTop||0));
+      // Kleine drempel tegen ruis (adresbalk-collaps e.d. is < ~90px)
+      var open = kb > 90;
+      document.documentElement.style.setProperty("--kb-lift", (open?kb:0) + "px");
+      document.body.classList.toggle("kb-open", open);
     };
     window.visualViewport.addEventListener("resize",onVP,{passive:true});
     window.visualViewport.addEventListener("scroll",onVP,{passive:true});
@@ -2897,7 +2997,7 @@ function openSendSheet(scId){
   var sent=[];
   function renderSheet(displayName){
     return '<div class="grip"></div>'+
-      '<h3 style="display:flex;align-items:center;gap:10px"><span style="display:inline-block;width:14px;height:14px;border-radius:50%;background:'+s.color+';flex:0 0 auto"></span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">Sturen naar '+escapeHtml(prettyListName(displayName))+'</span></h3>'+
+      '<h3 style="display:flex;align-items:center;gap:10px"><span style="display:inline-block;width:14px;height:14px;border-radius:50%;background:'+s.color+';flex:0 0 auto"></span><span id="sc-title" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">Sturen naar '+escapeHtml(prettyListName(displayName))+'</span></h3>'+
       '<div class="field" style="margin-bottom:6px">'+
         '<svg class="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>'+
         '<input class="name" id="sc-input" type="search" enterkeyhint="send" placeholder="Bijv. melk, brood…" autocapitalize="sentences" autocomplete="off" autocorrect="off" spellcheck="false">'+
@@ -2948,11 +3048,10 @@ function openSendSheet(scId){
       if(r.data !== s.name){
         s.name = r.data;
         Shortcuts.rename(scId, r.data);
-        sh.innerHTML = renderSheet(s.name);
-        // Hervind sent-chips na re-render
-        var sentWrap = sh.querySelector("#sc-sent");
-        if(sentWrap) sentWrap.innerHTML = sent.map(function(n){return '<span class="chip"><span class="emoji">✓</span>'+escapeHtml(n)+'</span>';}).join("");
-        wire();
+        // Update ALLEEN de titel-node — herrender niet de hele sheet (anders verlies je
+        // wat de gebruiker net aan 't typen is in #sc-input).
+        var titleEl = sh.querySelector("#sc-title");
+        if(titleEl) titleEl.textContent = "Sturen naar " + prettyListName(s.name);
       }
     },function(){ /* netwerkfout — laat lokale naam staan, geen toast */ });
   });
@@ -3071,9 +3170,17 @@ function renderListSwitch(){
   if(activeTab!=="lijst") return;          // pill alleen op de lijst-tab
   if(!Cloud.enabled) return; // sharing niet geconfigureerd → niets tonen
   var l=Cloud.activeList();
-  var ico = Cloud.active ? "👥" : "🧺";
   var name = Cloud.active ? prettyListName(l?l.name:"Gedeeld") : "Persoonlijk";
-  var pill=el("button","list-switch",'<span class="ls-ico">'+ico+'</span><span class="ls-name">'+escapeHtml(name)+'</span><svg class="ls-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>');
+  // Gedeeld = gekleurde owner-stip (consistent met de rest), Persoonlijk = mandje-emoji
+  var icoHtml;
+  if(Cloud.active){
+    var col = ownerColor(l);
+    icoHtml = '<span class="ls-ico-dot" style="background:'+col+'"></span>';
+  } else {
+    icoHtml = '<span class="ls-ico">🧺</span>';
+  }
+  var sub = Cloud.active ? "Gedeeld" : "Op dit toestel";
+  var pill=el("button","list-switch",icoHtml+'<span class="ls-name">'+escapeHtml(name)+'</span><span class="ls-pill-sub">'+sub+'</span><svg class="ls-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>');
   pill.addEventListener("click",openSwitchSheet);
   wrap.appendChild(pill);
 }
@@ -3102,6 +3209,7 @@ function openSheet2(html){
   var s=$("#sheet2"); s.innerHTML='<div class="grip"></div>'+html;
   $("#scrim2").classList.add("show"); s.classList.add("show");
   document.body.classList.add("sheet-open");
+  if(typeof bindSheetKeyboardScroll==="function") bindSheetKeyboardScroll(s);
   return s;
 }
 function closeSheet2(){

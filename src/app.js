@@ -134,7 +134,7 @@ var COMMON = ["Melk","Brood","Eieren","Kaas","Boter","Yoghurt","Kwark","Karnemel
 var NS = "mandje.v2";
 var DEFAULTS = {
   version:2,
-  settings:{ theme:"auto", showPrices:false, seenIntro:false, categoryOrder:CATS.map(function(c){return c.id;}), minPurchases:3, cvThreshold:0.6, dueWindowDays:1, customCategories:[], customCatEmoji:{}, collapsedCats:{} },
+  settings:{ theme:"auto", showPrices:false, seenIntro:false, categoryOrder:CATS.map(function(c){return c.id;}), minPurchases:3, cvThreshold:0.6, dueWindowDays:1, customCategories:[], customCatEmoji:{}, collapsedCats:{}, seenQtyHint:false, seenBulkHint:false, seenPriceNudge:false },
   list:[],
   catalog:{},
   coBuy:{}
@@ -539,8 +539,17 @@ function toggleDone(id){
     });
   }
 }
+var _qtyTapCount = {};
 function setQty(id,delta){
   vibe("tap");
+  // Eenmalige ontdek-hint: wie vaak +/- tikt weet de "melk 2"-syntax nog niet
+  if(delta>0 && state && state.settings && !state.settings.seenQtyHint){
+    _qtyTapCount[id] = (_qtyTapCount[id]||0) + 1;
+    if(_qtyTapCount[id] >= 3){
+      state.settings.seenQtyHint = true; save();
+      toast("Tip: typ direct 'melk 2' om 2 stuks toe te voegen", {duration:3500});
+    }
+  }
   if(Cloud.active){ Cloud.qty(id,delta); return; }
   var it=state.list.find(function(i){return i.id===id;}); if(!it) return;
   it.qty=Math.max(1,it.qty+delta); save(); renderLijst();
@@ -620,6 +629,13 @@ function renderLijst(){
       doneFrag.appendChild(s2);
       var ul2=el("ul","list"); done.forEach(function(it){ ul2.appendChild(itemRow(it)); });
       doneFrag.appendChild(ul2);
+      // Afrond-knop direct onder de afgevinkte items — altijd binnen duim-bereik,
+      // ook als de prijzen-totals-bar (met z'n eigen afrond-knop) uit staat.
+      var finishWrap = el("div","finish-inline");
+      var finishBtn = el("button","finish-inline-btn","Afronden ✓");
+      finishBtn.addEventListener("click", finishShopping);
+      finishWrap.appendChild(finishBtn);
+      doneFrag.appendChild(finishWrap);
     }
   }
   // Single append per wrap = minimum reflows
@@ -682,6 +698,23 @@ function updateTotals(){
   $("#totals").classList.toggle("hide", !show);
   $("#pad-lijst").className = "pad-bottom"+(show?" with-total":"");
   renderForgottenSuggest(doneItems);
+  maybePriceNudge();
+}
+
+/* Eenmalige nudge: gebruiker met een volle lijst maar prijzen uit mist het
+   lopend-totaal. Toon 1× een toast met directe toegang tot de toggle. */
+function maybePriceNudge(){
+  if(!state || !state.settings) return;
+  if(state.settings.showPrices || state.settings.seenPriceNudge) return;
+  if(activeTab!=="lijst") return;
+  var open = state.list.filter(function(i){return !i.done;}).length;
+  if(open < 5) return;
+  state.settings.seenPriceNudge = true; save();
+  toast("Wil je een lopend totaal? Zet prijzen aan in Meer", {duration:4000, action:"Aanzetten", onAction:function(){
+    state.settings.showPrices = true; save();
+    applyPriceVisibility(); renderLijst();
+    toast("Prijzen staan aan — tik een product om de prijs te zetten", {duration:3000});
+  }});
 }
 
 /* "Wat ben je vergeten?" — toon co-buy-suggesties wanneer er items in 'in mandje'
@@ -1102,7 +1135,43 @@ function saveSheet(cat, cad, qty, price, note, catalogOnly, assignee, autoAdd){
   toast("Opgeslagen");
 }
 
-function openSheetUI(){ $("#scrim").classList.add("show"); $("#sheet").classList.add("show"); document.body.classList.add("sheet-open"); }
+/* Zorgt dat een gefocuste sheet-input boven 't toetsenbord komt (iOS).
+   Bind 1× per sheet-open op alle inputs/textareas erin. */
+function bindSheetKeyboardScroll(sheetEl){
+  if(!sheetEl) return;
+  sheetEl.querySelectorAll("input, textarea").forEach(function(inp){
+    inp.addEventListener("focus", function(){
+      setTimeout(function(){
+        try{ inp.scrollIntoView({behavior:"smooth", block:"center"}); }catch(e){}
+      }, 120);
+    });
+  });
+}
+/* Swipe-down-to-close: sleep vanaf de bovenkant (grip-zone) van een sheet
+   naar beneden om 'm te sluiten. Natuurlijk iOS-gebaar. */
+function attachSheetDismiss(sheetEl, closeFn){
+  if(!sheetEl) return;
+  var startY=0, curY=0, dragging=false;
+  sheetEl.addEventListener("touchstart", function(e){
+    // Alleen starten in de bovenste ~70px (grip + titel), niet midden in content
+    var rect = sheetEl.getBoundingClientRect();
+    if(e.touches[0].clientY - rect.top > 70){ dragging=false; return; }
+    startY = e.touches[0].clientY; curY = 0; dragging = true;
+    sheetEl.style.transition = "none";
+  }, {passive:true});
+  sheetEl.addEventListener("touchmove", function(e){
+    if(!dragging) return;
+    curY = e.touches[0].clientY - startY;
+    if(curY > 0) sheetEl.style.transform = "translateY("+curY+"px)";
+  }, {passive:true});
+  sheetEl.addEventListener("touchend", function(){
+    if(!dragging) return; dragging=false;
+    sheetEl.style.transition = "";
+    if(curY > 90){ sheetEl.style.transform=""; closeFn(); }
+    else { sheetEl.style.transform=""; }
+  });
+}
+function openSheetUI(){ $("#scrim").classList.add("show"); $("#sheet").classList.add("show"); document.body.classList.add("sheet-open"); bindSheetKeyboardScroll($("#sheet")); }
 function closeSheet(){
   $("#scrim").classList.remove("show"); $("#sheet").classList.remove("show"); sheetCtx=null;
   if(!$("#sheet2").classList.contains("show")) document.body.classList.remove("sheet-open");
@@ -1350,7 +1419,7 @@ function openAddCategorySheet(){
       '<button class="save" id="nc-go">Toevoegen</button>'+
       '<button class="del" id="nc-cancel">Annuleren</button>'+
     '</div>';
-  $("#scrim").classList.add("show"); sh.classList.add("show");
+  $("#scrim").classList.add("show"); sh.classList.add("show"); document.body.classList.add("sheet-open"); bindSheetKeyboardScroll(sh);
   setTimeout(function(){ var i=$("#nc-name"); if(i) i.focus(); }, 260);
   sh.querySelectorAll("#nc-emojis .ep-cell").forEach(function(b){
     b.addEventListener("click", function(){
@@ -1425,7 +1494,7 @@ function openBulkPasteSheet(){
       '<button class="save" id="bulk-go">Toevoegen</button>'+
       '<button class="del" id="bulk-cancel">Annuleren</button>'+
     '</div>';
-  $("#scrim").classList.add("show"); sh.classList.add("show");
+  $("#scrim").classList.add("show"); sh.classList.add("show"); document.body.classList.add("sheet-open"); bindSheetKeyboardScroll(sh);
   setTimeout(function(){ var i=$("#bulk-input"); if(i) i.focus(); }, 260);
   $("#bulk-cancel").addEventListener("click", closeSheet);
   $("#bulk-go").addEventListener("click", function(){
@@ -1703,23 +1772,44 @@ function init(){
   $("#add-name").addEventListener("keydown",function(e){ if(e.key==="Enter") doAdd(); });
   $("#add-name").addEventListener("input",function(){ buildAC(this.value); });
   $("#add-name").addEventListener("blur",function(){ setTimeout(hideAC,180); });
-  attachLongPress($("#add-btn"), openBulkPasteSheet);
+  attachLongPress($("#add-btn"), function(){
+    if(state && state.settings && !state.settings.seenBulkHint){
+      state.settings.seenBulkHint = true; save();
+    }
+    openBulkPasteSheet();
+  });
+  // Eenmalige ontdek-hint dat de +-knop óók bulk-plakken kan (kort na eerste paar items)
+  setTimeout(function(){
+    if(state && state.settings && !state.settings.seenBulkHint && Object.keys(state.catalog||{}).length>=4){
+      state.settings.seenBulkHint = true; save();
+      toast("Tip: houd + ingedrukt om meerdere tegelijk te plakken", {duration:3500});
+    }
+  }, 1500);
   setupSearchBar();
   setupOfflineIndicator();
   setupTopShareBtn();
   setupPullToRefresh();
   setupRipples();
+  // Swipe-down-to-close op beide sheets (1× binden — containers zijn persistent)
+  attachSheetDismiss($("#sheet"), closeSheet);
+  if(typeof closeSheet2==="function") attachSheetDismiss($("#sheet2"), closeSheet2);
   window.addEventListener("beforeunload", function(){
     if(typeof Cloud!=="undefined" && Cloud.stop) Cloud.stop();
   });
   var gb=$("#gear-btn"); if(gb) gb.addEventListener("click",function(){ switchTab(activeTab==="meer"?"lijst":"meer"); });
 
-  // Keyboard-avoidance via visualViewport (iOS PWA)
+  // Keyboard-avoidance via visualViewport (iOS PWA).
+  // Verschuift NIET de hele app (dat gaf scherm-sprong), maar tilt alleen
+  // de add-balk net boven het toetsenbord via de --kb-lift CSS-var.
   if(window.visualViewport){
     var onVP=function(){
       var vv=window.visualViewport;
-      var app=document.getElementById("app");
-      if(app){ app.style.height=vv.height+"px"; app.style.transform="translateY("+(vv.offsetTop||0)+"px)"; }
+      // Toetsenbord-hoogte = layout-viewport minus zichtbaar gebied (+ eventuele scroll-offset)
+      var kb = Math.max(0, window.innerHeight - vv.height - (vv.offsetTop||0));
+      // Kleine drempel tegen ruis (adresbalk-collaps e.d. is < ~90px)
+      var open = kb > 90;
+      document.documentElement.style.setProperty("--kb-lift", (open?kb:0) + "px");
+      document.body.classList.toggle("kb-open", open);
     };
     window.visualViewport.addEventListener("resize",onVP,{passive:true});
     window.visualViewport.addEventListener("scroll",onVP,{passive:true});

@@ -225,6 +225,49 @@ const ok=(n,c)=>{ if(c){pass++;console.log("  ✓ "+n);} else {fail++;console.lo
   ok("Forgot-row element aanwezig", !!forgot);
   dom16.window.close();
 
+  // 18. Iteratie 5 — visualViewport keyboard-fix: alleen --kb-lift + kb-open class, GEEN .app transform
+  const dom17=new JSDOM(html,{url:"https://example.com/",runScripts:"dangerously",resources:"usable",pretendToBeVisual:true});
+  await wait(150); const W17=dom17.window; const doc17=dom17.window.document;
+  // Simuleer een visualViewport met gekrompen hoogte (toetsenbord open)
+  if(!W17.visualViewport){
+    W17.visualViewport = { height: W17.innerHeight, offsetTop:0, addEventListener:function(){}, removeEventListener:function(){} };
+  }
+  // forceer kb-lift via de publieke hook als die bestaat; anders check dat .app GEEN transform heeft
+  const appEl = doc17.querySelector("#app");
+  ok("Keyboard-fix: .app krijgt geen transform meer", !appEl.style.transform);
+  ok("Keyboard-fix: --kb-lift CSS-var bestaat in stylesheet (addwrap gebruikt 'm)", html.indexOf("--kb-lift")!==-1);
+  dom17.window.close();
+
+  // 19. Send-sheet titel-update behoudt input (geen volledige re-render)
+  const dom18=new JSDOM(html,{url:"https://example.com/",runScripts:"dangerously",resources:"usable",pretendToBeVisual:true});
+  await wait(150);
+  ok("Send-sheet heeft #sc-title node voor titel-only update", html.indexOf('id="sc-title"')!==-1);
+  dom18.window.close();
+
+  // 20. Afrond-knop verschijnt onderaan de in-mandje-sectie
+  const dom19=new JSDOM(html,{url:"https://example.com/",runScripts:"dangerously",resources:"usable",pretendToBeVisual:true});
+  await wait(150); const doc19=dom19.window.document;
+  doc19.querySelector("#add-name").value="Melk";
+  doc19.querySelector("#add-name").dispatchEvent(new dom19.window.KeyboardEvent("keydown",{key:"Enter",bubbles:true}));
+  await wait(30);
+  const chk19 = doc19.querySelector("#open-list .check");
+  if(chk19) chk19.click();
+  await wait(30);
+  ok("Afrond-knop onderaan in-mandje", !!doc19.querySelector("#done-list .finish-inline-btn"));
+  dom19.window.close();
+
+  // 21. Prijzen-nudge: bij >=5 items + prijzen uit → seenPriceNudge wordt gezet
+  const dom20=new JSDOM(html,{url:"https://example.com/",runScripts:"dangerously",resources:"usable",pretendToBeVisual:true});
+  await wait(150); const doc20=dom20.window.document; const W20=dom20.window;
+  ["Melk","Brood","Kaas","Appels","Eieren"].forEach(function(n){
+    doc20.querySelector("#add-name").value=n;
+    doc20.querySelector("#add-name").dispatchEvent(new W20.KeyboardEvent("keydown",{key:"Enter",bubbles:true}));
+  });
+  await wait(60);
+  const st20 = JSON.parse(W20.localStorage.getItem("mandje.v2"));
+  ok("Prijzen-nudge: seenPriceNudge gezet na 5 items", st20.settings.seenPriceNudge === true);
+  dom20.window.close();
+
   console.log("\nt3: "+pass+" geslaagd, "+fail+" gefaald");
   process.exit(fail?1:0);
 })().catch(e=>{console.error("t3 TESTFOUT:",e);process.exit(2)});

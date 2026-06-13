@@ -480,7 +480,7 @@ function openSendSheet(scId){
   var sent=[];
   function renderSheet(displayName){
     return '<div class="grip"></div>'+
-      '<h3 style="display:flex;align-items:center;gap:10px"><span style="display:inline-block;width:14px;height:14px;border-radius:50%;background:'+s.color+';flex:0 0 auto"></span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">Sturen naar '+escapeHtml(prettyListName(displayName))+'</span></h3>'+
+      '<h3 style="display:flex;align-items:center;gap:10px"><span style="display:inline-block;width:14px;height:14px;border-radius:50%;background:'+s.color+';flex:0 0 auto"></span><span id="sc-title" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">Sturen naar '+escapeHtml(prettyListName(displayName))+'</span></h3>'+
       '<div class="field" style="margin-bottom:6px">'+
         '<svg class="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>'+
         '<input class="name" id="sc-input" type="search" enterkeyhint="send" placeholder="Bijv. melk, brood…" autocapitalize="sentences" autocomplete="off" autocorrect="off" spellcheck="false">'+
@@ -531,11 +531,10 @@ function openSendSheet(scId){
       if(r.data !== s.name){
         s.name = r.data;
         Shortcuts.rename(scId, r.data);
-        sh.innerHTML = renderSheet(s.name);
-        // Hervind sent-chips na re-render
-        var sentWrap = sh.querySelector("#sc-sent");
-        if(sentWrap) sentWrap.innerHTML = sent.map(function(n){return '<span class="chip"><span class="emoji">✓</span>'+escapeHtml(n)+'</span>';}).join("");
-        wire();
+        // Update ALLEEN de titel-node — herrender niet de hele sheet (anders verlies je
+        // wat de gebruiker net aan 't typen is in #sc-input).
+        var titleEl = sh.querySelector("#sc-title");
+        if(titleEl) titleEl.textContent = "Sturen naar " + prettyListName(s.name);
       }
     },function(){ /* netwerkfout — laat lokale naam staan, geen toast */ });
   });
@@ -654,9 +653,17 @@ function renderListSwitch(){
   if(activeTab!=="lijst") return;          // pill alleen op de lijst-tab
   if(!Cloud.enabled) return; // sharing niet geconfigureerd → niets tonen
   var l=Cloud.activeList();
-  var ico = Cloud.active ? "👥" : "🧺";
   var name = Cloud.active ? prettyListName(l?l.name:"Gedeeld") : "Persoonlijk";
-  var pill=el("button","list-switch",'<span class="ls-ico">'+ico+'</span><span class="ls-name">'+escapeHtml(name)+'</span><svg class="ls-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>');
+  // Gedeeld = gekleurde owner-stip (consistent met de rest), Persoonlijk = mandje-emoji
+  var icoHtml;
+  if(Cloud.active){
+    var col = ownerColor(l);
+    icoHtml = '<span class="ls-ico-dot" style="background:'+col+'"></span>';
+  } else {
+    icoHtml = '<span class="ls-ico">🧺</span>';
+  }
+  var sub = Cloud.active ? "Gedeeld" : "Op dit toestel";
+  var pill=el("button","list-switch",icoHtml+'<span class="ls-name">'+escapeHtml(name)+'</span><span class="ls-pill-sub">'+sub+'</span><svg class="ls-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>');
   pill.addEventListener("click",openSwitchSheet);
   wrap.appendChild(pill);
 }
@@ -685,6 +692,7 @@ function openSheet2(html){
   var s=$("#sheet2"); s.innerHTML='<div class="grip"></div>'+html;
   $("#scrim2").classList.add("show"); s.classList.add("show");
   document.body.classList.add("sheet-open");
+  if(typeof bindSheetKeyboardScroll==="function") bindSheetKeyboardScroll(s);
   return s;
 }
 function closeSheet2(){
