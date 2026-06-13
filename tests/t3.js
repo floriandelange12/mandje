@@ -288,6 +288,14 @@ const ok=(n,c)=>{ if(c){pass++;console.log("  ✓ "+n);} else {fail++;console.lo
   ok("Build bevat ?friend= afhandeling", html.indexOf('params.get("friend")') !== -1);
   ok("Build bevat sendToFriend", html.indexOf("sendToFriend") !== -1);
 
+  // 24. Iteratie 7 — avatar-smiley-grid weg, optioneel emoji-veld erin
+  ok("AVATAR_EMOJI smiley-grid is verwijderd", html.indexOf("AVATAR_EMOJI") === -1);
+  ok("Optioneel emoji-veld (#id-emoji) aanwezig", html.indexOf('id="id-emoji"') !== -1);
+  ok("Profiel bewerken (openProfileSheet) aanwezig", html.indexOf("openProfileSheet") !== -1);
+  ok("Vriend verwijderen-actie (friend-del) aanwezig", html.indexOf("friend-del") !== -1);
+  ok(".mbtn.primary klasse gedefinieerd", html.indexOf(".mbtn.primary") !== -1);
+  ok("Vriendcode-box klasse aanwezig", html.indexOf("friend-code-box") !== -1);
+
   console.log("\nt3: "+pass+" geslaagd, "+fail+" gefaald");
   process.exit(fail?1:0);
 })().catch(e=>{console.error("t3 TESTFOUT:",e);process.exit(2)});

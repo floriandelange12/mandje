@@ -280,7 +280,18 @@
   .switch.on::after{ transform:translateX(20px); }
   .mbtn{ width:100%; border:0; background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:14px; font-size:16px; font-weight:600; box-shadow:var(--shadow-sm); margin-bottom:10px; }
   .mbtn.danger{ color:var(--red); }
+  .mbtn.primary{ background:var(--green); color:var(--on-green); border-color:transparent; }
+  .mbtn.primary:active{ filter:brightness(.94); background:var(--green); }
   .mbtn:active{ background:var(--surface-3); }
+  /* Kleur-kiezer chip (profiel) */
+  .color-chip{ width:34px; height:34px; border-radius:50%; padding:0; border:0; flex:0 0 auto; }
+  .color-chip.on{ outline:3px solid var(--ink); outline-offset:2px; }
+  /* Gedeelde meta/ellipsis in lijst-/vrienden-rijen */
+  .lsi-meta{ flex:1; min-width:0; }
+  .lsi-text{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  /* Avatar (initialen of emoji) */
+  .avatar{ border-radius:50%; display:inline-flex; align-items:center; justify-content:center; flex:0 0 auto; }
+  .av.offline{ opacity:.5; }
   textarea.io{ width:100%; height:120px; border:1px solid var(--line); border-radius:14px; background:var(--surface-2); padding:12px; font-size:13px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; resize:none; -webkit-user-select:text; user-select:text; }
   .hint{ font-size:13px; color:var(--ink-soft); line-height:1.5; margin:2px 6px 16px; }
 
@@ -347,7 +358,7 @@
 
   .code-box{ text-align:center; background:var(--surface-2); border:1px dashed var(--line-strong); border-radius:16px; padding:18px; margin:4px 0 14px; }
   .code-box .cb-lbl{ font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.1em; color:var(--ink-soft); }
-  .code-box .cb-code{ font-family:var(--display); font-size:40px; font-weight:600; letter-spacing:.18em; margin-top:4px; }
+  .code-box .cb-code{ font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:34px; font-weight:700; letter-spacing:.14em; margin-top:4px; }
 
   /* ---------- "Stuur naar"-snelkoppelingen ---------- */
   .shortcuts-row{ margin:-2px -16px 10px; padding:0; }
@@ -367,7 +378,10 @@
   .sc-action-wide svg{ width:15px; height:15px; }
   .sc-action-wide .sc-act-lbl{ white-space:nowrap; }
   .sc-action-wide:active{ filter:brightness(.96); }
-  .friend-me{ display:flex; align-items:center; gap:12px; padding:12px 4px 16px; }
+  .friend-me{ display:flex; align-items:center; gap:13px; padding:14px; background:var(--surface); border:1px solid var(--line); border-radius:var(--r-card); box-shadow:var(--shadow-sm); margin-bottom:14px; }
+  .friend-me .fm-name{ font-size:17px; font-weight:700; }
+  .friend-me .fm-sub{ font-size:12px; color:var(--ink-soft); margin-top:3px; }
+  .friend-code-box{ display:inline-block; font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-weight:700; letter-spacing:.08em; font-size:14px; color:var(--ink); background:var(--surface-2); border:1px solid var(--line); border-radius:8px; padding:3px 9px; margin-top:4px; }
 
   /* ---------- Share-actions sheet (sa-) ---------- */
   .sa-row{ display:flex; align-items:center; gap:14px; width:100%; background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:14px; box-shadow:var(--shadow-sm); margin-bottom:10px; text-align:left; }
@@ -448,9 +462,11 @@
   .inline-rename .ir-cancel{ flex:0 0 auto; border:0; background:transparent; color:var(--ink-soft); padding:10px 4px; font-size:14px; font-weight:600; }
 
   /* ---------- Member-rij in share-sheet kick/leave-knop ---------- */
-  .ls-item .lsi-member-action{ flex:0 0 auto; border:0; background:transparent; color:var(--ink-faint); padding:6px 8px; font-size:13px; font-weight:600; border-radius:10px; }
+  .ls-item .lsi-member-action{ flex:0 0 auto; border:0; background:transparent; color:var(--ink-soft); padding:9px 12px; min-height:38px; font-size:14px; font-weight:600; border-radius:10px; }
   .ls-item .lsi-member-action.kick:active{ color:var(--red); background:color-mix(in srgb, var(--red) 8%, transparent); }
   .ls-item .lsi-member-action.leave:active{ color:var(--red); background:color-mix(in srgb, var(--red) 8%, transparent); }
+  .ls-item .lsi-member-action.friend-send{ background:var(--green-2); color:var(--green); font-weight:700; padding:9px 16px; }
+  .ls-item .lsi-member-action.friend-send:active{ filter:brightness(.96); }
 
   /* ---------- Section overflow-link ---------- */
   .section .more-link{ background:none; border:0; padding:2px 4px; font-size:13px; font-weight:700; color:var(--green); text-transform:none; letter-spacing:0; }
@@ -531,7 +547,7 @@
   window.MANDJE_CONFIG = {
     SUPABASE_URL:      "https://yctcpxgjpmhyohbsrygy.supabase.co",   /* ingevuld ✓ */
     SUPABASE_ANON_KEY: "sb_publishable_lT77Nkcrl6VsBIx-PFuMtw_mdJ6fyNj",   /* ingevuld ✓ (publishable key) */
-    BUILD:             "2026-06-09.1", /* alleen onderaan Meer-tab zichtbaar — handig om cache-versie te verifiëren */
+    BUILD:             "2026-06-09.2", /* alleen onderaan Meer-tab zichtbaar — handig om cache-versie te verifiëren */
     EMAIL_AUTH:        false  /* zet op true zodra e-mail magic-link aan staat in Supabase → toont "Beveilig je account" */
   };
 </script>

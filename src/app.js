@@ -1619,10 +1619,8 @@ function emptyState(icon,h,p,actionLabel,actionFn){
   var e=el("div","empty hero");
   e.innerHTML='<div class="ico">'+(icons[icon]||icons.bag)+'</div><h2>'+h+'</h2><p>'+p+'</p>';
   if(actionLabel && typeof actionFn === "function"){
-    var btn = el("button","mbtn", actionLabel);
+    var btn = el("button","mbtn primary", actionLabel);
     btn.style.maxWidth = "260px"; btn.style.margin = "20px auto 0";
-    btn.style.background = "var(--green)"; btn.style.color = "var(--on-green)";
-    btn.style.borderColor = "transparent";
     btn.addEventListener("click", actionFn);
     e.appendChild(btn);
   }
