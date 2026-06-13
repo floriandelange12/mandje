@@ -451,11 +451,12 @@
 
   /* ---------- Sortable list (Meer-tab: schap-volgorde) ---------- */
   .sort-list{ display:flex; flex-direction:column; gap:6px; }
-  .sort-row{ display:flex; align-items:center; gap:12px; padding:11px 14px; background:var(--surface); border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow-sm); touch-action:none; user-select:none; -webkit-user-select:none; transition:transform .18s var(--ease), box-shadow .18s ease; }
+  /* Rij mag normaal verticaal scrollen; alleen het handvat vangt de sleep-gesture */
+  .sort-row{ display:flex; align-items:center; gap:12px; padding:11px 14px; background:var(--surface); border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow-sm); touch-action:pan-y; user-select:none; -webkit-user-select:none; transition:transform .18s var(--ease), box-shadow .18s ease; }
   .sort-row.dragging{ transform:scale(1.02); box-shadow:var(--shadow-lg); z-index:5; opacity:.95; }
   .sort-row .sr-emoji{ font-size:20px; width:30px; text-align:center; flex:0 0 auto; }
   .sort-row .sr-label{ flex:1; font-size:16px; font-weight:600; }
-  .sort-row .sr-handle{ flex:0 0 auto; color:var(--ink-faint); width:24px; height:24px; display:flex; align-items:center; justify-content:center; cursor:grab; }
+  .sort-row .sr-handle{ flex:0 0 auto; color:var(--ink-faint); width:40px; height:40px; margin:-8px -6px -8px 0; display:flex; align-items:center; justify-content:center; cursor:grab; touch-action:none; }
   .sort-row .sr-handle svg{ width:18px; height:18px; }
   .sort-row .sr-del{ flex:0 0 auto; border:0; background:transparent; color:var(--ink-faint); padding:4px 6px; font-size:13px; font-weight:600; }
   .sort-row .sr-del:active{ color:var(--red); }
@@ -595,7 +596,7 @@
   window.MANDJE_CONFIG = {
     SUPABASE_URL:      "https://yctcpxgjpmhyohbsrygy.supabase.co",   /* ingevuld ✓ */
     SUPABASE_ANON_KEY: "sb_publishable_lT77Nkcrl6VsBIx-PFuMtw_mdJ6fyNj",   /* ingevuld ✓ (publishable key) */
-    BUILD:             "2026-06-09.6", /* alleen onderaan Meer-tab zichtbaar — handig om cache-versie te verifiëren */
+    BUILD:             "2026-06-09.7", /* alleen onderaan Meer-tab zichtbaar — handig om cache-versie te verifiëren */
     EMAIL_AUTH:        false  /* zet op true zodra e-mail magic-link aan staat in Supabase → toont "Beveilig je account" */
   };
 </script>
