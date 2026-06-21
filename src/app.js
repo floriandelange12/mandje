@@ -104,6 +104,11 @@ function lev(a,b){
 function classify(name){
   var n = norm(name);
   if(!n) return "overig";
+  // Respecteer een handmatige categorie-correctie (userOverrideCat) → corrigeren is blijvend
+  if(typeof state!=="undefined" && state && state.catalog){
+    var ce = state.catalog[n];
+    if(ce && ce.userOverrideCat && ce.category) return ce.category;
+  }
   var words = n.split(/\s+/);
   for(var i=0;i<FLAT_KW.length;i++){
     var w = FLAT_KW[i].w;
@@ -142,8 +147,45 @@ var DEFAULTS = {
 };
 
 var state = null;
+/* Persoonlijke lijst bewaren terwijl een cloud-lijst actief is: state.list bevat dan de
+   cloud-items, dus save() mag die NIET als persoonlijke lijst wegschrijven (BUG: contaminatie). */
+var _personalList = null;
 
 function deepClone(o){ return JSON.parse(JSON.stringify(o)); }
+
+/* ---- IndexedDB-vangnet (onzichtbaar): checkpoint van de hele state, voor het geval
+   localStorage wordt gewist/gepurged (iOS 7-dagen, quota, reset). Faalt stil. ---- */
+function idbSet(key, valStr){
+  try{
+    if(typeof indexedDB==="undefined") return;
+    var req=indexedDB.open("mandje-bak",1);
+    req.onupgradeneeded=function(){ try{ req.result.createObjectStore("kv"); }catch(e){} };
+    req.onsuccess=function(){ try{ var db=req.result; db.transaction("kv","readwrite").objectStore("kv").put(valStr,key); }catch(e){} };
+  }catch(e){}
+}
+function idbGet(key){
+  return new Promise(function(res){
+    try{
+      if(typeof indexedDB==="undefined"){ res(null); return; }
+      var req=indexedDB.open("mandje-bak",1);
+      req.onupgradeneeded=function(){ try{ req.result.createObjectStore("kv"); }catch(e){} };
+      req.onsuccess=function(){ try{ var g=req.result.transaction("kv","readonly").objectStore("kv").get(key); g.onsuccess=function(){res(g.result||null);}; g.onerror=function(){res(null);}; }catch(e){ res(null); } };
+      req.onerror=function(){ res(null); };
+    }catch(e){ res(null); }
+  });
+}
+/* Herstel localStorage uit het IndexedDB-checkpoint als 't leeg/corrupt is — vóór load(). */
+function ensureRestore(){
+  return new Promise(function(res){
+    var raw=null; try{ raw=localStorage.getItem(NS); }catch(e){}
+    var valid=false; if(raw){ try{ var p=JSON.parse(raw); valid=!!(p&&typeof p==="object"); }catch(e){} }
+    if(valid){ res(); return; }
+    idbGet(NS).then(function(backup){
+      if(backup){ try{ localStorage.setItem(NS, backup); }catch(e){} }
+      res();
+    });
+  });
+}
 
 function load(){
   var raw = null, parsed = null;
@@ -181,8 +223,21 @@ function load(){
   save();
 }
 
+var _idbCheckpointAt = 0;
 function save(){
-  try{ localStorage.setItem(NS, JSON.stringify(state)); }catch(e){}
+  try{
+    // Tijdens een actieve cloud-lijst staat de cloud-lijst in state.list → bewaar i.p.v.
+    // daarvan de persoonlijke lijst, zodat terugschakelen naar Persoonlijk 'm intact houdt.
+    var snap = state;
+    if(typeof Cloud!=="undefined" && Cloud.active){
+      snap = Object.assign({}, state, { list: _personalList || [] });
+    }
+    var str = JSON.stringify(snap);
+    localStorage.setItem(NS, str);
+    // Onzichtbaar vangnet: hooguit elke ~8s naar IndexedDB checkpointen
+    var now = (Date.now ? Date.now() : 0);
+    if(now - _idbCheckpointAt > 8000){ _idbCheckpointAt = now; idbSet(NS, str); }
+  }catch(e){}
 }
 
 /* ============================================================
@@ -2218,6 +2273,10 @@ function maybeIntro(){
    INIT
    ============================================================ */
 function init(){
+  // Eerst het IndexedDB-vangnet checken (herstelt localStorage als die gewist is), dan starten.
+  ensureRestore().then(initApp);
+}
+function initApp(){
   load();
   applyTheme();
   applyPriceVisibility();

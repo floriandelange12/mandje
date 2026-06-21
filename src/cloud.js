@@ -283,6 +283,9 @@ var Cloud = {
   },
 
   open:async function(listId){
+    // Bewaar de persoonlijke lijst vóór we de cloud-items in state.list laden (alleen als we
+    // nu nog op Persoonlijk staan; bij cloud→cloud houden we de bestaande snapshot).
+    if(!this.active && typeof _personalList!=="undefined") _personalList = (state.list||[]).slice();
     this.active=listId; try{ localStorage.setItem("mandje.activeList", listId); }catch(e){}
     await this.refreshItems(); await this.refreshMembers();
     this.subscribe(listId); this.startPresence();
@@ -312,17 +315,18 @@ var Cloud = {
       return;
     }
     // Diff-merge per ID — voorkomt onnodige scroll-jank/animation-reset bij realtime updates
-    var oldById = {};
+    var oldById = {}, self=this;
     state.list.forEach(function(it){ oldById[it.id]=it; });
-    state.list = (r.data||[]).map(function(it){
+    state.list = (r.data||[]).filter(function(it){ return !self._deletedIds[it.id]; }).map(function(it){
+      var old = oldById[it.id];
       var fresh = {
         id:it.id, name:it.name, category:it.category||classify(it.name), qty:it.qty||1,
         price:(it.price==null?null:Number(it.price)), note:it.note||"", done:!!it.done,
+        unit:(old&&old.unit)||"",          // unit is lokaal (geen DB-kolom) → behouden over realtime-refresh
         assigned_to:it.assigned_to||null, added_by_name:it.added_by_name||"", addedAt:it.created_at
       };
-      var old = oldById[it.id];
       // Hergebruik object-reference voor unchanged rows zodat itemRow-animaties niet opnieuw starten
-      if(old && old.name===fresh.name && old.qty===fresh.qty && old.done===fresh.done && old.price===fresh.price && old.note===fresh.note && old.assigned_to===fresh.assigned_to){
+      if(old && old.name===fresh.name && old.qty===fresh.qty && old.done===fresh.done && old.price===fresh.price && old.note===fresh.note && (old.unit||"")===(fresh.unit||"") && old.assigned_to===fresh.assigned_to){
         return old;
       }
       return fresh;
@@ -410,6 +414,7 @@ var Cloud = {
      bewaard en bij "online" opnieuw verstuurd. Bewerkingen op nog-niet-gesyncte
      items (tmp_-id) worden in de uitgestelde insert gevouwen → niets gaat verloren. */
   _pending:[],
+  _deletedIds:{},   // ids die we net afgerond/verwijderd hebben → niet her-toevoegen via realtime-refresh
   _isTmp:function(id){ return typeof id==="string" && id.indexOf("tmp_")===0; },
   _pendingInsert:function(tmpId){
     for(var i=0;i<this._pending.length;i++){ var e=this._pending[i]; if(e.op==="insert"&&e.tmpId===tmpId) return e; }
@@ -522,9 +527,11 @@ var Cloud = {
     done.forEach(function(it){ recordPurchase(it.name, it.price); });
     if(typeof recordCoBuy==="function") recordCoBuy(done.map(function(it){return it.name;}));
     save();
+    ids.forEach(function(id){ self._deletedIds[id]=1; });   // tegen her-toevoegen via realtime-refresh
     state.list=state.list.filter(function(i){return !i.done;}); renderLijst();
+    var clear=function(){ setTimeout(function(){ ids.forEach(function(id){ delete self._deletedIds[id]; }); }, 1500); };
     var queueAll=function(){ ids.forEach(function(id){ self._queueDelete(id); }); };
-    this.sb.from("items").delete().in("id",ids).then(function(r){ if(r&&r.error) queueAll(); }, queueAll);
+    this.sb.from("items").delete().in("id",ids).then(function(r){ if(r&&r.error) queueAll(); clear(); }, function(){ queueAll(); clear(); });
     toast(done.length+(done.length===1?" boodschap gekocht":" boodschappen gekocht")); vibrate(12); renderVaste();
     if(typeof celebrate==="function") celebrate();
   },
