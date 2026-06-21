@@ -306,6 +306,9 @@ function analyse(e){
 
 function isDue(a){
   if(!a.regular || !a.next) return false;
+  // Handmatig ritme zonder koopgeschiedenis: er is nog geen ankerpunt, dus nog niet "bijna op".
+  // Het item blijft wel zichtbaar onder "Jouw vaste boodschappen" tot de eerste aankoop.
+  if(a.mode==="manual" && !a.last) return false;
   var today = parseDay(todayStr());
   var threshold = addDays(a.next, -state.settings.dueWindowDays);
   return today.getTime() >= threshold.getTime();
@@ -402,8 +405,18 @@ function lastSeenLabel(a){
 function euro(n){ return "€"+(n||0).toLocaleString("nl-NL",{minimumFractionDigits:2,maximumFractionDigits:2}); }
 function parsePrice(str){
   if(str==null || str==="") return null;
-  str = String(str).replace(/[^0-9,.\-]/g,"").replace(/\./g,".").replace(",",".");
-  // herstel: laatste punt is decimaal
+  str = String(str).trim().replace(/[^0-9,.\-]/g,"");
+  if(str==="") return null;
+  var lastComma = str.lastIndexOf(","), lastDot = str.lastIndexOf(".");
+  if(lastComma>-1 && lastDot>-1){
+    // Beide aanwezig (bv. "1.234,56" of "1,234.56"): de rechtse is de decimaalscheiding,
+    // de andere is duizendtalscheiding en valt weg.
+    if(lastComma > lastDot) str = str.replace(/\./g,"").replace(",",".");
+    else str = str.replace(/,/g,"");
+  } else if(lastComma>-1){
+    str = str.replace(/,/g,".");   // alleen komma → decimaalscheiding (NL)
+  }
+  // Alleen punt of niets: punt blijft de decimaalscheiding
   var n = parseFloat(str);
   return isNaN(n)?null:n;
 }
@@ -639,13 +652,13 @@ function renderLijst(){
     if(typeof Cloud!=="undefined" && Cloud.active){
       openFrag.appendChild(emptyState(
         "bag",
-        "Je mandje is leeg",
+        "Begin je lijst",
         "Tik hieronder om iets toe te voegen — of deel de stuur-link zodat anderen items voor je droppen.",
         "Delen",
         function(){ if(typeof openShareSheet==="function") openShareSheet(Cloud.active); }
       ));
     } else {
-      openFrag.appendChild(emptyState("bag","Je mandje is leeg","Typ hieronder wat je nodig hebt. Producten landen vanzelf in het juiste schap."));
+      openFrag.appendChild(emptyState("bag","Begin je lijst","Typ hieronder wat je nodig hebt. Producten landen vanzelf in het juiste schap."));
     }
   } else {
     // groepeer open per categorie volgens categoryOrder
@@ -674,13 +687,15 @@ function renderLijst(){
       doneFrag.appendChild(s2);
       var ul2=el("ul","list"); done.forEach(function(it){ ul2.appendChild(itemRow(it)); });
       doneFrag.appendChild(ul2);
-      // Afrond-knop direct onder de afgevinkte items — altijd binnen duim-bereik,
-      // ook als de prijzen-totals-bar (met z'n eigen afrond-knop) uit staat.
-      var finishWrap = el("div","finish-inline");
-      var finishBtn = el("button","finish-inline-btn","Afronden ✓");
-      finishBtn.addEventListener("click", finishShopping);
-      finishWrap.appendChild(finishBtn);
-      doneFrag.appendChild(finishWrap);
+      // Afrond-knop direct onder de afgevinkte items — alleen tonen wanneer de
+      // prijzen-totals-bar (met z'n eigen afrond-knop) uit staat, anders dubbel.
+      if(!state.settings.showPrices){
+        var finishWrap = el("div","finish-inline");
+        var finishBtn = el("button","finish-inline-btn","Afronden ✓");
+        finishBtn.addEventListener("click", finishShopping);
+        finishWrap.appendChild(finishBtn);
+        doneFrag.appendChild(finishWrap);
+      }
     }
   }
   // Single append per wrap = minimum reflows
@@ -712,7 +727,7 @@ function itemRow(it){
   }
 
   card.innerHTML =
-    '<div class="check">'+CHECK_SVG+'</div>'+
+    '<button class="check" type="button" aria-label="'+(it.done?"Vinkje weghalen":"Afvinken")+'" aria-pressed="'+(it.done?"true":"false")+'">'+CHECK_SVG+'</button>'+
     '<div class="meta"><div class="nm"></div>'+(sub?'<div class="sub2">'+sub+'</div>':'')+'</div>'+
     '<div class="qty"><button class="q-minus" aria-label="minder">–</button><span>'+it.qty+'</span><button class="q-plus" aria-label="meer">+</button></div>'+
     (state.settings.showPrices && it.price!=null ? '<div class="price">'+euro(it.price*it.qty)+'</div>' : '');
@@ -722,6 +737,15 @@ function itemRow(it){
   card.querySelector(".q-minus").addEventListener("click",function(e){ e.stopPropagation(); setQty(it.id,-1); });
   card.querySelector(".q-plus").addEventListener("click",function(e){ e.stopPropagation(); setQty(it.id,1); });
   card.addEventListener("click",function(){ if(card._suppressClick) return; openSheet(it.id); });
+  // Toetsenbord-toegang: de kaart zelf opent het detail-sheet (Enter). Interne knoppen
+  // (afvinken/qty) hebben hun eigen focus; daarom alleen reageren als de kaart zélf de target is.
+  card.setAttribute("role","button");
+  card.setAttribute("tabindex","0");
+  card.setAttribute("aria-label", it.name+" — details en opties");
+  card.addEventListener("keydown",function(e){
+    if(e.target!==card) return;
+    if(e.key==="Enter" || e.key===" "){ e.preventDefault(); openSheet(it.id); }
+  });
 
   li.appendChild(card);
   attachSwipe(card, function(){ removeFromList(it.id); });
@@ -1078,12 +1102,16 @@ function buildSheet(d){
         cadChip("off","Uit",selCad)+
         '</div>';
 
-  // Auto-add toggle (alleen tonen als er een ritme bekend of in te stellen is)
-  var _autoAdd = !!(state.catalog[(sheetCtx&&sheetCtx.key)||""] && state.catalog[(sheetCtx&&sheetCtx.key)||""].autoAdd);
-  html+='<div class="auto-add-toggle">'+
-    '<div class="aat-label">Automatisch toevoegen<small>Verschijnt vanzelf op je lijst zodra het ritme zegt "bijna op".</small></div>'+
-    '<button class="switch'+(_autoAdd?" on":"")+'" id="s-auto-toggle" type="button" aria-label="Auto-toevoegen wisselen"></button>'+
-  '</div>';
+  // Auto-add toggle — alleen tonen als er écht een ritme is (auto-herkend of handmatig ingesteld).
+  // Zonder ritme doet auto-toevoegen niets, dus dan verbergen we 'm om verwarring te voorkomen.
+  var _hasRhythm = !!(d.a && (d.a.regular || d.a.mode==="manual"));
+  if(_hasRhythm){
+    var _autoAdd = !!(state.catalog[(sheetCtx&&sheetCtx.key)||""] && state.catalog[(sheetCtx&&sheetCtx.key)||""].autoAdd);
+    html+='<div class="auto-add-toggle">'+
+      '<div class="aat-label">Automatisch toevoegen<small>Verschijnt vanzelf op je lijst zodra het ritme zegt "bijna op".</small></div>'+
+      '<button class="switch'+(_autoAdd?" on":"")+'" id="s-auto-toggle" type="button" aria-label="Auto-toevoegen wisselen"></button>'+
+    '</div>';
+  }
 
   html+='<div class="sheet-actions">'+
         '<button class="save" id="s-save">'+(d.catalogOnly?"Opslaan":"Klaar")+'</button>'+
@@ -1155,7 +1183,8 @@ function buildSheet(d){
   sheet.querySelector("#s-save").addEventListener("click",function(){
     var price = state.settings.showPrices ? parsePrice((sheet.querySelector("#s-price")||{}).value) : null;
     var note = (sheet.querySelector("#s-note")||{}).value || "";
-    var autoAdd = !!(autoToggle && autoToggle.classList.contains("on"));
+    // null wanneer de toggle niet getoond is (geen ritme) → saveSheet laat autoAdd ongemoeid
+    var autoAdd = autoToggle ? autoToggle.classList.contains("on") : null;
     saveSheet(chosenCat, chosenCad, qty, price, note, d.catalogOnly, chosenAssignee, autoAdd);
   });
 
@@ -1361,12 +1390,15 @@ function applySearchFilter(q){
   q = (q||"").trim().toLowerCase();
   var open = $("#open-list"); var done = $("#done-list");
   if(!open) return;
+  var emptyMsg = open.querySelector(".search-empty");
   if(!q){
     open.querySelectorAll(".row, .section, ul.list").forEach(function(n){ n.style.display=""; });
     if(done) done.style.display = "";
+    if(emptyMsg) emptyMsg.style.display = "none";
     return;
   }
   if(done) done.style.display = "none";
+  var anyVisible = false;
   open.querySelectorAll("ul.list").forEach(function(ul){
     var any = false;
     ul.querySelectorAll(".row").forEach(function(r){
@@ -1376,10 +1408,19 @@ function applySearchFilter(q){
       r.style.display = match ? "" : "none";
       if(match) any = true;
     });
-    ul.style.display = any ? "" : "none";
+    // "flex" (niet "") forceert tonen ook als de categorie is ingeklapt (.collapsed → display:none)
+    ul.style.display = any ? "flex" : "none";
     var sec = ul.previousElementSibling;
     if(sec && sec.classList.contains("section")) sec.style.display = any ? "" : "none";
+    if(any) anyVisible = true;
   });
+  if(!anyVisible){
+    if(!emptyMsg){ emptyMsg = el("div","search-empty"); open.appendChild(emptyMsg); }
+    emptyMsg.textContent = 'Niets gevonden voor "'+q+'"';
+    emptyMsg.style.display = "";
+  } else if(emptyMsg){
+    emptyMsg.style.display = "none";
+  }
 }
 
 /* Sleepbare lijst van schap-rijen. Globale move/end-listeners worden eenmalig gebonden. */

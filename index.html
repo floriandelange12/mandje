@@ -2,7 +2,8 @@
 <html lang="nl" data-theme="auto">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content">
+<!-- Zoom toegestaan (a11y/WCAG): geen maximum-scale / user-scalable=no meer -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
 <title>Mandje</title>
 
 <!-- PWA / iPhone -->
@@ -124,7 +125,7 @@
   main::-webkit-scrollbar{ display:none; }
   /* Floating add-bar = ~62px hoog; extra ruimte onderaan zodat items niet verdwijnen */
   .pad-bottom{ height:calc(var(--tabbar-h) + var(--safe-b) + 90px); }
-  .pad-bottom.with-total{ height:calc(var(--tabbar-h) + var(--safe-b) + 200px); }
+  .pad-bottom.with-total{ height:calc(var(--tabbar-h) + var(--safe-b) + 214px); }
   /* Op Vaste/Meer-tabs is add-bar verborgen — terug naar normale padding */
   body.no-addbar .pad-bottom{ height:calc(var(--tabbar-h) + var(--safe-b) + 24px); }
   body.no-addbar .pad-bottom.with-total{ height:calc(var(--tabbar-h) + var(--safe-b) + 132px); }
@@ -211,7 +212,7 @@
   .row .behind svg{ width:20px; height:20px; }
   .card{ position:relative; display:flex; align-items:center; gap:13px; background:var(--surface); border:1px solid var(--line); border-radius:var(--r-card); padding:12px 14px; box-shadow:var(--shadow-sm); transition:transform .26s var(--ease); touch-action:pan-y; }
 
-  .check{ position:relative; flex:0 0 auto; width:36px; height:36px; border-radius:50%; border:2px solid var(--line-strong); display:flex; align-items:center; justify-content:center; background:transparent; transition:background .18s var(--ease), border-color .18s var(--ease); }
+  .check{ position:relative; flex:0 0 auto; width:36px; height:36px; padding:0; margin:0; border-radius:50%; border:2px solid var(--line-strong); display:flex; align-items:center; justify-content:center; background:transparent; transition:background .18s var(--ease), border-color .18s var(--ease); }
   .check::before{ content:""; position:absolute; inset:-6px; }
   .check svg{ width:19px; height:19px; opacity:0; transform:scale(.3); transition:opacity .18s var(--ease), transform .22s var(--ease); }
   .row.done .check{ background:var(--green); border-color:var(--green); }
@@ -262,8 +263,10 @@
   .empty p{ font-size:15px; margin:0; line-height:1.5; }
 
   /* ---------- Totals bar (boven floating add-bar) ---------- */
-  .totals{ position:absolute; left:0; right:0; bottom:calc(var(--tabbar-h) + max(16px, var(--safe-b)) + 78px); z-index:25; padding:0 max(12px, env(safe-area-inset-right)) 8px max(12px, env(safe-area-inset-left)); pointer-events:none; transition:opacity .2s ease, transform .2s ease; }
-  .totals.hide{ opacity:0; transform:translateY(8px); pointer-events:none; }
+  .totals{ position:absolute; left:0; right:0; bottom:calc(var(--tabbar-h) + max(16px, var(--safe-b)) + 78px); z-index:25; padding:0 max(12px, env(safe-area-inset-right)) 8px max(12px, env(safe-area-inset-left)); pointer-events:none; transition:opacity .2s ease, transform .2s ease, visibility 0s; }
+  /* visibility:hidden haalt 'm uit de a11y-tree én tab-volgorde wanneer verborgen;
+     0s-delay-na-transitie zodat de fade-out nog zichtbaar afspeelt */
+  .totals.hide{ opacity:0; transform:translateY(8px); pointer-events:none; visibility:hidden; transition:opacity .2s ease, transform .2s ease, visibility 0s linear .2s; }
   .totals-inner{ background:color-mix(in srgb, var(--surface) 86%, transparent); -webkit-backdrop-filter:var(--blur); backdrop-filter:var(--blur); border:1px solid var(--line); border-radius:20px; box-shadow:var(--shadow-lg); padding:12px 16px; pointer-events:auto; }
   .trow{ display:flex; align-items:baseline; justify-content:space-between; }
   .trow .lbl{ font-size:13px; font-weight:600; color:var(--ink-soft); }
@@ -328,8 +331,10 @@
   /* ---------- Bottom sheet ---------- */
   .scrim{ position:absolute; inset:0; background:rgba(0,0,0,.4); opacity:0; z-index:50; transition:opacity .3s var(--ease); pointer-events:none; }
   .scrim.show{ opacity:1; pointer-events:auto; }
-  .sheet{ position:absolute; left:0; right:0; bottom:0; z-index:51; background:var(--surface); border-radius:24px 24px 0 0; box-shadow:0 -10px 40px rgba(0,0,0,.25); transform:translateY(110%); transition:transform .28s var(--ease); padding:8px 18px calc(18px + var(--safe-b)); max-width:600px; margin:0 auto; }
-  .sheet.show{ transform:none; }
+  .sheet{ position:absolute; left:0; right:0; bottom:0; z-index:51; background:var(--surface); border-radius:24px 24px 0 0; box-shadow:0 -10px 40px rgba(0,0,0,.25); transform:translateY(110%); visibility:hidden; transition:transform .28s var(--ease), visibility 0s linear .28s; padding:8px 18px calc(18px + var(--safe-b)); max-width:600px; margin:0 auto; }
+  /* Gesloten sheet uit a11y-tree + tab-volgorde halen; visibility springt direct aan bij openen,
+     en pas ná de slide-down-animatie weer uit (0s-delay) zodat de animatie zichtbaar blijft */
+  .sheet.show{ transform:none; visibility:visible; transition:transform .28s var(--ease), visibility 0s; }
   .grip{ width:36px; height:4px; border-radius:99px; background:color-mix(in srgb, var(--ink-faint) 55%, transparent); margin:6px auto 14px; transition:background .15s ease; }
   .sheet h3{ font-family:var(--display); font-size:25px; font-weight:600; letter-spacing:-.01em; margin:0 0 16px; }
   .sheet-label{ font-size:12px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:var(--ink-soft); margin:14px 4px 8px; display:flex; align-items:center; gap:7px; }
@@ -429,6 +434,11 @@
   .send-screen .ss-badge svg{ width:30px; height:30px; color:var(--green); }
   .send-screen h1{ margin:0 0 4px; }
   .send-screen .ss-sub{ color:var(--ink-soft); margin-bottom:22px; }
+  /* Klein label boven de titel (stuur-pagina) — ontbrak eerder als CSS-class */
+  .eyebrow{ font-size:12px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--green); margin-bottom:6px; }
+
+  /* Lege-staat bij zoeken zonder resultaat (Lijst-tab) */
+  .search-empty{ text-align:center; padding:34px 20px 12px; color:var(--ink-soft); font-size:15px; line-height:1.5; }
   .send-screen .ss-added{ margin-top:18px; }
   .send-screen .ss-added .chip{ margin:0 8px 8px 0; }
 
@@ -640,6 +650,8 @@
       <div id="due-banner"></div>
       <div id="open-list"></div>
       <div id="done-list"></div>
+      <!-- "Vergeten?"-suggesties — los van de prijzen-totaalbalk zodat ze ook zonder prijzen verschijnen -->
+      <div id="t-forgot" class="forgot-row" style="display:none"></div>
       <div class="pad-bottom with-total" id="pad-lijst"></div>
     </section>
 
@@ -662,7 +674,6 @@
       <div class="trow"><span class="lbl">Totaal</span><span class="amt" id="t-total">€0,00</span></div>
       <div id="t-hint" class="t-hint" style="display:none">Tik op een product om de prijs in te stellen</div>
       <div id="t-prog-wrap"><div class="pbar"><i id="t-prog" style="width:0%"></i></div>
-      <div id="t-forgot" class="forgot-row" style="display:none"></div>
       <div class="trow"><span class="cart" id="t-cart">€0,00 in mandje</span><button class="finish" id="t-finish" style="display:none;">Afronden ✓</button></div></div>
     </div>
   </div>
@@ -1032,6 +1043,9 @@ function analyse(e){
 
 function isDue(a){
   if(!a.regular || !a.next) return false;
+  // Handmatig ritme zonder koopgeschiedenis: er is nog geen ankerpunt, dus nog niet "bijna op".
+  // Het item blijft wel zichtbaar onder "Jouw vaste boodschappen" tot de eerste aankoop.
+  if(a.mode==="manual" && !a.last) return false;
   var today = parseDay(todayStr());
   var threshold = addDays(a.next, -state.settings.dueWindowDays);
   return today.getTime() >= threshold.getTime();
@@ -1128,8 +1142,18 @@ function lastSeenLabel(a){
 function euro(n){ return "€"+(n||0).toLocaleString("nl-NL",{minimumFractionDigits:2,maximumFractionDigits:2}); }
 function parsePrice(str){
   if(str==null || str==="") return null;
-  str = String(str).replace(/[^0-9,.\-]/g,"").replace(/\./g,".").replace(",",".");
-  // herstel: laatste punt is decimaal
+  str = String(str).trim().replace(/[^0-9,.\-]/g,"");
+  if(str==="") return null;
+  var lastComma = str.lastIndexOf(","), lastDot = str.lastIndexOf(".");
+  if(lastComma>-1 && lastDot>-1){
+    // Beide aanwezig (bv. "1.234,56" of "1,234.56"): de rechtse is de decimaalscheiding,
+    // de andere is duizendtalscheiding en valt weg.
+    if(lastComma > lastDot) str = str.replace(/\./g,"").replace(",",".");
+    else str = str.replace(/,/g,"");
+  } else if(lastComma>-1){
+    str = str.replace(/,/g,".");   // alleen komma → decimaalscheiding (NL)
+  }
+  // Alleen punt of niets: punt blijft de decimaalscheiding
   var n = parseFloat(str);
   return isNaN(n)?null:n;
 }
@@ -1365,13 +1389,13 @@ function renderLijst(){
     if(typeof Cloud!=="undefined" && Cloud.active){
       openFrag.appendChild(emptyState(
         "bag",
-        "Je mandje is leeg",
+        "Begin je lijst",
         "Tik hieronder om iets toe te voegen — of deel de stuur-link zodat anderen items voor je droppen.",
         "Delen",
         function(){ if(typeof openShareSheet==="function") openShareSheet(Cloud.active); }
       ));
     } else {
-      openFrag.appendChild(emptyState("bag","Je mandje is leeg","Typ hieronder wat je nodig hebt. Producten landen vanzelf in het juiste schap."));
+      openFrag.appendChild(emptyState("bag","Begin je lijst","Typ hieronder wat je nodig hebt. Producten landen vanzelf in het juiste schap."));
     }
   } else {
     // groepeer open per categorie volgens categoryOrder
@@ -1400,13 +1424,15 @@ function renderLijst(){
       doneFrag.appendChild(s2);
       var ul2=el("ul","list"); done.forEach(function(it){ ul2.appendChild(itemRow(it)); });
       doneFrag.appendChild(ul2);
-      // Afrond-knop direct onder de afgevinkte items — altijd binnen duim-bereik,
-      // ook als de prijzen-totals-bar (met z'n eigen afrond-knop) uit staat.
-      var finishWrap = el("div","finish-inline");
-      var finishBtn = el("button","finish-inline-btn","Afronden ✓");
-      finishBtn.addEventListener("click", finishShopping);
-      finishWrap.appendChild(finishBtn);
-      doneFrag.appendChild(finishWrap);
+      // Afrond-knop direct onder de afgevinkte items — alleen tonen wanneer de
+      // prijzen-totals-bar (met z'n eigen afrond-knop) uit staat, anders dubbel.
+      if(!state.settings.showPrices){
+        var finishWrap = el("div","finish-inline");
+        var finishBtn = el("button","finish-inline-btn","Afronden ✓");
+        finishBtn.addEventListener("click", finishShopping);
+        finishWrap.appendChild(finishBtn);
+        doneFrag.appendChild(finishWrap);
+      }
     }
   }
   // Single append per wrap = minimum reflows
@@ -1438,7 +1464,7 @@ function itemRow(it){
   }
 
   card.innerHTML =
-    '<div class="check">'+CHECK_SVG+'</div>'+
+    '<button class="check" type="button" aria-label="'+(it.done?"Vinkje weghalen":"Afvinken")+'" aria-pressed="'+(it.done?"true":"false")+'">'+CHECK_SVG+'</button>'+
     '<div class="meta"><div class="nm"></div>'+(sub?'<div class="sub2">'+sub+'</div>':'')+'</div>'+
     '<div class="qty"><button class="q-minus" aria-label="minder">–</button><span>'+it.qty+'</span><button class="q-plus" aria-label="meer">+</button></div>'+
     (state.settings.showPrices && it.price!=null ? '<div class="price">'+euro(it.price*it.qty)+'</div>' : '');
@@ -1448,6 +1474,15 @@ function itemRow(it){
   card.querySelector(".q-minus").addEventListener("click",function(e){ e.stopPropagation(); setQty(it.id,-1); });
   card.querySelector(".q-plus").addEventListener("click",function(e){ e.stopPropagation(); setQty(it.id,1); });
   card.addEventListener("click",function(){ if(card._suppressClick) return; openSheet(it.id); });
+  // Toetsenbord-toegang: de kaart zelf opent het detail-sheet (Enter). Interne knoppen
+  // (afvinken/qty) hebben hun eigen focus; daarom alleen reageren als de kaart zélf de target is.
+  card.setAttribute("role","button");
+  card.setAttribute("tabindex","0");
+  card.setAttribute("aria-label", it.name+" — details en opties");
+  card.addEventListener("keydown",function(e){
+    if(e.target!==card) return;
+    if(e.key==="Enter" || e.key===" "){ e.preventDefault(); openSheet(it.id); }
+  });
 
   li.appendChild(card);
   attachSwipe(card, function(){ removeFromList(it.id); });
@@ -1804,12 +1839,16 @@ function buildSheet(d){
         cadChip("off","Uit",selCad)+
         '</div>';
 
-  // Auto-add toggle (alleen tonen als er een ritme bekend of in te stellen is)
-  var _autoAdd = !!(state.catalog[(sheetCtx&&sheetCtx.key)||""] && state.catalog[(sheetCtx&&sheetCtx.key)||""].autoAdd);
-  html+='<div class="auto-add-toggle">'+
-    '<div class="aat-label">Automatisch toevoegen<small>Verschijnt vanzelf op je lijst zodra het ritme zegt "bijna op".</small></div>'+
-    '<button class="switch'+(_autoAdd?" on":"")+'" id="s-auto-toggle" type="button" aria-label="Auto-toevoegen wisselen"></button>'+
-  '</div>';
+  // Auto-add toggle — alleen tonen als er écht een ritme is (auto-herkend of handmatig ingesteld).
+  // Zonder ritme doet auto-toevoegen niets, dus dan verbergen we 'm om verwarring te voorkomen.
+  var _hasRhythm = !!(d.a && (d.a.regular || d.a.mode==="manual"));
+  if(_hasRhythm){
+    var _autoAdd = !!(state.catalog[(sheetCtx&&sheetCtx.key)||""] && state.catalog[(sheetCtx&&sheetCtx.key)||""].autoAdd);
+    html+='<div class="auto-add-toggle">'+
+      '<div class="aat-label">Automatisch toevoegen<small>Verschijnt vanzelf op je lijst zodra het ritme zegt "bijna op".</small></div>'+
+      '<button class="switch'+(_autoAdd?" on":"")+'" id="s-auto-toggle" type="button" aria-label="Auto-toevoegen wisselen"></button>'+
+    '</div>';
+  }
 
   html+='<div class="sheet-actions">'+
         '<button class="save" id="s-save">'+(d.catalogOnly?"Opslaan":"Klaar")+'</button>'+
@@ -1881,7 +1920,8 @@ function buildSheet(d){
   sheet.querySelector("#s-save").addEventListener("click",function(){
     var price = state.settings.showPrices ? parsePrice((sheet.querySelector("#s-price")||{}).value) : null;
     var note = (sheet.querySelector("#s-note")||{}).value || "";
-    var autoAdd = !!(autoToggle && autoToggle.classList.contains("on"));
+    // null wanneer de toggle niet getoond is (geen ritme) → saveSheet laat autoAdd ongemoeid
+    var autoAdd = autoToggle ? autoToggle.classList.contains("on") : null;
     saveSheet(chosenCat, chosenCad, qty, price, note, d.catalogOnly, chosenAssignee, autoAdd);
   });
 
@@ -2087,12 +2127,15 @@ function applySearchFilter(q){
   q = (q||"").trim().toLowerCase();
   var open = $("#open-list"); var done = $("#done-list");
   if(!open) return;
+  var emptyMsg = open.querySelector(".search-empty");
   if(!q){
     open.querySelectorAll(".row, .section, ul.list").forEach(function(n){ n.style.display=""; });
     if(done) done.style.display = "";
+    if(emptyMsg) emptyMsg.style.display = "none";
     return;
   }
   if(done) done.style.display = "none";
+  var anyVisible = false;
   open.querySelectorAll("ul.list").forEach(function(ul){
     var any = false;
     ul.querySelectorAll(".row").forEach(function(r){
@@ -2102,10 +2145,19 @@ function applySearchFilter(q){
       r.style.display = match ? "" : "none";
       if(match) any = true;
     });
-    ul.style.display = any ? "" : "none";
+    // "flex" (niet "") forceert tonen ook als de categorie is ingeklapt (.collapsed → display:none)
+    ul.style.display = any ? "flex" : "none";
     var sec = ul.previousElementSibling;
     if(sec && sec.classList.contains("section")) sec.style.display = any ? "" : "none";
+    if(any) anyVisible = true;
   });
+  if(!anyVisible){
+    if(!emptyMsg){ emptyMsg = el("div","search-empty"); open.appendChild(emptyMsg); }
+    emptyMsg.textContent = 'Niets gevonden voor "'+q+'"';
+    emptyMsg.style.display = "";
+  } else if(emptyMsg){
+    emptyMsg.style.display = "none";
+  }
 }
 
 /* Sleepbare lijst van schap-rijen. Globale move/end-listeners worden eenmalig gebonden. */
@@ -2771,6 +2823,8 @@ var Cloud = {
     if(!this.cfg()) return;
     this.enabled=true; this.loadMe();
     Shortcuts.load();
+    var self=this;
+    window.addEventListener("online", function(){ self.flushPending(); });
     var params=new URLSearchParams(location.search);
     try{
       var sdk = (typeof window!=="undefined" && window.supabase) ? window.supabase : null;
@@ -2955,6 +3009,18 @@ var Cloud = {
   },
 
   /* ---- mutaties (optimistisch; realtime reconcilieert) ---- */
+  // Offline-wachtrij voor toevoegingen: bij netwerkfout bewaren we de insert en
+  // versturen 'm zodra "online" weer vuurt — zo gaan toevoegingen niet stil verloren.
+  _pending:[],
+  _enqueue:function(p){ this._pending.push(p); },
+  flushPending:function(){
+    if(!this.sb || !this._pending.length) return;
+    var self=this, batch=this._pending.splice(0), sent=0;
+    batch.forEach(function(p){
+      if(p.list_id!==self.active) return; // payload van een andere/oude lijst → laten vallen
+      self.sb.from("items").insert(p).then(function(r){ if(r.error){ self._pending.push(p); } else if(typeof toast==="function" && !(++sent>1)){ toast("Offline toevoegingen verstuurd"); } }, function(){ self._pending.push(p); });
+    });
+  },
   addItem:function(name, price, addQty, opts){
     name=(name||"").trim(); if(!name||!this.active) return;
     addQty = Math.max(1, addQty||1);
@@ -2975,12 +3041,24 @@ var Cloud = {
     state.list.unshift({ id:"tmp_"+uid(), name:name, category:cat, qty:addQty, price:price, note:"", done:false, assigned_to:null, added_by_name:this.myName(), addedAt:nowISO() });
     renderLijst();
     if(!opts.silent && addQty>1) toast(name + " ×" + addQty);
-    this.sb.from("items").insert({list_id:this.active, name:name, category:cat, qty:addQty, price:(price==null?null:price), added_by_name:this.myName()}).then(function(r){ if(r.error) toast("Toevoegen lukte niet"); },function(){});
+    var payload={list_id:this.active, name:name, category:cat, qty:addQty, price:(price==null?null:price), added_by_name:this.myName()};
+    var self=this;
+    var fail=function(){ self._enqueue(payload); if(!opts.silent) toast("Offline — wordt verstuurd zodra je weer verbinding hebt"); };
+    this.sb.from("items").insert(payload).then(function(r){ if(r.error) fail(); }, fail);
   },
   toggle:function(id){
     var it=state.list.find(function(i){return i.id===id;}); if(!it) return;
     var nd=!it.done; it.done=nd; renderLijst();
+    var self=this;
     this.sb.from("items").update({done:nd, done_by_name:(nd?this.myName():null)}).eq("id",id).then(function(){},function(){});
+    // Undo bij afvinken — gelijk aan de lokale lijst
+    if(nd && typeof undoToast==="function"){
+      undoToast(it.name+" afgevinkt", function(){
+        var i2=state.list.find(function(x){return x.id===id;});
+        if(i2){ i2.done=false; renderLijst(); }
+        self.sb.from("items").update({done:false, done_by_name:null}).eq("id",id).then(function(){},function(){});
+      });
+    }
   },
   qty:function(id,delta){
     var it=state.list.find(function(i){return i.id===id;}); if(!it) return;
@@ -2988,8 +3066,17 @@ var Cloud = {
     this.sb.from("items").update({qty:it.qty}).eq("id",id).then(function(){},function(){});
   },
   remove:function(id){
+    var it=state.list.find(function(i){return i.id===id;});
+    var snap = it ? Object.assign({}, it) : null;
     state.list=state.list.filter(function(i){return i.id!==id;}); renderLijst();
     this.sb.from("items").delete().eq("id",id).then(function(){},function(){});
+    // Undo bij verwijderen — voegt 'm opnieuw toe (realtime reconcilieert)
+    if(snap && typeof undoToast==="function"){
+      var self=this;
+      undoToast(snap.name+" verwijderd", function(){
+        self.addItem(snap.name, snap.price, snap.qty, {silent:true});
+      });
+    }
   },
   setFields:function(id, fields){
     var it=state.list.find(function(i){return i.id===id;});
@@ -3004,7 +3091,7 @@ var Cloud = {
     save();
     state.list=state.list.filter(function(i){return !i.done;}); renderLijst();
     this.sb.from("items").delete().in("id",ids).then(function(){},function(){});
-    toast(done.length+(done.length===1?" gekocht":" gekocht")); vibrate(12); renderVaste();
+    toast(done.length+(done.length===1?" boodschap gekocht":" boodschappen gekocht")); vibrate(12); renderVaste();
     if(typeof celebrate==="function") celebrate();
   },
 

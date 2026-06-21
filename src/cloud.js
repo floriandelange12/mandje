@@ -128,6 +128,8 @@ var Cloud = {
     if(!this.cfg()) return;
     this.enabled=true; this.loadMe();
     Shortcuts.load();
+    var self=this;
+    window.addEventListener("online", function(){ self.flushPending(); });
     var params=new URLSearchParams(location.search);
     try{
       var sdk = (typeof window!=="undefined" && window.supabase) ? window.supabase : null;
@@ -312,6 +314,18 @@ var Cloud = {
   },
 
   /* ---- mutaties (optimistisch; realtime reconcilieert) ---- */
+  // Offline-wachtrij voor toevoegingen: bij netwerkfout bewaren we de insert en
+  // versturen 'm zodra "online" weer vuurt — zo gaan toevoegingen niet stil verloren.
+  _pending:[],
+  _enqueue:function(p){ this._pending.push(p); },
+  flushPending:function(){
+    if(!this.sb || !this._pending.length) return;
+    var self=this, batch=this._pending.splice(0), sent=0;
+    batch.forEach(function(p){
+      if(p.list_id!==self.active) return; // payload van een andere/oude lijst → laten vallen
+      self.sb.from("items").insert(p).then(function(r){ if(r.error){ self._pending.push(p); } else if(typeof toast==="function" && !(++sent>1)){ toast("Offline toevoegingen verstuurd"); } }, function(){ self._pending.push(p); });
+    });
+  },
   addItem:function(name, price, addQty, opts){
     name=(name||"").trim(); if(!name||!this.active) return;
     addQty = Math.max(1, addQty||1);
@@ -332,12 +346,24 @@ var Cloud = {
     state.list.unshift({ id:"tmp_"+uid(), name:name, category:cat, qty:addQty, price:price, note:"", done:false, assigned_to:null, added_by_name:this.myName(), addedAt:nowISO() });
     renderLijst();
     if(!opts.silent && addQty>1) toast(name + " ×" + addQty);
-    this.sb.from("items").insert({list_id:this.active, name:name, category:cat, qty:addQty, price:(price==null?null:price), added_by_name:this.myName()}).then(function(r){ if(r.error) toast("Toevoegen lukte niet"); },function(){});
+    var payload={list_id:this.active, name:name, category:cat, qty:addQty, price:(price==null?null:price), added_by_name:this.myName()};
+    var self=this;
+    var fail=function(){ self._enqueue(payload); if(!opts.silent) toast("Offline — wordt verstuurd zodra je weer verbinding hebt"); };
+    this.sb.from("items").insert(payload).then(function(r){ if(r.error) fail(); }, fail);
   },
   toggle:function(id){
     var it=state.list.find(function(i){return i.id===id;}); if(!it) return;
     var nd=!it.done; it.done=nd; renderLijst();
+    var self=this;
     this.sb.from("items").update({done:nd, done_by_name:(nd?this.myName():null)}).eq("id",id).then(function(){},function(){});
+    // Undo bij afvinken — gelijk aan de lokale lijst
+    if(nd && typeof undoToast==="function"){
+      undoToast(it.name+" afgevinkt", function(){
+        var i2=state.list.find(function(x){return x.id===id;});
+        if(i2){ i2.done=false; renderLijst(); }
+        self.sb.from("items").update({done:false, done_by_name:null}).eq("id",id).then(function(){},function(){});
+      });
+    }
   },
   qty:function(id,delta){
     var it=state.list.find(function(i){return i.id===id;}); if(!it) return;
@@ -345,8 +371,17 @@ var Cloud = {
     this.sb.from("items").update({qty:it.qty}).eq("id",id).then(function(){},function(){});
   },
   remove:function(id){
+    var it=state.list.find(function(i){return i.id===id;});
+    var snap = it ? Object.assign({}, it) : null;
     state.list=state.list.filter(function(i){return i.id!==id;}); renderLijst();
     this.sb.from("items").delete().eq("id",id).then(function(){},function(){});
+    // Undo bij verwijderen — voegt 'm opnieuw toe (realtime reconcilieert)
+    if(snap && typeof undoToast==="function"){
+      var self=this;
+      undoToast(snap.name+" verwijderd", function(){
+        self.addItem(snap.name, snap.price, snap.qty, {silent:true});
+      });
+    }
   },
   setFields:function(id, fields){
     var it=state.list.find(function(i){return i.id===id;});
@@ -361,7 +396,7 @@ var Cloud = {
     save();
     state.list=state.list.filter(function(i){return !i.done;}); renderLijst();
     this.sb.from("items").delete().in("id",ids).then(function(){},function(){});
-    toast(done.length+(done.length===1?" gekocht":" gekocht")); vibrate(12); renderVaste();
+    toast(done.length+(done.length===1?" boodschap gekocht":" boodschappen gekocht")); vibrate(12); renderVaste();
     if(typeof celebrate==="function") celebrate();
   },
 

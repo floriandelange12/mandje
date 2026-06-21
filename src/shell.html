@@ -2,7 +2,8 @@
 <html lang="nl" data-theme="auto">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content">
+<!-- Zoom toegestaan (a11y/WCAG): geen maximum-scale / user-scalable=no meer -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
 <title>Mandje</title>
 
 <!-- PWA / iPhone -->
@@ -124,7 +125,7 @@
   main::-webkit-scrollbar{ display:none; }
   /* Floating add-bar = ~62px hoog; extra ruimte onderaan zodat items niet verdwijnen */
   .pad-bottom{ height:calc(var(--tabbar-h) + var(--safe-b) + 90px); }
-  .pad-bottom.with-total{ height:calc(var(--tabbar-h) + var(--safe-b) + 200px); }
+  .pad-bottom.with-total{ height:calc(var(--tabbar-h) + var(--safe-b) + 214px); }
   /* Op Vaste/Meer-tabs is add-bar verborgen — terug naar normale padding */
   body.no-addbar .pad-bottom{ height:calc(var(--tabbar-h) + var(--safe-b) + 24px); }
   body.no-addbar .pad-bottom.with-total{ height:calc(var(--tabbar-h) + var(--safe-b) + 132px); }
@@ -211,7 +212,7 @@
   .row .behind svg{ width:20px; height:20px; }
   .card{ position:relative; display:flex; align-items:center; gap:13px; background:var(--surface); border:1px solid var(--line); border-radius:var(--r-card); padding:12px 14px; box-shadow:var(--shadow-sm); transition:transform .26s var(--ease); touch-action:pan-y; }
 
-  .check{ position:relative; flex:0 0 auto; width:36px; height:36px; border-radius:50%; border:2px solid var(--line-strong); display:flex; align-items:center; justify-content:center; background:transparent; transition:background .18s var(--ease), border-color .18s var(--ease); }
+  .check{ position:relative; flex:0 0 auto; width:36px; height:36px; padding:0; margin:0; border-radius:50%; border:2px solid var(--line-strong); display:flex; align-items:center; justify-content:center; background:transparent; transition:background .18s var(--ease), border-color .18s var(--ease); }
   .check::before{ content:""; position:absolute; inset:-6px; }
   .check svg{ width:19px; height:19px; opacity:0; transform:scale(.3); transition:opacity .18s var(--ease), transform .22s var(--ease); }
   .row.done .check{ background:var(--green); border-color:var(--green); }
@@ -262,8 +263,10 @@
   .empty p{ font-size:15px; margin:0; line-height:1.5; }
 
   /* ---------- Totals bar (boven floating add-bar) ---------- */
-  .totals{ position:absolute; left:0; right:0; bottom:calc(var(--tabbar-h) + max(16px, var(--safe-b)) + 78px); z-index:25; padding:0 max(12px, env(safe-area-inset-right)) 8px max(12px, env(safe-area-inset-left)); pointer-events:none; transition:opacity .2s ease, transform .2s ease; }
-  .totals.hide{ opacity:0; transform:translateY(8px); pointer-events:none; }
+  .totals{ position:absolute; left:0; right:0; bottom:calc(var(--tabbar-h) + max(16px, var(--safe-b)) + 78px); z-index:25; padding:0 max(12px, env(safe-area-inset-right)) 8px max(12px, env(safe-area-inset-left)); pointer-events:none; transition:opacity .2s ease, transform .2s ease, visibility 0s; }
+  /* visibility:hidden haalt 'm uit de a11y-tree én tab-volgorde wanneer verborgen;
+     0s-delay-na-transitie zodat de fade-out nog zichtbaar afspeelt */
+  .totals.hide{ opacity:0; transform:translateY(8px); pointer-events:none; visibility:hidden; transition:opacity .2s ease, transform .2s ease, visibility 0s linear .2s; }
   .totals-inner{ background:color-mix(in srgb, var(--surface) 86%, transparent); -webkit-backdrop-filter:var(--blur); backdrop-filter:var(--blur); border:1px solid var(--line); border-radius:20px; box-shadow:var(--shadow-lg); padding:12px 16px; pointer-events:auto; }
   .trow{ display:flex; align-items:baseline; justify-content:space-between; }
   .trow .lbl{ font-size:13px; font-weight:600; color:var(--ink-soft); }
@@ -328,8 +331,10 @@
   /* ---------- Bottom sheet ---------- */
   .scrim{ position:absolute; inset:0; background:rgba(0,0,0,.4); opacity:0; z-index:50; transition:opacity .3s var(--ease); pointer-events:none; }
   .scrim.show{ opacity:1; pointer-events:auto; }
-  .sheet{ position:absolute; left:0; right:0; bottom:0; z-index:51; background:var(--surface); border-radius:24px 24px 0 0; box-shadow:0 -10px 40px rgba(0,0,0,.25); transform:translateY(110%); transition:transform .28s var(--ease); padding:8px 18px calc(18px + var(--safe-b)); max-width:600px; margin:0 auto; }
-  .sheet.show{ transform:none; }
+  .sheet{ position:absolute; left:0; right:0; bottom:0; z-index:51; background:var(--surface); border-radius:24px 24px 0 0; box-shadow:0 -10px 40px rgba(0,0,0,.25); transform:translateY(110%); visibility:hidden; transition:transform .28s var(--ease), visibility 0s linear .28s; padding:8px 18px calc(18px + var(--safe-b)); max-width:600px; margin:0 auto; }
+  /* Gesloten sheet uit a11y-tree + tab-volgorde halen; visibility springt direct aan bij openen,
+     en pas ná de slide-down-animatie weer uit (0s-delay) zodat de animatie zichtbaar blijft */
+  .sheet.show{ transform:none; visibility:visible; transition:transform .28s var(--ease), visibility 0s; }
   .grip{ width:36px; height:4px; border-radius:99px; background:color-mix(in srgb, var(--ink-faint) 55%, transparent); margin:6px auto 14px; transition:background .15s ease; }
   .sheet h3{ font-family:var(--display); font-size:25px; font-weight:600; letter-spacing:-.01em; margin:0 0 16px; }
   .sheet-label{ font-size:12px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:var(--ink-soft); margin:14px 4px 8px; display:flex; align-items:center; gap:7px; }
@@ -429,6 +434,11 @@
   .send-screen .ss-badge svg{ width:30px; height:30px; color:var(--green); }
   .send-screen h1{ margin:0 0 4px; }
   .send-screen .ss-sub{ color:var(--ink-soft); margin-bottom:22px; }
+  /* Klein label boven de titel (stuur-pagina) — ontbrak eerder als CSS-class */
+  .eyebrow{ font-size:12px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--green); margin-bottom:6px; }
+
+  /* Lege-staat bij zoeken zonder resultaat (Lijst-tab) */
+  .search-empty{ text-align:center; padding:34px 20px 12px; color:var(--ink-soft); font-size:15px; line-height:1.5; }
   .send-screen .ss-added{ margin-top:18px; }
   .send-screen .ss-added .chip{ margin:0 8px 8px 0; }
 
@@ -640,6 +650,8 @@
       <div id="due-banner"></div>
       <div id="open-list"></div>
       <div id="done-list"></div>
+      <!-- "Vergeten?"-suggesties — los van de prijzen-totaalbalk zodat ze ook zonder prijzen verschijnen -->
+      <div id="t-forgot" class="forgot-row" style="display:none"></div>
       <div class="pad-bottom with-total" id="pad-lijst"></div>
     </section>
 
@@ -662,7 +674,6 @@
       <div class="trow"><span class="lbl">Totaal</span><span class="amt" id="t-total">€0,00</span></div>
       <div id="t-hint" class="t-hint" style="display:none">Tik op een product om de prijs in te stellen</div>
       <div id="t-prog-wrap"><div class="pbar"><i id="t-prog" style="width:0%"></i></div>
-      <div id="t-forgot" class="forgot-row" style="display:none"></div>
       <div class="trow"><span class="cart" id="t-cart">€0,00 in mandje</span><button class="finish" id="t-finish" style="display:none;">Afronden ✓</button></div></div>
     </div>
   </div>
