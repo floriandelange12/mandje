@@ -12,6 +12,14 @@ function initials(name){
   var p=name.split(/\s+/);
   return (p.length>1 ? (p[0][0]+p[1][0]) : name.slice(0,2)).toUpperCase();
 }
+/* VAPID public key (base64url) → Uint8Array voor pushManager.subscribe */
+function urlB64ToUint8Array(base64String){
+  var padding="=".repeat((4 - base64String.length % 4) % 4);
+  var base64=(base64String + padding).replace(/-/g,"+").replace(/_/g,"/");
+  var raw=atob(base64), arr=new Uint8Array(raw.length);
+  for(var i=0;i<raw.length;i++) arr[i]=raw.charCodeAt(i);
+  return arr;
+}
 
 var SUPABASE_SDK_CDNS = [
   {name:"esm.sh",   url:"https://esm.sh/@supabase/supabase-js@2"},
@@ -106,6 +114,44 @@ var Cloud = {
     if(!this.ready || !this.userId) return;
     try{ this.sb.from("meals").delete().eq("id", id).eq("user_id", this.userId).then(function(){},function(){}); }catch(e){}
   },
+  /* ---- web push (Fase 5, dormant tot VAPID_PUBLIC_KEY + backend bestaan) ---- */
+  pushEnabled:function(){ return !!((window.MANDJE_CONFIG&&window.MANDJE_CONFIG.VAPID_PUBLIC_KEY)) && ("serviceWorker" in navigator) && ("PushManager" in window) && ("Notification" in window); },
+  subscribeToPush:async function(){
+    if(!this.pushEnabled() || !this.ready || !this.userId) return false;
+    var key=window.MANDJE_CONFIG.VAPID_PUBLIC_KEY;
+    try{
+      var perm=await Notification.requestPermission();
+      if(perm!=="granted") return false;
+      var reg=await navigator.serviceWorker.ready;
+      var sub=await reg.pushManager.getSubscription();
+      if(!sub) sub=await reg.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey:urlB64ToUint8Array(key) });
+      var j=sub.toJSON();
+      var r=await this.sb.from("push_subscriptions").upsert({
+        user_id:this.userId, endpoint:sub.endpoint,
+        p256dh:(j.keys&&j.keys.p256dh)||"", auth:(j.keys&&j.keys.auth)||"",
+        updated_at:new Date().toISOString()
+      }, { onConflict:"endpoint" });
+      if(r.error){ if(typeof toast==="function") toast("Herinneringen aanzetten lukte niet"); return false; }
+      return true;
+    }catch(e){ return false; }
+  },
+  unsubscribePush:async function(){
+    try{
+      var reg=await navigator.serviceWorker.ready;
+      var sub=await reg.pushManager.getSubscription();
+      if(sub){ var ep=sub.endpoint; await sub.unsubscribe(); if(this.ready) this.sb.from("push_subscriptions").delete().eq("endpoint", ep).then(function(){},function(){}); }
+      return true;
+    }catch(e){ return false; }
+  },
+  checkPushSubscription:async function(){
+    if(!this.pushEnabled() || !this.ready) return;
+    try{
+      if(Notification.permission!=="granted") return;        // alleen her-abonneren als eerder toegestaan
+      var reg=await navigator.serviceWorker.ready;
+      var sub=await reg.pushManager.getSubscription();
+      if(!sub) await this.subscribeToPush();                 // iOS kan een abonnement droppen → herstel
+    }catch(e){}
+  },
   friendByUser:function(uid){ for(var i=0;i<this.friends.length;i++) if(this.friends[i].user_id===uid) return this.friends[i]; return null; },
   addFriend:async function(code){
     code=(code||"").trim(); if(!code) return null;
@@ -182,6 +228,7 @@ var Cloud = {
       if(this.me && this.me.display_name){ await this.syncProfile(); }
       await this.loadFriends();
       this.loadMeals();  // cross-device bundel-sync (stil no-op zonder 'meals'-tabel)
+      this.checkPushSubscription();  // her-abonneren als push eerder aan stond (dormant zonder VAPID-key)
 
       // Vriend-uitnodiging via ?friend=CODE
       if(params.get("friend")){

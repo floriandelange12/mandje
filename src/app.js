@@ -1061,6 +1061,28 @@ function renderMeer(){
   g1.appendChild(priceRow);
   wrap.appendChild(g1);
 
+  // Herinneringen (web push) — alleen zichtbaar zodra push is geconfigureerd (VAPID-key + backend)
+  if(typeof Cloud!=="undefined" && Cloud.pushEnabled && Cloud.pushEnabled()){
+    var standaloneP = (navigator.standalone===true) || (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches);
+    var isIOSp = /iP(hone|ad|od)/.test(navigator.platform||navigator.userAgent||"");
+    var gP=el("div","group");
+    if(isIOSp && !standaloneP){
+      gP.appendChild(el("div","grow",'<div><div class="glabel">Herinneringen</div><div class="gsub">Zet Mandje eerst op je beginscherm (deel-icoon → “Zet op beginscherm”) om meldingen te kunnen krijgen.</div></div>'));
+    } else {
+      var remRow=el("div","grow");
+      remRow.innerHTML='<div><div class="glabel">Herinneringen</div><div class="gsub">Een melding wanneer je vaste boodschappen waarschijnlijk op zijn.</div></div>';
+      var onP = (typeof Notification!=="undefined" && Notification.permission==="granted");
+      var rsw=el("button","switch"+(onP?" on":""));
+      rsw.addEventListener("click", function(){
+        if(rsw.classList.contains("on")){ Cloud.unsubscribePush(); rsw.classList.remove("on"); toast("Herinneringen uit"); }
+        else { Cloud.subscribeToPush().then(function(ok){ if(ok){ rsw.classList.add("on"); toast("Herinneringen aan ✓"); } else { toast("Toestemming geweigerd"); } }); }
+      });
+      remRow.appendChild(rsw);
+      gP.appendChild(remRow);
+    }
+    wrap.appendChild(gP);
+  }
+
   // Schap-volgorde + eigen schappen
   wrap.appendChild(el("div","section",'<span>Schap-volgorde</span><span class="count">'+state.settings.categoryOrder.length+'</span>'));
   wrap.appendChild(el("div","hint","Sleep om de volgorde te wijzigen waarin schappen op de Lijst-tab verschijnen. Lege schappen worden vanzelf verborgen."));
