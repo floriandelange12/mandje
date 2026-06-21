@@ -9,8 +9,8 @@ const ok=(n,c)=>{ if(c){pass++;console.log("  ✓ "+n);} else {fail++;console.lo
   await wait(150); const doc=dom.window.document;
   ok("Add-bar heeft GEEN los prijsveld", !doc.querySelector("#add-price"));
   ok("Invoerveld type=search", doc.querySelector("#add-name")?.getAttribute("type")==="search");
-  const kids=[...doc.querySelector(".field").children].map(c=>c.tagName.toLowerCase()+(c.id?"#"+c.id:"")).join(",");
-  ok("Veld = svg+input#add-name+button#add-btn ("+kids+")", kids==="svg,input#add-name,button#add-btn");
+  ok("Veld bevat input#add-name + button#add-btn", !!doc.querySelector(".field #add-name") && !!doc.querySelector(".field #add-btn"));
+  ok("Veld heeft geen los prijsveld", !doc.querySelector(".field #add-price") && !doc.querySelector(".field .pricein"));
   ok("Tandwiel-knop aanwezig", !!doc.querySelector("#gear-btn"));
   ok("Slechts 2 tabs (Lijst/Vaste)", doc.querySelectorAll(".tabbar .tab").length===2);
 

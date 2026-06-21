@@ -188,6 +188,8 @@
   .addbtn-bulk{ flex:0 0 36px; width:36px; height:36px; margin-left:6px; border:0; border-radius:11px; background:var(--surface-3); color:var(--ink-soft); display:flex; align-items:center; justify-content:center; transition:transform .12s var(--ease), background .15s ease; }
   .addbtn-bulk svg{ width:18px; height:18px; }
   .addbtn-bulk:active{ transform:scale(.92); background:var(--line-strong); }
+  .addbtn-bulk.listening{ background:var(--green-2); color:var(--green); animation:mic-pulse 1.2s ease-in-out infinite; }
+  @keyframes mic-pulse{ 0%,100%{ box-shadow:0 0 0 0 color-mix(in srgb, var(--green) 40%, transparent);} 50%{ box-shadow:0 0 0 6px color-mix(in srgb, var(--green) 0%, transparent);} }
 
   /* Autocomplete (opent naar boven omdat add-bar onderaan zit) */
   .ac{ position:relative; }
@@ -612,7 +614,7 @@
   window.MANDJE_CONFIG = {
     SUPABASE_URL:      "https://yctcpxgjpmhyohbsrygy.supabase.co",   /* ingevuld ✓ */
     SUPABASE_ANON_KEY: "sb_publishable_lT77Nkcrl6VsBIx-PFuMtw_mdJ6fyNj",   /* ingevuld ✓ (publishable key) */
-    BUILD:             "2026-06-21.3", /* alleen onderaan Meer-tab zichtbaar — handig om cache-versie te verifiëren */
+    BUILD:             "2026-06-21.4", /* alleen onderaan Meer-tab zichtbaar — handig om cache-versie te verifiëren */
     EMAIL_AUTH:        false  /* zet op true zodra e-mail magic-link aan staat in Supabase → toont "Beveilig je account" */
   };
 </script>
@@ -639,6 +641,7 @@
         <div class="field">
           <svg class="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
           <input class="name" id="add-name" type="search" inputmode="text" placeholder="Wat heb je nodig?  ·  bijv. melk 2" enterkeyhint="done" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+          <button class="addbtn-bulk" id="voice-btn" type="button" aria-label="Inspreken" style="display:none"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><path d="M12 18v4"/></svg></button>
           <button class="addbtn" id="add-btn" aria-label="Toevoegen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
         </div>
         <div class="ac-list" id="ac-list"></div>

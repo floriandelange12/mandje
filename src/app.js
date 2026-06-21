@@ -1898,6 +1898,42 @@ function setupTopShareBtn(){
   });
 }
 
+/* Spraakinvoer (Web Speech API). Werkt op Android-Chrome/desktop; NIET in een
+   geïnstalleerde iOS-PWA → daar verbergen we de mic-knop. Komma's splitsen meerdere items. */
+function setupVoiceInput(){
+  var btn = $("#voice-btn"); if(!btn) return;
+  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  var standalone = (navigator.standalone === true) || (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches);
+  var isIOS = /iP(hone|ad|od)/.test(navigator.platform||navigator.userAgent||"") || (/Mac/.test(navigator.platform||"") && navigator.maxTouchPoints>1);
+  if(!SR || (isIOS && standalone)){ btn.style.display="none"; return; }
+  btn.style.display="";
+  var rec=null, listening=false;
+  btn.addEventListener("click", function(e){
+    e.stopPropagation();
+    if(listening){ try{ rec && rec.stop(); }catch(err){} return; }
+    try{
+      rec = new SR();
+      rec.lang="nl-NL"; rec.interimResults=false; rec.maxAlternatives=1;
+      rec.onstart=function(){ listening=true; btn.classList.add("listening"); vibe("tap"); };
+      rec.onerror=function(){ listening=false; btn.classList.remove("listening"); toast("Spraak niet beschikbaar"); };
+      rec.onend=function(){ listening=false; btn.classList.remove("listening"); };
+      rec.onresult=function(ev){
+        var t=(ev.results && ev.results[0] && ev.results[0][0] && ev.results[0][0].transcript) || "";
+        t=t.trim(); if(!t) return;
+        var parts=t.split(/\s*,\s*/).filter(Boolean);
+        if(parts.length>1){
+          var n=0;
+          parts.forEach(function(p){ var q=parseQtyFromInput(p); if(q.name && addToList(q.name,null,{qty:q.qty,unit:q.unit,silent:true})) n++; });
+          if(n) toast(n+(n===1?" item toegevoegd":" items toegevoegd"));
+        } else {
+          var inp=$("#add-name"); if(inp){ inp.value=t; doAdd(); }
+        }
+      };
+      rec.start();
+    }catch(err){ toast("Spraak niet beschikbaar"); }
+  });
+}
+
 /* Service worker: instant laden + offline-installeerbaar. Bij een nieuwe build wacht de
    nieuwe SW; we tonen dan een niet-opdringerige toast i.p.v. hard te herladen. */
 function setupServiceWorker(){
@@ -2045,6 +2081,7 @@ function init(){
   setupPullToRefresh();
   setupRipples();
   setupServiceWorker();
+  setupVoiceInput();
   // Swipe-down-to-close op beide sheets (1× binden — containers zijn persistent)
   attachSheetDismiss($("#sheet"), closeSheet);
   if(typeof closeSheet2==="function") attachSheetDismiss($("#sheet2"), closeSheet2);
