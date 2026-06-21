@@ -422,7 +422,9 @@ function parsePrice(str){
 }
 
 /* "melk", "melk 2", "melk x3", "melk ×4" → {name, qty}.
-   qty alleen overgenomen als ondubbelzinnig (x/×/* prefix of >=2). */
+   qty alleen overgenomen als ondubbelzinnig (x/×/* prefix of >=2).
+   Daarnaast: hoeveelheid + eenheid → {name, qty:1, unit} ("500 g gehakt" of "melk 2 liter"). */
+var UNIT_RE = "(mg|kg|kilo|gram|g|ml|cl|liter|l|stuks|stuk|st|pak|blik|fles|bos|tros|rol|zak)";
 function parseQtyFromInput(s){
   var raw = (s||"").trim();
   if(!raw) return {name:"", qty:1};
@@ -436,6 +438,13 @@ function parseQtyFromInput(s){
     var q2 = parseInt(m[2],10);
     if(q2 >= 2) return { name: m[1].trim(), qty: q2 };
   }
+  // Eenheid als PREFIX: "500 g gehakt", "2 liter melk", "1 kg aardappels"
+  var amt = "(\\d+(?:[.,]\\d+)?)";
+  var pre = raw.match(new RegExp("^"+amt+"\\s*"+UNIT_RE+"\\s+(.+)$","i"));
+  if(pre){ return { name: pre[3].trim(), qty:1, unit: pre[1]+" "+pre[2].toLowerCase() }; }
+  // Eenheid als SUFFIX: "melk 2 liter", "gehakt 500g"
+  var suf = raw.match(new RegExp("^(.+?)\\s+"+amt+"\\s*"+UNIT_RE+"$","i"));
+  if(suf){ return { name: suf[1].trim(), qty:1, unit: suf[2]+" "+suf[3].toLowerCase() }; }
   return { name: raw, qty: 1 };
 }
 function $(s){ return document.querySelector(s); }
@@ -561,8 +570,9 @@ function addToList(name, price, opts){
   opts=opts||{};
   var addQty = Math.max(1, opts.qty || 1);
   var silent = !!opts.silent;
+  var unit = opts.unit || "";
   if(Cloud.active){
-    Cloud.addItem(name, (state.settings.showPrices?price:null), addQty, {silent:silent});
+    Cloud.addItem(name, (state.settings.showPrices?price:null), addQty, {silent:silent, unit:unit});
     touchCatalog(name, price); save();
     return true;
   }
@@ -571,11 +581,12 @@ function addToList(name, price, opts){
   if(existing){
     existing.qty += addQty;
     if(price!=null) existing.price=price;
+    if(unit) existing.unit=unit;
     if(!silent) toast(name + " → " + existing.qty + "×");
   } else{
     var cat = (state.catalog[k] && state.catalog[k].category) || classify(name);
     var defPrice = price!=null ? price : (state.catalog[k] ? state.catalog[k].defaultPrice : null);
-    state.list.unshift({ id:uid(), name:name, category:cat, qty:addQty, price:(state.settings.showPrices?defPrice:null), note:"", done:false, addedAt:nowISO() });
+    state.list.unshift({ id:uid(), name:name, category:cat, qty:addQty, price:(state.settings.showPrices?defPrice:null), note:"", unit:unit, done:false, addedAt:nowISO() });
     if(!silent && addQty>1) toast(name + " ×" + addQty);
   }
   touchCatalog(name, price);
@@ -718,7 +729,8 @@ function itemRow(it){
 
   var a = state.catalog[norm(it.name)] ? analyse(state.catalog[norm(it.name)]) : null;
   var sub="";
-  if(it.note) sub+='<span>'+escapeHtml(it.note)+'</span>';
+  if(it.unit) sub+='<span>'+escapeHtml(it.unit)+'</span>';
+  if(it.note) sub+=(sub?' · ':'')+'<span>'+escapeHtml(it.note)+'</span>';
   if(state.settings.showPrices && it.price!=null) sub+=(sub?' · ':'')+'<span>'+euro(it.price)+(it.qty>1?' × '+it.qty:'')+'</span>';
   if(Cloud.active){
     var asg = it.assigned_to ? Cloud.memberById(it.assigned_to) : null;
@@ -1298,7 +1310,7 @@ function doAdd(){
   var p = parseQtyFromInput(raw);
   if(!p.name) return;
   hideAC();  // direct sluiten zodat AC-popover niet "kort flikkert" tussen items
-  if(addToList(p.name, null, {qty: p.qty})){
+  if(addToList(p.name, null, {qty: p.qty, unit: p.unit})){
     $("#add-name").value="";
     $("#add-name").focus();
     vibe("tick");
@@ -1337,9 +1349,9 @@ function buildAC(q){
     var c=CAT_BY_ID[r.cat]||CAT_BY_ID["overig"];
     var row=el("div","ac-item",'<span class="ac-emoji emoji">'+c.glyph+'</span><span class="ac-name">'+escapeHtml(r.name)+'</span><span class="ac-add">+</span>');
     row.addEventListener("click",function(){
-      // gebruik de qty die in het invoerveld stond als die er was
-      var pq = parseQtyFromInput($("#add-name").value || "").qty;
-      addToList(r.name, null, {qty: pq});
+      // gebruik de qty/eenheid die in het invoerveld stond als die er was
+      var pq = parseQtyFromInput($("#add-name").value || "");
+      addToList(r.name, null, {qty: pq.qty, unit: pq.unit});
       $("#add-name").value=""; hideAC(); $("#add-name").focus();
     });
     list.appendChild(row);
@@ -1604,7 +1616,7 @@ function openBulkPasteSheet(){
     var added = 0;
     lines.forEach(function(line){
       var p = parseQtyFromInput(line);
-      if(p.name && addToList(p.name, null, {qty:p.qty, silent:true})) added++;
+      if(p.name && addToList(p.name, null, {qty:p.qty, unit:p.unit, silent:true})) added++;
     });
     closeSheet();
     if(added) toast(added + (added===1?" item toegevoegd":" items toegevoegd"));

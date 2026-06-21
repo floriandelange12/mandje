@@ -75,16 +75,23 @@ const ok=(n,c)=>{ if(c){pass++;console.log("  ✓ "+n);} else {fail++;console.lo
   const dom6=new JSDOM(html,{url:"https://example.com/",runScripts:"dangerously",resources:"usable",pretendToBeVisual:true});
   await wait(150); const W=dom6.window;
   const cases6=[
-    ["melk",          1, "melk"],
-    ["melk 2",        2, "melk"],
-    ["brood x3",      3, "brood"],
-    ["Wc-papier 4",   4, "Wc-papier"],
-    ["Heineken 0",    1, "Heineken 0"],
-    ["Heineken 0.0",  1, "Heineken 0.0"]
+    ["melk",          1, "melk",        undefined],
+    ["melk 2",        2, "melk",        undefined],
+    ["brood x3",      3, "brood",       undefined],
+    ["Wc-papier 4",   4, "Wc-papier",   undefined],
+    ["Heineken 0",    1, "Heineken 0",  undefined],
+    ["Heineken 0.0",  1, "Heineken 0.0",undefined],
+    // eenheid-parsing (prefix + suffix), qty blijft 1
+    ["500 g gehakt",  1, "gehakt",      "500 g"],
+    ["2 liter melk",  1, "melk",        "2 liter"],
+    ["1 kg aardappels",1,"aardappels",  "1 kg"],
+    ["melk 2 liter",  1, "melk",        "2 liter"],
+    ["gehakt 500g",   1, "gehakt",      "500 g"]
   ];
-  cases6.forEach(([raw, expQty, expName])=>{
+  cases6.forEach(([raw, expQty, expName, expUnit])=>{
     const r = W.parseQtyFromInput(raw);
-    ok("parseQty('"+raw+"') → "+expQty+" / '"+expName+"'", r.qty===expQty && r.name===expName);
+    const unitOk = expUnit===undefined ? !r.unit : r.unit===expUnit;
+    ok("parseQty('"+raw+"') → "+expQty+" / '"+expName+"'"+(expUnit?(" / "+expUnit):""), r.qty===expQty && r.name===expName && unitOk);
   });
   dom6.window.close();
 

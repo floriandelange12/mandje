@@ -394,7 +394,8 @@ var Cloud = {
     }
     var cat=(state.catalog[k]&&state.catalog[k].category)||classify(name);
     var tmpId="tmp_"+uid();
-    state.list.unshift({ id:tmpId, name:name, category:cat, qty:addQty, price:price, note:"", done:false, assigned_to:null, added_by_name:this.myName(), addedAt:nowISO() });
+    // unit blijft lokaal (geen DB-kolom) → puur optimistische weergave op cloud-lijsten
+    state.list.unshift({ id:tmpId, name:name, category:cat, qty:addQty, price:price, note:"", unit:(opts.unit||""), done:false, assigned_to:null, added_by_name:this.myName(), addedAt:nowISO() });
     renderLijst();
     if(!opts.silent && addQty>1) toast(name + " ×" + addQty);
     var payload={list_id:this.active, name:name, category:cat, qty:addQty, price:(price==null?null:price), added_by_name:this.myName()};
