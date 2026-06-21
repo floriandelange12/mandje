@@ -762,10 +762,12 @@ function updateTotals(){
   $("#t-prog").style.width=(total>0?Math.round(cart/total*100):0)+"%";
   $("#t-finish").style.display=done?"inline-flex":"none";
   var hint=$("#t-hint"); if(hint) hint.style.display=(state.settings.showPrices && !hasPrices && state.list.length>0)?"block":"none";
-  var progWrap=$("#t-prog-wrap"); if(progWrap) progWrap.style.display=hasPrices?"block":"none";
+  var progWrap=$("#t-prog-wrap"); if(progWrap) progWrap.style.display=hasPrices?"":"none";
   var show = activeTab==="lijst" && state.list.length>0 && state.settings.showPrices;
   $("#totals").classList.toggle("hide", !show);
   $("#pad-lijst").className = "pad-bottom"+(show?" with-total":"");
+  // has-total verkort het scrollgebied tot bóven de totaalbalk → de balk dekt nooit items af
+  document.body.classList.toggle("has-total", show);
   renderForgottenSuggest(doneItems);
   maybePriceNudge();
 }

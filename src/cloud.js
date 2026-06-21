@@ -313,24 +313,52 @@ var Cloud = {
     this.presenceTimer=setInterval(beat,60000);
   },
 
-  /* ---- mutaties (optimistisch; realtime reconcilieert) ---- */
-  // Offline-wachtrij voor toevoegingen: bij netwerkfout bewaren we de insert en
-  // versturen 'm zodra "online" weer vuurt — zo gaan toevoegingen niet stil verloren.
+  /* ---- mutaties (optimistisch; realtime reconcilieert) ----
+     Offline-wachtrij voor ÁLLE mutaties (toevoegen/wijzigen/verwijderen).
+     De online-flow verandert niet: pas bij een echte netwerkfout wordt de actie
+     bewaard en bij "online" opnieuw verstuurd. Bewerkingen op nog-niet-gesyncte
+     items (tmp_-id) worden in de uitgestelde insert gevouwen → niets gaat verloren. */
   _pending:[],
-  _enqueue:function(p){ this._pending.push(p); },
+  _isTmp:function(id){ return typeof id==="string" && id.indexOf("tmp_")===0; },
+  _pendingInsert:function(tmpId){
+    for(var i=0;i<this._pending.length;i++){ var e=this._pending[i]; if(e.op==="insert"&&e.tmpId===tmpId) return e; }
+    return null;
+  },
+  _queueInsert:function(tmpId, payload){ this._pending.push({op:"insert", tmpId:tmpId, payload:payload}); },
+  _queueUpdate:function(id, fields){
+    if(this._isTmp(id)){
+      var ins=this._pendingInsert(id);
+      if(ins){ for(var key in fields){ ins.payload[key]=fields[key]; } }   // in de insert vouwen
+      return;
+    }
+    for(var i=0;i<this._pending.length;i++){ var e=this._pending[i]; if(e.op==="update"&&e.id===id){ for(var k in fields) e.fields[k]=fields[k]; return; } }
+    var f={}; for(var k2 in fields) f[k2]=fields[k2];
+    this._pending.push({op:"update", id:id, fields:f});
+  },
+  _queueDelete:function(id){
+    var self=this;
+    this._pending=this._pending.filter(function(e){ return e.id!==id && e.tmpId!==id; }); // eerdere ops vervallen
+    if(!this._isTmp(id)) this._pending.push({op:"delete", id:id});
+  },
   flushPending:function(){
     if(!this.sb || !this._pending.length) return;
-    var self=this, batch=this._pending.splice(0), sent=0;
-    batch.forEach(function(p){
-      if(p.list_id!==self.active) return; // payload van een andere/oude lijst → laten vallen
-      self.sb.from("items").insert(p).then(function(r){ if(r.error){ self._pending.push(p); } else if(typeof toast==="function" && !(++sent>1)){ toast("Offline toevoegingen verstuurd"); } }, function(){ self._pending.push(p); });
+    var self=this, batch=this._pending.splice(0), toasted=false;
+    var note=function(){ if(!toasted){ toasted=true; if(typeof toast==="function") toast("Offline wijzigingen verstuurd"); } };
+    batch.forEach(function(e){
+      var requeue=function(){ self._pending.push(e); };
+      var done=function(r){ if(r&&r.error) requeue(); else note(); };
+      try{
+        if(e.op==="insert"){ if(e.payload.list_id!==self.active){ return; } self.sb.from("items").insert(e.payload).then(done, requeue); }
+        else if(e.op==="update"){ self.sb.from("items").update(e.fields).eq("id", e.id).then(done, requeue); }
+        else if(e.op==="delete"){ self.sb.from("items").delete().eq("id", e.id).then(done, requeue); }
+      }catch(err){ requeue(); }
     });
   },
   addItem:function(name, price, addQty, opts){
     name=(name||"").trim(); if(!name||!this.active) return;
     addQty = Math.max(1, addQty||1);
     opts = opts || {};
-    var k = norm(name);
+    var self=this, k = norm(name);
     var existing = state.list.find(function(i){ return !i.done && norm(i.name)===k; });
     if(existing){
       existing.qty += addQty;
@@ -339,45 +367,49 @@ var Cloud = {
       if(!opts.silent) toast(name + " → " + existing.qty + "×");
       var fields = {qty: existing.qty};
       if(price!=null) fields.price = price;
-      this.sb.from("items").update(fields).eq("id", existing.id).then(function(){},function(){});
+      var eid=existing.id;
+      this.sb.from("items").update(fields).eq("id", eid).then(function(r){ if(r&&r.error) self._queueUpdate(eid, fields); }, function(){ self._queueUpdate(eid, fields); });
       return;
     }
     var cat=(state.catalog[k]&&state.catalog[k].category)||classify(name);
-    state.list.unshift({ id:"tmp_"+uid(), name:name, category:cat, qty:addQty, price:price, note:"", done:false, assigned_to:null, added_by_name:this.myName(), addedAt:nowISO() });
+    var tmpId="tmp_"+uid();
+    state.list.unshift({ id:tmpId, name:name, category:cat, qty:addQty, price:price, note:"", done:false, assigned_to:null, added_by_name:this.myName(), addedAt:nowISO() });
     renderLijst();
     if(!opts.silent && addQty>1) toast(name + " ×" + addQty);
     var payload={list_id:this.active, name:name, category:cat, qty:addQty, price:(price==null?null:price), added_by_name:this.myName()};
-    var self=this;
-    var fail=function(){ self._enqueue(payload); if(!opts.silent) toast("Offline — wordt verstuurd zodra je weer verbinding hebt"); };
+    var fail=function(){ self._queueInsert(tmpId, payload); if(!opts.silent) toast("Offline — wordt verstuurd zodra je weer verbinding hebt"); };
     this.sb.from("items").insert(payload).then(function(r){ if(r.error) fail(); }, fail);
   },
   toggle:function(id){
     var it=state.list.find(function(i){return i.id===id;}); if(!it) return;
     var nd=!it.done; it.done=nd; renderLijst();
     var self=this;
-    this.sb.from("items").update({done:nd, done_by_name:(nd?this.myName():null)}).eq("id",id).then(function(){},function(){});
+    var fields={done:nd, done_by_name:(nd?this.myName():null)};
+    this.sb.from("items").update(fields).eq("id",id).then(function(r){ if(r&&r.error) self._queueUpdate(id, fields); }, function(){ self._queueUpdate(id, fields); });
     // Undo bij afvinken — gelijk aan de lokale lijst
     if(nd && typeof undoToast==="function"){
       undoToast(it.name+" afgevinkt", function(){
         var i2=state.list.find(function(x){return x.id===id;});
         if(i2){ i2.done=false; renderLijst(); }
-        self.sb.from("items").update({done:false, done_by_name:null}).eq("id",id).then(function(){},function(){});
+        var uf={done:false, done_by_name:null};
+        self.sb.from("items").update(uf).eq("id",id).then(function(r){ if(r&&r.error) self._queueUpdate(id, uf); }, function(){ self._queueUpdate(id, uf); });
       });
     }
   },
   qty:function(id,delta){
     var it=state.list.find(function(i){return i.id===id;}); if(!it) return;
     it.qty=Math.max(1,it.qty+delta); renderLijst();
-    this.sb.from("items").update({qty:it.qty}).eq("id",id).then(function(){},function(){});
+    var self=this, q=it.qty;
+    this.sb.from("items").update({qty:q}).eq("id",id).then(function(r){ if(r&&r.error) self._queueUpdate(id, {qty:q}); }, function(){ self._queueUpdate(id, {qty:q}); });
   },
   remove:function(id){
     var it=state.list.find(function(i){return i.id===id;});
     var snap = it ? Object.assign({}, it) : null;
     state.list=state.list.filter(function(i){return i.id!==id;}); renderLijst();
-    this.sb.from("items").delete().eq("id",id).then(function(){},function(){});
+    var self=this;
+    this.sb.from("items").delete().eq("id",id).then(function(r){ if(r&&r.error) self._queueDelete(id); }, function(){ self._queueDelete(id); });
     // Undo bij verwijderen — voegt 'm opnieuw toe (realtime reconcilieert)
     if(snap && typeof undoToast==="function"){
-      var self=this;
       undoToast(snap.name+" verwijderd", function(){
         self.addItem(snap.name, snap.price, snap.qty, {silent:true});
       });
@@ -386,16 +418,18 @@ var Cloud = {
   setFields:function(id, fields){
     var it=state.list.find(function(i){return i.id===id;});
     if(it){ if("qty"in fields)it.qty=fields.qty; if("price"in fields)it.price=fields.price; if("note"in fields)it.note=fields.note; if("category"in fields)it.category=fields.category; if("assigned_to"in fields)it.assigned_to=fields.assigned_to; renderLijst(); }
-    this.sb.from("items").update(fields).eq("id",id).then(function(){},function(){});
+    var self=this;
+    this.sb.from("items").update(fields).eq("id",id).then(function(r){ if(r&&r.error) self._queueUpdate(id, fields); }, function(){ self._queueUpdate(id, fields); });
   },
   finish:function(){
     var done=state.list.filter(function(i){return i.done;}); if(!done.length||!this.active) return;
-    var ids=done.map(function(i){return i.id;});
+    var self=this, ids=done.map(function(i){return i.id;});
     done.forEach(function(it){ recordPurchase(it.name, it.price); });
     if(typeof recordCoBuy==="function") recordCoBuy(done.map(function(it){return it.name;}));
     save();
     state.list=state.list.filter(function(i){return !i.done;}); renderLijst();
-    this.sb.from("items").delete().in("id",ids).then(function(){},function(){});
+    var queueAll=function(){ ids.forEach(function(id){ self._queueDelete(id); }); };
+    this.sb.from("items").delete().in("id",ids).then(function(r){ if(r&&r.error) queueAll(); }, queueAll);
     toast(done.length+(done.length===1?" boodschap gekocht":" boodschappen gekocht")); vibrate(12); renderVaste();
     if(typeof celebrate==="function") celebrate();
   },
