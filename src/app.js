@@ -238,6 +238,7 @@ function save(){
     var now = (Date.now ? Date.now() : 0);
     if(now - _idbCheckpointAt > 8000){ _idbCheckpointAt = now; idbSet(NS, str); }
   }catch(e){}
+  if(!navigator.onLine && typeof refreshOfflineBadge === "function") refreshOfflineBadge();
 }
 
 /* ============================================================
@@ -375,14 +376,28 @@ function isDue(a){
 function getDueItems(){
   var openKeys = {};
   state.list.forEach(function(it){ if(!it.done) openKeys[norm(it.name)]=true; });
+  var today = todayStr();
+  var dismissed = (state.settings && state.settings.dismissedDueItems) || {};
   var out=[];
   Object.keys(state.catalog).forEach(function(k){
     if(openKeys[k]) return;
+    if(dismissed[k] === today) return; // vandaag weggetikt → niet tonen, morgen weer
     var e=state.catalog[k]; var a=analyse(e);
     if(isDue(a)) out.push({key:k, e:e, a:a});
   });
   out.sort(function(x,y){ return y.a.overdue - x.a.overdue; });
   return out;
+}
+function dismissDueBanner(){
+  var due = getDueItems(); if(!due.length) return;
+  if(!state.settings.dismissedDueItems) state.settings.dismissedDueItems = {};
+  var today = todayStr();
+  due.forEach(function(d){ state.settings.dismissedDueItems[d.key] = today; });
+  // oude dismissals van vorige dagen opruimen zodat het object niet groeit
+  Object.keys(state.settings.dismissedDueItems).forEach(function(k){
+    if(state.settings.dismissedDueItems[k] !== today) delete state.settings.dismissedDueItems[k];
+  });
+  save(); renderDueBanner();
 }
 
 /* Auto-add: items met autoAdd=true die NU due zijn, max 1× per dag,
@@ -849,7 +864,7 @@ function maybePriceNudge(){
   if(state.settings.showPrices || state.settings.seenPriceNudge) return;
   if(activeTab!=="lijst") return;
   var open = state.list.filter(function(i){return !i.done;}).length;
-  if(open < 5) return;
+  if(open < 8) return;
   state.settings.seenPriceNudge = true; save();
   toast("Wil je een lopend totaal? Zet prijzen aan in Meer", {duration:4000, action:"Aanzetten", onAction:function(){
     state.settings.showPrices = true; save();
@@ -910,7 +925,9 @@ function renderDueBanner(){
   var due=getDueItems(); if(!due.length) return;
   var top=due.slice(0,6);
   var b=el("div","banner");
-  b.innerHTML='<div class="b-top"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>Bijna op — koop je waarschijnlijk weer</div>';
+  b.innerHTML='<div class="b-top"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg><span class="b-title">Bijna op — koop je waarschijnlijk weer</span><button class="b-dismiss" type="button" aria-label="Verberg tot morgen">✕</button></div>';
+  var dismissBtn = b.querySelector(".b-dismiss");
+  if(dismissBtn) dismissBtn.addEventListener("click", dismissDueBanner);
   var chips=el("div","chips");
   top.forEach(function(d){
     var c=CAT_BY_ID[d.e.category]||CAT_BY_ID["overig"];
@@ -1013,7 +1030,7 @@ function renderVaste(){
   var rest=rec.filter(function(r){return !isDue(r.a);});
 
   if(rec.length===0){
-    wrap.appendChild(emptyState("repeat","Nog geen vaste boodschappen","Mandje leert vanzelf wat je vaak koopt. Streep items af en rond je boodschappen af — na een paar keer verschijnen ze hier op jouw ritme. Of stel zelf een ritme in via een product op je lijst."));
+    wrap.appendChild(emptyState("repeat","Nog geen vaste boodschappen","Mandje leert vanzelf wat je vaak koopt. Streep items af en tik op Afronden — na zo'n 3 à 4 keer verschijnen ze hier op jouw ritme. Liever zelf bepalen? Stel een ritme in via een product op je lijst."));
     return;
   }
   if(due.length){
@@ -1129,11 +1146,13 @@ function buildMealEditor(id){
   });
   var cancel=$("#ml-cancel"); if(cancel) cancel.addEventListener("click", closeSheet);
   var del=$("#ml-del"); if(del) del.addEventListener("click", function(){
-    if(confirm('Bundel "'+(m?m.name:"")+'" verwijderen?')){ deleteMeal(id); closeSheet(); renderVaste(); toast("Bundel verwijderd"); }
+    var snap = m ? { name:m.name, emoji:m.emoji, items:(m.items||[]).slice() } : null;
+    deleteMeal(id); closeSheet(); renderVaste();
+    if(snap) undoToast("Bundel verwijderd", function(){ addMeal(snap.name, snap.emoji, snap.items); renderVaste(); });
   });
   $("#ml-save").addEventListener("click", function(){
     var nm=($("#ml-name").value||"").trim(); if(!nm){ toast("Geef de bundel een naam"); return; }
-    var lines=($("#ml-items").value||"").split(/\r?\n/).map(function(l){return l.trim();}).filter(Boolean);
+    var lines=($("#ml-items").value||"").split(/[\r\n,]+/).map(function(l){return l.trim();}).filter(Boolean);
     var items=lines.map(function(line){ var p=parseQtyFromInput(line); return { name:p.name, qty:p.qty, unit:p.unit||"" }; })
                    .filter(function(it){ return it.name; });
     if(m){ updateMeal(id, nm, picked, items); } else { addMeal(nm, picked, items); }
@@ -1387,7 +1406,7 @@ function buildSheet(d){
 
   // Auto-add toggle — alleen tonen als er écht een ritme is (auto-herkend of handmatig ingesteld).
   // Zonder ritme doet auto-toevoegen niets, dus dan verbergen we 'm om verwarring te voorkomen.
-  var _hasRhythm = !!(d.a && (d.a.regular || d.a.mode==="manual"));
+  var _hasRhythm = !!(d.a && (d.a.regular || (d.a.mode==="manual" && d.a.last)));
   if(_hasRhythm){
     var _autoAdd = !!(state.catalog[(sheetCtx&&sheetCtx.key)||""] && state.catalog[(sheetCtx&&sheetCtx.key)||""].autoAdd);
     html+='<div class="auto-add-toggle">'+
@@ -1587,7 +1606,10 @@ function doAdd(){
 }
 function buildAC(q){
   // strip qty-syntax voor ac-zoekopdracht (zodat "melk 2" ook 'melk' suggereert)
-  var stripped = parseQtyFromInput(q||"").name;
+  var parsed = parseQtyFromInput(q||"");
+  var stripped = parsed.name;
+  // toon de herkende hoeveelheid/eenheid als badge bij elke suggestie ("×2" of "500 g")
+  var qmod = parsed.unit ? escapeHtml(parsed.unit) : (parsed.qty>1 ? "×"+parsed.qty : "");
   var nq=norm(stripped);
   if(!nq){ hideAC(); return; }
   var seen={}, prefix=[], partial=[];
@@ -1616,7 +1638,7 @@ function buildAC(q){
   list.innerHTML="";
   results.forEach(function(r){
     var c=CAT_BY_ID[r.cat]||CAT_BY_ID["overig"];
-    var row=el("div","ac-item",'<span class="ac-emoji emoji">'+c.glyph+'</span><span class="ac-name">'+escapeHtml(r.name)+'</span><span class="ac-add">+</span>');
+    var row=el("div","ac-item",'<span class="ac-emoji emoji">'+c.glyph+'</span><span class="ac-name">'+escapeHtml(r.name)+'</span>'+(qmod?'<span class="ac-qmod">'+qmod+'</span>':'')+'<span class="ac-add">+</span>');
     row.addEventListener("click",function(){
       // gebruik de qty/eenheid die in het invoerveld stond als die er was
       var pq = parseQtyFromInput($("#add-name").value || "");
@@ -1663,7 +1685,7 @@ function setupSearchBar(){
 function toggleSearchBar(){
   var bar = $("#search-bar"); if(!bar) return;
   var visible = activeTab==="lijst" && state.list.length >= 10;
-  bar.style.display = visible ? "" : "none";
+  bar.classList.toggle("collapsed", !visible);
   if(!visible){
     var input = $("#search-input");
     if(input && input.value){ input.value=""; bar.classList.add("empty"); applySearchFilter(""); }
@@ -1698,8 +1720,12 @@ function applySearchFilter(q){
     if(any) anyVisible = true;
   });
   if(!anyVisible){
-    if(!emptyMsg){ emptyMsg = el("div","search-empty"); open.appendChild(emptyMsg); }
-    emptyMsg.textContent = 'Niets gevonden voor "'+q+'"';
+    if(!emptyMsg){
+      emptyMsg = el("div","search-empty");
+      emptyMsg.innerHTML = '<div class="se-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg></div><div class="se-txt"></div>';
+      open.appendChild(emptyMsg);
+    }
+    emptyMsg.querySelector(".se-txt").textContent = 'Niets gevonden voor "'+q+'"';
     emptyMsg.style.display = "";
   } else if(emptyMsg){
     emptyMsg.style.display = "none";
@@ -1902,7 +1928,7 @@ var CLOSE_SVG='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke
 
 function switchTab(tab){
   activeTab=tab;
-  document.querySelectorAll(".tab").forEach(function(b){ b.classList.toggle("active",b.dataset.tab===tab); });
+  document.querySelectorAll("[data-tab]").forEach(function(b){ b.classList.toggle("on",b.dataset.tab===tab); });
   $("#view-lijst").classList.toggle("active",tab==="lijst");
   $("#view-vaste").classList.toggle("active",tab==="vaste");
   $("#view-meer").classList.toggle("active",tab==="meer");
@@ -2032,15 +2058,18 @@ function setupRipples(){
 
 /* Toont een topbar-badge wanneer het netwerk wegvalt. Cloud writes happen
    alsnog optimistisch — bij online weer doorgaan reconcilieert realtime. */
-function setupOfflineIndicator(){
+function refreshOfflineBadge(){
   var badge = $("#offline-badge"); if(!badge) return;
-  var update = function(){
-    if(!navigator.onLine) badge.classList.add("show");
-    else badge.classList.remove("show");
-  };
-  window.addEventListener("online", update);
-  window.addEventListener("offline", update);
-  update();
+  if(navigator.onLine){ badge.classList.remove("show"); return; }
+  badge.classList.add("show");
+  var n = (typeof Cloud!=="undefined" && Cloud.active && Cloud._pending) ? Cloud._pending.length : 0;
+  badge.textContent = n>0 ? ("Offline · "+n+" wijziging"+(n===1?"":"en")) : "Offline";
+}
+function setupOfflineIndicator(){
+  if(!$("#offline-badge")) return;
+  window.addEventListener("online", refreshOfflineBadge);
+  window.addEventListener("offline", refreshOfflineBadge);
+  refreshOfflineBadge();
 }
 
 function setupTopShareBtn(){
@@ -2049,48 +2078,6 @@ function setupTopShareBtn(){
     if(typeof Cloud!=="undefined" && Cloud.active && typeof openShareSheet === "function"){
       openShareSheet(Cloud.active);
     }
-  });
-}
-
-/* Spraakinvoer (Web Speech API). Werkt op Android-Chrome/desktop; NIET in een
-   geïnstalleerde iOS-PWA → daar verbergen we de mic-knop. Komma's splitsen meerdere items. */
-function setupVoiceInput(){
-  var btn = $("#voice-btn"); if(!btn) return;
-  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  var standalone = (navigator.standalone === true) || (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches);
-  var isIOS = /iP(hone|ad|od)/.test(navigator.platform||navigator.userAgent||"") || (/Mac/.test(navigator.platform||"") && navigator.maxTouchPoints>1);
-  if(!SR){ btn.style.display="none"; return; }   // echt geen support → verbergen
-  if(isIOS && standalone){
-    // Web Speech werkt niet in een geïnstalleerde iOS-PWA → knop tonen met uitleg i.p.v. stil verbergen
-    btn.style.display="";
-    btn.addEventListener("click", function(e){ e.stopPropagation(); toast("Inspreken werkt op Android & desktop, niet in de iOS-app — typ of scan hier."); });
-    return;
-  }
-  btn.style.display="";
-  var rec=null, listening=false;
-  btn.addEventListener("click", function(e){
-    e.stopPropagation();
-    if(listening){ try{ rec && rec.stop(); }catch(err){} return; }
-    try{
-      rec = new SR();
-      rec.lang="nl-NL"; rec.interimResults=false; rec.maxAlternatives=1;
-      rec.onstart=function(){ listening=true; btn.classList.add("listening"); vibe("tap"); };
-      rec.onerror=function(){ listening=false; btn.classList.remove("listening"); toast("Spraak niet beschikbaar"); };
-      rec.onend=function(){ listening=false; btn.classList.remove("listening"); };
-      rec.onresult=function(ev){
-        var t=(ev.results && ev.results[0] && ev.results[0][0] && ev.results[0][0].transcript) || "";
-        t=t.trim(); if(!t) return;
-        var parts=t.split(/\s*,\s*/).filter(Boolean);
-        if(parts.length>1){
-          var n=0;
-          parts.forEach(function(p){ var q=parseQtyFromInput(p); if(q.name && addToList(q.name,null,{qty:q.qty,unit:q.unit,silent:true})) n++; });
-          if(n) toast(n+(n===1?" item toegevoegd":" items toegevoegd"));
-        } else {
-          var inp=$("#add-name"); if(inp){ inp.value=t; doAdd(); }
-        }
-      };
-      rec.start();
-    }catch(err){ toast("Spraak niet beschikbaar"); }
   });
 }
 
@@ -2231,7 +2218,8 @@ function onBarcodeDecoded(text){
     if(d.found){
       addToList(d.name, null, {qty:1});
       closeBarcodeScanScreen();
-      toast(d.name+" toegevoegd");
+      vibe("tick");
+      toast("✓ "+d.name+" toegevoegd");
     } else {
       bcStatus("Niet gevonden — typ de naam");
       var mi=$("#bc-manual-input"); if(mi) mi.focus();
@@ -2321,7 +2309,7 @@ function maybeIntro(){
   if(state.list.length>0 || Object.keys(state.catalog).length>0){ state.settings.seenIntro=true; save(); return; }
   var sh=$("#sheet"); if(!sh) return;
   var stages = [
-    {glyph:"📝", title:"Typ wat je nodig hebt", body:"Producten landen automatisch in het juiste schap. Eén veld, geen formulier."},
+    {interactive:true, title:"Typ wat je nodig hebt", body:"Producten sorteren zichzelf in het juiste schap. Probeer maar:"},
     {glyph:"🔁", title:"Vaste leert mee", body:"Vink af, rond af. Na een paar keer herkent Mandje wat 'bijna op' is — zonder dat je iets hoeft in te stellen."},
     {glyph:"👥", title:"Samen of solo", body:"Maak meerdere lijsten — privé of gedeeld. Deel een stuur-link en iemand kan items naar jou droppen zonder app."}
   ];
@@ -2330,17 +2318,43 @@ function maybeIntro(){
     state.settings.seenIntro=true; save(); closeSheet();
     setTimeout(function(){ var i=$("#add-name"); if(i) i.focus(); }, 320);
   };
+  var updateDemo = function(val){
+    var resEl = $("#idemo-result"); var hintEl = $("#idemo-hint"); if(!resEl) return;
+    var name = parseQtyFromInput(val||"").name.trim();
+    if(!name){ resEl.classList.remove("show"); resEl.innerHTML=""; if(hintEl) hintEl.textContent=""; return; }
+    var c = CAT_BY_ID[classify(name)] || CAT_BY_ID["overig"];
+    var disp = name.charAt(0).toUpperCase()+name.slice(1);
+    resEl.innerHTML = '<span class="idemo-chip"><span class="emoji">'+(c?c.glyph:"🛒")+'</span>'+escapeHtml(disp)+'</span>'+
+      '<span class="idemo-arrow">→</span>'+
+      '<span class="idemo-shelf">'+escapeHtml(c?c.label:"Overig")+'</span>';
+    if(!resEl.classList.contains("show")) resEl.classList.add("show");
+    if(hintEl) hintEl.textContent = "Vanzelf in het juiste schap ✨";
+  };
   var render = function(){
     var s = stages[idx];
     var isLast = (idx === stages.length-1);
-    sh.innerHTML = '<div class="grip"></div>'+
-      '<button id="intro-skip" type="button" aria-label="Sla over" style="position:absolute;top:14px;right:14px;border:0;background:transparent;color:var(--ink-faint);font-size:14px;font-weight:600;padding:6px 10px;border-radius:8px">Sla over</button>'+
-      '<div class="intro-stage">'+
-        '<div class="intro-card">'+
+    var body = s.interactive
+      ? '<div class="intro-card intro-card-demo">'+
+          '<h4>'+escapeHtml(s.title)+'</h4>'+
+          '<p>'+escapeHtml(s.body)+'</p>'+
+          '<div class="intro-demo">'+
+            '<div class="idemo-field"><span class="emoji">🔎</span><input id="idemo-input" type="text" placeholder="Typ bijv. melk" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" enterkeyhint="done"></div>'+
+            '<div class="idemo-tries">'+
+              ['melk','bananen','wc-papier','kaas'].map(function(t){return '<button type="button" class="idemo-try" data-try="'+escapeAttr(t)+'">'+escapeHtml(t)+'</button>';}).join("")+
+            '</div>'+
+            '<div class="idemo-result" id="idemo-result"></div>'+
+            '<div class="idemo-hint" id="idemo-hint"></div>'+
+          '</div>'+
+        '</div>'
+      : '<div class="intro-card">'+
           '<div class="ic-glyph emoji">'+s.glyph+'</div>'+
           '<h4>'+escapeHtml(s.title)+'</h4>'+
           '<p>'+escapeHtml(s.body)+'</p>'+
-        '</div>'+
+        '</div>';
+    sh.innerHTML = '<div class="grip"></div>'+
+      '<button id="intro-skip" type="button" aria-label="Sla over" style="position:absolute;top:14px;right:14px;border:0;background:transparent;color:var(--ink-faint);font-size:14px;font-weight:600;padding:6px 10px;border-radius:8px">Sla over</button>'+
+      '<div class="intro-stage">'+
+        body+
         '<div class="intro-dots">'+stages.map(function(_,i){return '<span class="id-dot'+(i===idx?" on":"")+'"></span>';}).join("")+'</div>'+
       '</div>'+
       '<div class="sheet-actions">'+
@@ -2353,6 +2367,17 @@ function maybeIntro(){
       $("#intro-go").addEventListener("click", dismiss);
     } else {
       $("#intro-next").addEventListener("click", function(){ idx++; render(); });
+    }
+    if(s.interactive){
+      var di = $("#idemo-input");
+      if(di){ di.addEventListener("input", function(){ updateDemo(this.value); }); }
+      sh.querySelectorAll(".idemo-try").forEach(function(b){
+        b.addEventListener("click", function(){
+          var v = b.getAttribute("data-try")||"";
+          if(di){ di.value = v; di.focus(); }
+          updateDemo(v); vibe("tap");
+        });
+      });
     }
   };
   $("#scrim").classList.add("show"); sh.classList.add("show");
@@ -2396,7 +2421,6 @@ function initApp(){
   setupPullToRefresh();
   setupRipples();
   setupServiceWorker();
-  setupVoiceInput();
   setupBarcode();
   // Swipe-down-to-close op beide sheets (1× binden — containers zijn persistent)
   attachSheetDismiss($("#sheet"), closeSheet);
@@ -2425,7 +2449,7 @@ function initApp(){
 
   $("#t-finish").addEventListener("click",finishShopping);
 
-  document.querySelectorAll(".tab").forEach(function(b){ b.addEventListener("click",function(){ switchTab(b.dataset.tab); }); });
+  document.querySelectorAll("[data-tab]").forEach(function(b){ b.addEventListener("click",function(){ switchTab(b.dataset.tab); }); });
 
   // requestAnimationFrame-debounce zodat we niet 60×/sec class togglen tijdens scroll
   var _scrollRaf = 0;

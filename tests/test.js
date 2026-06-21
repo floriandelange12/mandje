@@ -128,7 +128,7 @@ async function run(){
     ok("Melk uit 'Bijna op' verdwenen na toevoegen", !/Melk/.test([...doc.querySelectorAll("#due-banner .chip")].map(c=>c.textContent).join("|")));
 
     // Vaste-tab toont Melk als regelmatig
-    const vasteTab = [...doc.querySelectorAll(".tab")].find(b=>b.dataset.tab==="vaste");
+    const vasteTab = [...doc.querySelectorAll("[data-tab]")].find(b=>b.dataset.tab==="vaste");
     fire(vasteTab, "click"); await wait(40);
     const vasteTxt = doc.querySelector("#vaste-content").textContent;
     ok("Vaste-tab toont Melk", /Melk/.test(vasteTxt));

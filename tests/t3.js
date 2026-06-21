@@ -12,7 +12,7 @@ const ok=(n,c)=>{ if(c){pass++;console.log("  ✓ "+n);} else {fail++;console.lo
   ok("Veld bevat input#add-name + button#add-btn", !!doc.querySelector(".field #add-name") && !!doc.querySelector(".field #add-btn"));
   ok("Veld heeft geen los prijsveld", !doc.querySelector(".field #add-price") && !doc.querySelector(".field .pricein"));
   ok("Tandwiel-knop aanwezig", !!doc.querySelector("#gear-btn"));
-  ok("Slechts 2 tabs (Lijst/Vaste)", doc.querySelectorAll(".tabbar .tab").length===2);
+  ok("Lijst/Vaste-segment heeft 2 knoppen", doc.querySelectorAll(".view-seg [data-tab]").length===2);
 
   // 2. prijzen standaard UIT → snel toevoegen geeft prijs null, balk verborgen
   doc.querySelector("#add-name").value="Melk";
@@ -263,16 +263,16 @@ const ok=(n,c)=>{ if(c){pass++;console.log("  ✓ "+n);} else {fail++;console.lo
   ok("Afrond-knop onderaan in-mandje", !!doc19.querySelector("#done-list .finish-inline-btn"));
   dom19.window.close();
 
-  // 21. Prijzen-nudge: bij >=5 items + prijzen uit → seenPriceNudge wordt gezet
+  // 21. Prijzen-nudge: bij >=8 items + prijzen uit → seenPriceNudge wordt gezet
   const dom20=new JSDOM(html,{url:"https://example.com/",runScripts:"dangerously",resources:"usable",pretendToBeVisual:true});
   await wait(150); const doc20=dom20.window.document; const W20=dom20.window;
-  ["Melk","Brood","Kaas","Appels","Eieren"].forEach(function(n){
+  ["Melk","Brood","Kaas","Appels","Eieren","Bananen","Yoghurt","Pasta"].forEach(function(n){
     doc20.querySelector("#add-name").value=n;
     doc20.querySelector("#add-name").dispatchEvent(new W20.KeyboardEvent("keydown",{key:"Enter",bubbles:true}));
   });
   await wait(60);
   const st20 = JSON.parse(W20.localStorage.getItem("mandje.v2"));
-  ok("Prijzen-nudge: seenPriceNudge gezet na 5 items", st20.settings.seenPriceNudge === true);
+  ok("Prijzen-nudge: seenPriceNudge gezet na 8 items", st20.settings.seenPriceNudge === true);
   dom20.window.close();
 
   // 22. Iteratie 6 — avatarHtml: emoji vs initialen

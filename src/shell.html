@@ -53,6 +53,13 @@
     --shadow:0 1px 2px rgba(0,0,0,.25), 0 12px 28px -10px rgba(0,0,0,.5);
     --shadow-lg:0 16px 44px -10px rgba(0,0,0,.6);
   }
+  /* Donker: form-controls extra contrast geven (anders smelten ze in de achtergrond) */
+  html[data-theme="dark"] .switch{ border:1.5px solid var(--line-strong); }
+  html[data-theme="dark"] .sheet input.txt,
+  html[data-theme="dark"] .sheet input.num,
+  html[data-theme="dark"] .inline-rename input,
+  html[data-theme="dark"] .quick-create input,
+  html[data-theme="dark"] textarea.io{ border-color:var(--line-strong); }
 
   *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
   html,body{margin:0; padding:0; height:100%;}
@@ -62,7 +69,10 @@
     overscroll-behavior-y:none; -webkit-user-select:none; user-select:none;
     -webkit-text-size-adjust:100%; text-size-adjust:100%;
     font-size:17px; line-height:1.4;
+    transition:background-color .18s ease, color .18s ease;
   }
+  /* Zachte thema-overgang op de grote vlakken (licht ↔ donker) */
+  .group, .topbar, .banner, .totals-inner, .seg, .seg button{ transition:background-color .18s ease, color .18s ease, border-color .18s ease; }
   input,button,select,textarea{font-family:var(--font); color:inherit;}
   /* Cross-platform input-reset: weg met iOS' standaard inner-shadow/afronding + Android-tics */
   input[type="text"],input[type="search"],input[type="email"],input[type="url"],input[type="tel"],input[type="number"],input:not([type]),textarea{
@@ -124,14 +134,14 @@
   main{ position:absolute; inset:0; overflow-y:auto; -webkit-overflow-scrolling:touch; padding-left:max(16px, env(safe-area-inset-left)); padding-right:max(16px, env(safe-area-inset-right)); transition:bottom .2s ease; }
   main::-webkit-scrollbar{ display:none; }
   /* Met prijzen aan: scrollgebied eindigt net boven de totaalbalk zodat die nooit items afdekt */
-  body.has-total #main{ bottom:calc(var(--tabbar-h) + max(16px, var(--safe-b)) + 172px); }
-  /* Floating add-bar = ~62px hoog; extra ruimte onderaan zodat items niet verdwijnen */
-  .pad-bottom{ height:calc(var(--tabbar-h) + var(--safe-b) + 90px); }
+  body.has-total #main{ bottom:calc(max(16px, var(--safe-b)) + 184px); }
+  /* Floating add-bar = ~62px hoog; extra ruimte onderaan zodat items niet verdwijnen (geen tabbar meer) */
+  .pad-bottom{ height:calc(var(--safe-b) + 96px); }
   /* Klein: het ingekorte #main (body.has-total) reserveert de ruimte voor de balk al */
   .pad-bottom.with-total{ height:24px; }
-  /* Op Vaste/Meer-tabs is add-bar verborgen — terug naar normale padding */
-  body.no-addbar .pad-bottom{ height:calc(var(--tabbar-h) + var(--safe-b) + 24px); }
-  body.no-addbar .pad-bottom.with-total{ height:calc(var(--tabbar-h) + var(--safe-b) + 132px); }
+  /* Op Vaste/Meer-tabs is add-bar verborgen — alleen safe-area onderaan */
+  body.no-addbar .pad-bottom{ height:calc(var(--safe-b) + 24px); }
+  body.no-addbar .pad-bottom.with-total{ height:calc(var(--safe-b) + 24px); }
 
   .largehead{ padding:calc(var(--safe-t) + 54px) 4px 6px; }
   h1{ font-family:var(--display); font-size:31px; line-height:1.06; font-weight:600; letter-spacing:-.01em; margin:2px 0 3px; transition:opacity .22s var(--ease); }
@@ -161,22 +171,24 @@
     position:fixed;
     left:max(12px, env(safe-area-inset-left));
     right:max(12px, env(safe-area-inset-right));
-    bottom:calc(var(--tabbar-h) + max(16px, var(--safe-b)) + 14px);
+    bottom:calc(max(16px, var(--safe-b)) + 14px);
     z-index:29;
     padding:0;
     background:transparent;
     transition:bottom .22s var(--ease), transform .22s var(--ease), opacity .2s ease;
   }
-  /* Toetsenbord open: balk zakt naar net boven de toetsenbord-rand; tabbar + totals weg */
+  /* Toetsenbord open: balk zakt naar net boven de toetsenbord-rand; totals weg */
   body.kb-open .addwrap{ bottom:calc(var(--kb-lift, 0px) + 10px); }
   body.kb-open .totals{ opacity:0; pointer-events:none; }
-  body.kb-open .tabbar{ opacity:0; pointer-events:none; }
   /* Verbergen wanneer item-sheet open is zodat 'ie geen overlap geeft */
   body.sheet-open .addwrap{ transform:translateY(140%); opacity:0; pointer-events:none; }
-  .field{ display:flex; align-items:center; width:100%; min-width:0; background:var(--surface); border:1px solid var(--line); border-radius:17px; padding:5px 5px 5px 15px; box-shadow:var(--shadow-sm); transition:border-color .18s ease, box-shadow .18s ease; }
+  .field{ display:flex; align-items:center; width:100%; min-width:0; background:var(--surface); border:1px solid var(--line); border-radius:17px; padding:5px; box-shadow:var(--shadow-sm); transition:border-color .18s ease, box-shadow .18s ease, background-color .18s ease, color .18s ease; }
   .field:focus-within{ border-color:color-mix(in srgb, var(--green) 55%, var(--line)); box-shadow:0 0 0 4px var(--green-2); }
-  .field svg.lead{ width:20px; height:20px; color:var(--ink-faint); flex:0 0 20px; margin-right:10px; }
-  .field input.name{ flex:1 1 0; min-width:0; border:0; outline:0; background:transparent; font-size:17px; padding:12px 0; -webkit-user-select:text; user-select:text; }
+  /* Scan-knop links in het veld (vervangt de oude decoratieve loep) */
+  .field-scan{ flex:0 0 42px; width:42px; height:42px; border:0; background:transparent; color:var(--ink-faint); display:flex; align-items:center; justify-content:center; border-radius:12px; transition:transform .12s var(--ease), background .15s ease, color .15s ease; }
+  .field-scan svg{ width:22px; height:22px; }
+  .field-scan:active{ transform:scale(.9); background:var(--surface-3); color:var(--green); }
+  .field input.name{ flex:1 1 0; min-width:0; border:0; outline:0; background:transparent; font-size:17px; padding:12px 6px; -webkit-user-select:text; user-select:text; }
   .field input.name::-webkit-search-cancel-button, .field input.name::-webkit-search-decoration{ -webkit-appearance:none; appearance:none; display:none; }
   .pw{ display:inline-flex; align-items:center; gap:3px; flex:0 0 auto; margin:0 9px; padding:7px 11px; background:var(--surface-3); border-radius:12px; }
   .pw .cur{ color:var(--ink-soft); font-weight:700; font-size:14px; }
@@ -188,8 +200,6 @@
   .addbtn-bulk{ flex:0 0 36px; width:36px; height:36px; margin-left:6px; border:0; border-radius:11px; background:var(--surface-3); color:var(--ink-soft); display:flex; align-items:center; justify-content:center; transition:transform .12s var(--ease), background .15s ease; }
   .addbtn-bulk svg{ width:18px; height:18px; }
   .addbtn-bulk:active{ transform:scale(.92); background:var(--line-strong); }
-  .addbtn-bulk.listening{ background:var(--green-2); color:var(--green); animation:mic-pulse 1.2s ease-in-out infinite; }
-  @keyframes mic-pulse{ 0%,100%{ box-shadow:0 0 0 0 color-mix(in srgb, var(--green) 40%, transparent);} 50%{ box-shadow:0 0 0 6px color-mix(in srgb, var(--green) 0%, transparent);} }
 
   /* Autocomplete (opent naar boven omdat add-bar onderaan zit) */
   .ac{ position:relative; }
@@ -201,6 +211,7 @@
   .ac-item:active{ background:var(--surface-3); }
   .ac-emoji{ font-size:19px; width:24px; text-align:center; }
   .ac-name{ flex:1; font-size:16px; font-weight:500; }
+  .ac-qmod{ flex:0 0 auto; font-size:12px; font-weight:700; color:var(--green); background:var(--green-2); padding:2px 8px; border-radius:99px; letter-spacing:.01em; }
   .ac-tag{ font-size:12px; color:var(--ink-faint); font-weight:600; }
   .ac-add{ color:var(--green); font-weight:700; font-size:20px; }
 
@@ -247,7 +258,10 @@
   .chip.amber .plus{ color:var(--amber); }
   .banner{ background:linear-gradient(135deg, var(--amber-2), color-mix(in srgb, var(--amber-2) 60%, var(--surface))); border:1px solid color-mix(in srgb, var(--amber) 22%, transparent); border-radius:var(--r-card); padding:14px; }
   .banner .b-top{ display:flex; align-items:center; gap:8px; font-weight:700; font-size:14px; color:var(--amber); margin-bottom:10px; }
-  .banner .b-top svg{ width:17px; height:17px; }
+  .banner .b-top svg{ width:17px; height:17px; flex:0 0 auto; }
+  .banner .b-top .b-title{ flex:1; min-width:0; }
+  .banner .b-dismiss{ flex:0 0 auto; width:24px; height:24px; border:0; padding:0; margin:-4px -4px -4px 0; background:transparent; color:var(--amber); opacity:.7; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:13px; line-height:1; cursor:pointer; }
+  .banner .b-dismiss:active{ opacity:1; background:color-mix(in srgb, var(--amber) 18%, transparent); }
 
   /* Vaste-tab card */
   .vrow{ display:flex; align-items:center; gap:13px; background:var(--surface); border:1px solid var(--line); border-radius:var(--r-card); padding:13px 14px; box-shadow:var(--shadow-sm); }
@@ -268,7 +282,7 @@
   .empty p{ font-size:15px; margin:0; line-height:1.5; }
 
   /* ---------- Totals bar (boven floating add-bar) ---------- */
-  .totals{ position:absolute; left:0; right:0; bottom:calc(var(--tabbar-h) + max(16px, var(--safe-b)) + 78px); z-index:25; padding:0 max(12px, env(safe-area-inset-right)) 8px max(12px, env(safe-area-inset-left)); pointer-events:none; transition:opacity .2s ease, transform .2s ease, visibility 0s; }
+  .totals{ position:absolute; left:0; right:0; bottom:calc(max(16px, var(--safe-b)) + 90px); z-index:25; padding:0 max(12px, env(safe-area-inset-right)) 8px max(12px, env(safe-area-inset-left)); pointer-events:none; transition:opacity .2s ease, transform .2s ease, visibility 0s; }
   /* visibility:hidden haalt 'm uit de a11y-tree én tab-volgorde wanneer verborgen;
      0s-delay-na-transitie zodat de fade-out nog zichtbaar afspeelt */
   .totals.hide{ opacity:0; transform:translateY(8px); pointer-events:none; visibility:hidden; transition:opacity .2s ease, transform .2s ease, visibility 0s linear .2s; }
@@ -294,12 +308,10 @@
   .finish-inline-btn{ border:0; background:var(--green); color:var(--on-green); font-weight:700; font-size:16px; padding:13px 28px; border-radius:14px; box-shadow:var(--shadow-sm); transition:transform .12s var(--ease), filter .12s ease; }
   .finish-inline-btn:active{ transform:scale(.96); filter:brightness(.94); }
 
-  /* ---------- Tab bar (floating pill) ---------- */
-  .tabbar{ position:absolute; left:max(12px, env(safe-area-inset-left)); right:max(12px, env(safe-area-inset-right)); bottom:max(8px, var(--safe-b)); z-index:28; height:var(--tabbar-h); display:flex; background:color-mix(in srgb, var(--surface) 80%, transparent); -webkit-backdrop-filter:var(--blur); backdrop-filter:var(--blur); border:1px solid var(--line); border-radius:22px; box-shadow:var(--shadow-lg); padding:0; overflow:hidden; }
-  .tab{ flex:1; background:transparent; border:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; color:var(--ink-faint); font-size:11px; font-weight:600; }
-  .tab svg{ width:23px; height:23px; transition:transform .15s var(--ease); }
-  .tab.active{ color:var(--green); }
-  .tab:active svg{ transform:scale(.88); }
+  /* ---------- Lijst/Vaste-segment (onder de titel) ---------- */
+  .view-seg{ display:inline-flex; margin:10px 0 2px; background:var(--surface-3); border-radius:12px; padding:3px; }
+  .view-seg button{ border:0; background:transparent; padding:8px 22px; border-radius:9px; font-size:15px; font-weight:700; color:var(--ink-soft); transition:color .15s ease, background .15s ease, box-shadow .15s ease; }
+  .view-seg button.on{ background:var(--surface); color:var(--ink); box-shadow:var(--shadow-sm); }
 
   /* ---------- Views ---------- */
   .view{ display:none; }
@@ -339,7 +351,7 @@
   /* ---------- Bottom sheet ---------- */
   .scrim{ position:absolute; inset:0; background:rgba(0,0,0,.4); opacity:0; z-index:50; transition:opacity .3s var(--ease); pointer-events:none; }
   .scrim.show{ opacity:1; pointer-events:auto; }
-  .sheet{ position:absolute; left:0; right:0; bottom:0; z-index:51; background:var(--surface); border-radius:24px 24px 0 0; box-shadow:0 -10px 40px rgba(0,0,0,.25); transform:translateY(110%); visibility:hidden; transition:transform .28s var(--ease), visibility 0s linear .28s; padding:8px 18px calc(18px + var(--safe-b)); max-width:600px; margin:0 auto; }
+  .sheet{ position:absolute; left:0; right:0; bottom:0; z-index:51; background:var(--surface); border-radius:24px 24px 0 0; box-shadow:0 -10px 40px rgba(0,0,0,.25); transform:translateY(110%); visibility:hidden; transition:transform .28s var(--ease), visibility 0s linear .28s; padding:8px 18px calc(18px + var(--safe-b)); max-width:600px; margin:0 auto; max-height:calc(100vh - 80px); overflow-y:auto; -webkit-overflow-scrolling:touch; overscroll-behavior:contain; }
   /* Gesloten sheet uit a11y-tree + tab-volgorde halen; visibility springt direct aan bij openen,
      en pas ná de slide-down-animatie weer uit (0s-delay) zodat de animatie zichtbaar blijft */
   .sheet.show{ transform:none; visibility:visible; transition:transform .28s var(--ease), visibility 0s; }
@@ -368,7 +380,7 @@
   .intro-pt b{ color:var(--ink); font-weight:700; }
 
   /* ---------- Toast ---------- */
-  .toast{ position:absolute; left:50%; bottom:calc(var(--tabbar-h) + var(--safe-b) + 20px); transform:translateX(-50%) translateY(16px); background:var(--ink); color:var(--bg); padding:11px 18px; border-radius:14px; font-size:14px; font-weight:600; opacity:0; z-index:60; pointer-events:none; box-shadow:var(--shadow-lg); transition:opacity .25s var(--ease), transform .25s var(--ease); max-width:calc(100vw - 32px); white-space:normal; text-align:center; line-height:1.35; }
+  .toast{ position:absolute; left:50%; bottom:calc(var(--safe-b) + 92px); transform:translateX(-50%) translateY(16px); background:var(--ink); color:var(--bg); padding:11px 18px; border-radius:14px; font-size:14px; font-weight:600; opacity:0; z-index:60; pointer-events:none; box-shadow:var(--shadow-lg); transition:opacity .25s var(--ease), transform .25s var(--ease); max-width:calc(100vw - 32px); white-space:normal; text-align:center; line-height:1.35; }
   .toast.show{ opacity:1; transform:translateX(-50%) translateY(0); pointer-events:auto; }
   .toast.has-action{ pointer-events:auto; }
 
@@ -446,7 +458,10 @@
   .eyebrow{ font-size:12px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--green); margin-bottom:6px; }
 
   /* Lege-staat bij zoeken zonder resultaat (Lijst-tab) */
-  .search-empty{ text-align:center; padding:34px 20px 12px; color:var(--ink-soft); font-size:15px; line-height:1.5; }
+  .search-empty{ display:flex; flex-direction:column; align-items:center; text-align:center; padding:38px 20px 14px; color:var(--ink-soft); font-size:15px; line-height:1.5; }
+  .search-empty .se-ico{ width:52px; height:52px; border-radius:50%; background:var(--surface-3); display:flex; align-items:center; justify-content:center; margin-bottom:12px; color:var(--ink-faint); }
+  .search-empty .se-ico svg{ width:24px; height:24px; }
+  .search-empty .se-txt{ max-width:240px; }
   .send-screen .ss-added{ margin-top:18px; }
   .send-screen .ss-added .chip{ margin:0 8px 8px 0; }
   /* Barcode-scanner camera-container (html5-qrcode rendert hierin) */
@@ -483,7 +498,7 @@
   .shop-row.done{ background:var(--surface-2); }
   .shop-row.done .shop-check{ background:var(--green); border-color:var(--green); }
   .shop-row.done .shop-check svg{ opacity:1; }
-  .shop-row .shop-name{ flex:1; min-width:0; font-size:18px; font-weight:600; letter-spacing:-.01em; }
+  .shop-row .shop-name{ flex:1; min-width:0; font-size:18px; font-weight:600; letter-spacing:-.01em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .shop-row.done .shop-name{ color:var(--ink-faint); text-decoration:line-through; }
   .shop-row .shop-qty{ flex:0 0 auto; font-size:15px; font-weight:700; color:var(--ink-soft); background:var(--surface-3); border-radius:10px; padding:3px 10px; min-width:30px; text-align:center; font-variant-numeric:tabular-nums; }
   .shop-finish{ width:100%; border:0; background:var(--green); color:var(--on-green); font-weight:700; font-size:17px; padding:16px; border-radius:16px; box-shadow:var(--shadow-sm); margin:18px 0 8px; }
@@ -494,7 +509,8 @@
   .emoji{ font-family:"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif; font-style:normal; font-weight:400; line-height:1; vertical-align:-1px; }
 
   /* ---------- Search-bar (Lijst-tab) ---------- */
-  .search-bar{ position:relative; margin:6px 0 12px; display:flex; align-items:center; background:var(--surface); border:1px solid var(--line); border-radius:13px; padding:9px 13px; box-shadow:var(--shadow-sm); }
+  .search-bar{ position:relative; margin:6px 0 12px; display:flex; align-items:center; background:var(--surface); border:1px solid var(--line); border-radius:13px; padding:9px 13px; box-shadow:var(--shadow-sm); max-height:52px; opacity:1; overflow:hidden; transition:max-height .24s var(--ease), opacity .24s var(--ease), margin .24s var(--ease); }
+  .search-bar.collapsed{ max-height:0; opacity:0; margin-top:0; margin-bottom:0; padding-top:0; padding-bottom:0; border-width:0; box-shadow:none; pointer-events:none; }
   .search-bar svg.lead{ width:16px; height:16px; color:var(--ink-faint); flex:0 0 16px; margin-right:9px; }
   .search-bar input{ flex:1; border:0; outline:0; background:transparent; font-size:15px; padding:2px 0; -webkit-user-select:text; user-select:text; }
   .search-bar .search-clear{ flex:0 0 auto; width:22px; height:22px; border:0; padding:0; background:var(--surface-3); color:var(--ink-soft); border-radius:50%; display:flex; align-items:center; justify-content:center; margin-left:6px; font-size:13px; line-height:1; }
@@ -543,6 +559,23 @@
   .intro-dots{ display:flex; gap:8px; margin:6px 0 18px; }
   .intro-dots .id-dot{ width:8px; height:8px; border-radius:50%; background:var(--surface-3); transition:background .2s ease, width .25s var(--ease); }
   .intro-dots .id-dot.on{ background:var(--green); width:22px; border-radius:99px; }
+  /* Interactieve eerste stap: live demo van auto-categorisering */
+  .intro-card-demo{ padding:24px 18px; }
+  .intro-card-demo h4{ margin-bottom:6px; }
+  .intro-card-demo p{ margin-bottom:16px; }
+  .intro-demo{ width:100%; }
+  .intro-demo .idemo-field{ display:flex; align-items:center; gap:9px; background:var(--surface); border:1.5px solid var(--green); border-radius:14px; padding:11px 13px; box-shadow:var(--shadow-sm); text-align:left; }
+  .intro-demo .idemo-field .emoji{ font-size:17px; opacity:.7; }
+  .intro-demo .idemo-field input{ flex:1; min-width:0; border:0; outline:0; background:transparent; font-size:16px; -webkit-user-select:text; user-select:text; }
+  .intro-demo .idemo-tries{ display:flex; flex-wrap:wrap; gap:7px; justify-content:center; margin:13px 0 2px; }
+  .intro-demo .idemo-try{ border:1px solid var(--line); background:var(--surface); color:var(--ink-soft); border-radius:99px; padding:6px 13px; font-size:13px; font-weight:600; }
+  .intro-demo .idemo-try:active{ background:var(--surface-3); }
+  .intro-demo .idemo-result{ display:flex; align-items:center; justify-content:center; gap:8px; flex-wrap:wrap; margin-top:16px; min-height:42px; opacity:0; transform:translateY(8px); transition:opacity .25s var(--ease), transform .25s var(--ease); }
+  .intro-demo .idemo-result.show{ opacity:1; transform:none; }
+  .intro-demo .idemo-chip{ display:inline-flex; align-items:center; gap:8px; background:var(--green-2); color:var(--ink); border-radius:12px; padding:8px 12px; font-weight:700; font-size:15px; }
+  .intro-demo .idemo-arrow{ color:var(--ink-faint); font-weight:700; }
+  .intro-demo .idemo-shelf{ display:inline-flex; align-items:center; background:var(--surface-3); color:var(--ink-soft); border-radius:12px; padding:8px 12px; font-weight:600; font-size:14px; }
+  .intro-demo .idemo-hint{ text-align:center; color:var(--ink-faint); font-size:13px; margin-top:13px; min-height:18px; }
 
   /* ---------- Inline rename (share-sheet) ---------- */
   .inline-rename{ display:flex; align-items:center; gap:10px; width:100%; }
@@ -654,7 +687,7 @@
   window.MANDJE_CONFIG = {
     SUPABASE_URL:      "https://yctcpxgjpmhyohbsrygy.supabase.co",   /* ingevuld ✓ */
     SUPABASE_ANON_KEY: "sb_publishable_lT77Nkcrl6VsBIx-PFuMtw_mdJ6fyNj",   /* ingevuld ✓ (publishable key) */
-    BUILD:             "2026-06-21.9", /* alleen onderaan Meer-tab zichtbaar — handig om cache-versie te verifiëren */
+    BUILD:             "2026-06-21.10", /* alleen onderaan Meer-tab zichtbaar — handig om cache-versie te verifiëren */
     EMAIL_AUTH:        false, /* zet op true zodra e-mail magic-link aan staat in Supabase → toont "Beveilig je account" */
     VAPID_PUBLIC_KEY:  "BIkVm3JYB2t37GOXQlMTwSRipLcEvjrDY8Kb2mmNOIIrRY4zmR57RznHTJ2NQ5Z9h1fkp3if2OkDGmcmItLjy54"  /* public key (veilig in frontend). Privésleutel staat alleen als Supabase-secret. */
   };
@@ -672,6 +705,10 @@
     <div class="largehead" data-loading>
       <h1 id="title">Boodschappen</h1>
       <div class="subhead" id="subhead"></div>
+      <div class="view-seg" id="view-seg" role="tablist">
+        <button data-tab="lijst" class="on" type="button" role="tab">Lijst</button>
+        <button data-tab="vaste" type="button" role="tab">Vaste</button>
+      </div>
       <div id="list-switch-wrap"></div>
     </div>
 
@@ -680,16 +717,14 @@
       <div class="addwrap" id="addwrap">
         <div class="ac">
         <div class="field">
-          <svg class="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+          <button class="field-scan" id="scan-btn" type="button" aria-label="Scan een barcode"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 7v10M11 7v10M15 7v10"/></svg></button>
           <input class="name" id="add-name" type="search" inputmode="text" placeholder="Wat heb je nodig?  ·  bijv. melk 2" enterkeyhint="done" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
-          <button class="addbtn-bulk" id="scan-btn" type="button" aria-label="Scan een barcode"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 7v10M11 7v10M15 7v10"/></svg></button>
-          <button class="addbtn-bulk" id="voice-btn" type="button" aria-label="Inspreken" style="display:none"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><path d="M12 18v4"/></svg></button>
           <button class="addbtn" id="add-btn" aria-label="Toevoegen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
         </div>
         <div class="ac-list" id="ac-list"></div>
       </div>
       </div>
-      <div class="search-bar empty" id="search-bar" style="display:none">
+      <div class="search-bar empty collapsed" id="search-bar">
         <svg class="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
         <input id="search-input" type="search" placeholder="Zoek in deze lijst…" enterkeyhint="search" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
         <button class="search-clear" id="search-clear" aria-label="Wissen" type="button">✕</button>
@@ -731,18 +766,6 @@
       <div id="t-prog-wrap"><div class="pbar"><i id="t-prog" style="width:0%"></i></div><span class="cart" id="t-cart">€0,00 in mandje</span></div>
     </div>
   </div>
-
-  <!-- Tabs -->
-  <nav class="tabbar">
-    <button class="tab active" data-tab="lijst">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-      Lijst
-    </button>
-    <button class="tab" data-tab="vaste">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 2.1 21 6l-4 3.9"/><path d="M3 11V9.5A3.5 3.5 0 0 1 6.5 6H21"/><path d="M7 21.9 3 18l4-3.9"/><path d="M21 13v1.5a3.5 3.5 0 0 1-3.5 3.5H3"/></svg>
-      Vaste
-    </button>
-  </nav>
 
   <!-- Sheet -->
   <div class="scrim" id="scrim"></div>
