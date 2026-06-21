@@ -81,6 +81,31 @@ var Cloud = {
     });
     if(typeof renderShortcutsRow==="function") renderShortcutsRow();
   },
+  /* ---- maaltijden/bundels (optioneel cross-device; vereist de 'meals'-tabel) ----
+     Alles faalt stil als de tabel niet bestaat → bundels blijven dan puur lokaal. */
+  loadMeals:async function(){
+    if(!this.ready || !this.userId) return;
+    try{
+      var r=await this.sb.from("meals").select("*").eq("user_id", this.userId);
+      if(r.error || !r.data) return;
+      state.meals = state.meals || {};
+      r.data.forEach(function(row){
+        state.meals[row.id] = { id:row.id, name:row.name, emoji:row.emoji||"🍽️",
+          items:Array.isArray(row.items)?row.items:[], updatedAt:row.updated_at };
+      });
+      if(typeof save==="function") save();
+      if(activeTab==="vaste" && typeof renderVaste==="function") renderVaste();
+    }catch(e){}
+  },
+  saveMeal:function(m){
+    if(!this.ready || !this.userId || !m) return;
+    try{ this.sb.from("meals").upsert({ id:m.id, user_id:this.userId, name:m.name, emoji:m.emoji,
+      items:m.items, updated_at:new Date().toISOString() }).then(function(){},function(){}); }catch(e){}
+  },
+  deleteMeal:function(id){
+    if(!this.ready || !this.userId) return;
+    try{ this.sb.from("meals").delete().eq("id", id).eq("user_id", this.userId).then(function(){},function(){}); }catch(e){}
+  },
   friendByUser:function(uid){ for(var i=0;i<this.friends.length;i++) if(this.friends[i].user_id===uid) return this.friends[i]; return null; },
   addFriend:async function(code){
     code=(code||"").trim(); if(!code) return null;
@@ -156,6 +181,7 @@ var Cloud = {
       // Profiel + vrienden: alleen als er al een naam is (anders pas na ensureIdentity)
       if(this.me && this.me.display_name){ await this.syncProfile(); }
       await this.loadFriends();
+      this.loadMeals();  // cross-device bundel-sync (stil no-op zonder 'meals'-tabel)
 
       // Vriend-uitnodiging via ?friend=CODE
       if(params.get("friend")){

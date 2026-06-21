@@ -307,6 +307,18 @@ const ok=(n,c)=>{ if(c){pass++;console.log("  ✓ "+n);} else {fail++;console.lo
   ok("Autofill-override aanwezig (-webkit-autofill)", html.indexOf("-webkit-autofill") !== -1);
   ok("text-size-adjust aanwezig", html.indexOf("text-size-adjust") !== -1);
 
+  // 26. Maaltijden/bundels: aanmaken + in één tik aan de lijst
+  const dom22=new JSDOM(html,{url:"https://example.com/",runScripts:"dangerously",resources:"usable",pretendToBeVisual:true});
+  await wait(150); const W22=dom22.window; const doc22=dom22.window.document;
+  const mid=W22.addMeal("Pasta-avond","🍝",[{name:"Pasta",qty:1,unit:""},{name:"Pastasaus",qty:2,unit:""},{name:"Gehakt",qty:1,unit:"500 g"}]);
+  ok("Bundel aangemaakt", !!mid && W22.mealList().length===1);
+  W22.addMealToList(mid); await wait(40);
+  ok("Bundel → 3 items op de lijst", doc22.querySelectorAll("#open-list .row").length===3);
+  const st22=JSON.parse(W22.localStorage.getItem("mandje.v2"));
+  ok("Bundel persistent in state.meals", st22.meals && Object.keys(st22.meals).length===1);
+  ok("Eenheid in bundel-item bewaard", st22.list.some(i=>i.name==="Gehakt" && i.unit==="500 g"));
+  dom22.window.close();
+
   console.log("\nt3: "+pass+" geslaagd, "+fail+" gefaald");
   process.exit(fail?1:0);
 })().catch(e=>{console.error("t3 TESTFOUT:",e);process.exit(2)});

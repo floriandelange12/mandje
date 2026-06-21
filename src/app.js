@@ -137,7 +137,8 @@ var DEFAULTS = {
   settings:{ theme:"auto", showPrices:false, seenIntro:false, categoryOrder:CATS.map(function(c){return c.id;}), minPurchases:3, cvThreshold:0.6, dueWindowDays:1, customCategories:[], customCatEmoji:{}, collapsedCats:{}, seenQtyHint:false, seenBulkHint:false, seenPriceNudge:false },
   list:[],
   catalog:{},
-  coBuy:{}
+  coBuy:{},
+  meals:{}
 };
 
 var state = null;
@@ -156,6 +157,7 @@ function load(){
     if(!Array.isArray(state.list)) state.list=[];
     if(!state.catalog || typeof state.catalog!=="object") state.catalog={};
     if(!state.coBuy || typeof state.coBuy!=="object") state.coBuy={};
+    if(!state.meals || typeof state.meals!=="object") state.meals={};
     if(!Array.isArray(state.settings.categoryOrder)) state.settings.categoryOrder = DEFAULTS.settings.categoryOrder.slice();
     if(!Array.isArray(state.settings.customCategories)) state.settings.customCategories = [];
     if(!state.settings.customCatEmoji || typeof state.settings.customCatEmoji!=="object") state.settings.customCatEmoji = {};
@@ -875,6 +877,7 @@ function renderDueBanner(){
    ============================================================ */
 function renderVaste(){
   var wrap=$("#vaste-content"); wrap.innerHTML="";
+  renderBundlesSection(wrap);
   var rec=getRecurring();
   var due=rec.filter(function(r){return isDue(r.a);});
   var rest=rec.filter(function(r){return !isDue(r.a);});
@@ -894,6 +897,118 @@ function renderVaste(){
 }
 function sectionLabel(glyph,label,count){
   var s=el("div","section"); s.innerHTML='<span class="cat-emoji">'+glyph+'</span><span>'+label+'</span><span class="count">'+count+'</span>'; return s;
+}
+
+/* ============================================================
+   MAALTIJDEN / BUNDELS — een setje producten in één tik
+   Lokaal opgeslagen (state.meals); syncen optioneel via Supabase (Cloud.saveMeal).
+   Toevoegen werkt op elke actieve lijst (persoonlijk of gedeeld) via addToList.
+   ============================================================ */
+function mealList(){
+  var ms = state.meals || {};
+  return Object.keys(ms).map(function(k){ return ms[k]; })
+    .sort(function(a,b){ return (a.name||"").localeCompare(b.name||"","nl"); });
+}
+function addMeal(name, emoji, items){
+  name=(name||"").trim(); if(!name) return null;
+  var id="meal_"+uid();
+  state.meals = state.meals || {};
+  state.meals[id] = { id:id, name:name, emoji:emoji||"🍽️", items:items||[], updatedAt:nowISO() };
+  save();
+  if(typeof Cloud!=="undefined" && Cloud.saveMeal) Cloud.saveMeal(state.meals[id]);
+  return id;
+}
+function updateMeal(id, name, emoji, items){
+  var m = state.meals && state.meals[id]; if(!m) return;
+  if(name!=null) m.name=name; if(emoji) m.emoji=emoji; if(items) m.items=items;
+  m.updatedAt=nowISO(); save();
+  if(typeof Cloud!=="undefined" && Cloud.saveMeal) Cloud.saveMeal(m);
+}
+function deleteMeal(id){
+  if(!state.meals || !state.meals[id]) return;
+  delete state.meals[id]; save();
+  if(typeof Cloud!=="undefined" && Cloud.deleteMeal) Cloud.deleteMeal(id);
+}
+function addMealToList(id){
+  var m = state.meals && state.meals[id]; if(!m || !m.items || !m.items.length) return;
+  var n=0;
+  m.items.forEach(function(it){ if(addToList(it.name, null, {qty:it.qty||1, unit:it.unit||"", silent:true})) n++; });
+  vibe("tick");
+  switchTab("lijst");
+  toast(m.name+" toegevoegd · "+n+" "+(n===1?"product":"producten"));
+}
+function renderBundlesSection(wrap){
+  var meals = mealList();
+  var sec = el("div","section");
+  sec.innerHTML='<span class="cat-emoji emoji">🍽️</span><span>Bundels</span><span class="count">'+meals.length+'</span><span class="spacer"></span>';
+  var add = el("button","more-link","+ Nieuwe");
+  add.addEventListener("click", function(){ buildMealEditor(null); });
+  sec.appendChild(add);
+  wrap.appendChild(sec);
+  if(!meals.length){
+    wrap.appendChild(el("div","hint","Maak een bundel (bijv. “Pasta-avond”) en voeg 'm in één tik toe — ook aan een gedeelde lijst."));
+    return;
+  }
+  var ul=el("ul","list");
+  meals.forEach(function(m){ ul.appendChild(mealRow(m)); });
+  wrap.appendChild(ul);
+}
+function mealRow(m){
+  var n=(m.items||[]).length;
+  var li=el("li");
+  var div=el("div","vrow");
+  div.innerHTML=
+    '<div class="vemoji emoji">'+(m.emoji||"🍽️")+'</div>'+
+    '<div class="vmeta"><div class="vname"></div><div class="vcad">'+n+' '+(n===1?'product':'producten')+'</div></div>'+
+    '<button class="vadd" aria-label="Toevoegen aan lijst">+</button>';
+  div.querySelector(".vname").textContent=m.name;
+  div.querySelector(".vadd").addEventListener("click", function(e){ e.stopPropagation(); addMealToList(m.id); });
+  div.addEventListener("click", function(){ buildMealEditor(m.id); });
+  li.appendChild(div);
+  return li;
+}
+function buildMealEditor(id){
+  var m = (id && state.meals) ? state.meals[id] : null;
+  var picked = m ? (m.emoji||"🍽️") : "🍽️";
+  var sh=$("#sheet"); if(!sh) return;
+  var emojis = EMOJI_SET.map(function(em){
+    return '<button class="ep-cell'+(em===picked?" on":"")+'" data-em="'+em+'" type="button">'+em+'</button>';
+  }).join("");
+  var itemsText = m ? (m.items||[]).map(function(it){
+    return it.name + (it.unit?(" "+it.unit):(it.qty>1?(" x"+it.qty):""));
+  }).join("\n") : "";
+  sh.innerHTML = '<div class="grip"></div>'+
+    '<h3>'+(m?"Bundel bewerken":"Nieuwe bundel")+'</h3>'+
+    '<div class="sheet-label"><span class="lbl-cap">Naam</span></div>'+
+    '<div class="frow"><input class="txt" id="ml-name" placeholder="Bijv. Pasta-avond, Ontbijt, Weekend" autocapitalize="sentences" autocomplete="off" value="'+escapeAttr(m?m.name:"")+'"></div>'+
+    '<div class="sheet-label"><span class="lbl-cap">Pictogram</span><span class="lbl-hint">tik om te kiezen</span></div>'+
+    '<div class="emoji-picker" id="ml-emojis">'+emojis+'</div>'+
+    '<div class="sheet-label"><span class="lbl-cap">Producten</span><span class="lbl-hint">één per regel</span></div>'+
+    '<textarea class="io" id="ml-items" placeholder="Pasta&#10;Pastasaus&#10;Gehakt 500g&#10;Parmezaan" autocapitalize="sentences" autocomplete="off" spellcheck="false">'+escapeHtml(itemsText)+'</textarea>'+
+    '<div class="sheet-actions">'+
+      '<button class="save" id="ml-save">'+(m?"Opslaan":"Aanmaken")+'</button>'+
+      (m?'<button class="del" id="ml-del">Verwijder</button>':'<button class="del" id="ml-cancel">Annuleren</button>')+
+    '</div>';
+  $("#scrim").classList.add("show"); sh.classList.add("show"); document.body.classList.add("sheet-open"); bindSheetKeyboardScroll(sh);
+  setTimeout(function(){ var i=$("#ml-name"); if(i) i.focus(); }, 260);
+  sh.querySelectorAll("#ml-emojis .ep-cell").forEach(function(b){
+    b.addEventListener("click", function(){
+      sh.querySelectorAll("#ml-emojis .ep-cell").forEach(function(x){x.classList.remove("on");});
+      b.classList.add("on"); picked=b.dataset.em;
+    });
+  });
+  var cancel=$("#ml-cancel"); if(cancel) cancel.addEventListener("click", closeSheet);
+  var del=$("#ml-del"); if(del) del.addEventListener("click", function(){
+    if(confirm('Bundel "'+(m?m.name:"")+'" verwijderen?')){ deleteMeal(id); closeSheet(); renderVaste(); toast("Bundel verwijderd"); }
+  });
+  $("#ml-save").addEventListener("click", function(){
+    var nm=($("#ml-name").value||"").trim(); if(!nm){ toast("Geef de bundel een naam"); return; }
+    var lines=($("#ml-items").value||"").split(/\r?\n/).map(function(l){return l.trim();}).filter(Boolean);
+    var items=lines.map(function(line){ var p=parseQtyFromInput(line); return { name:p.name, qty:p.qty, unit:p.unit||"" }; })
+                   .filter(function(it){ return it.name; });
+    if(m){ updateMeal(id, nm, picked, items); } else { addMeal(nm, picked, items); }
+    closeSheet(); renderVaste(); toast(m?"Bundel opgeslagen":"Bundel aangemaakt");
+  });
 }
 function vasteRow(r){
   var c=CAT_BY_ID[r.e.category]||CAT_BY_ID["overig"];
@@ -1994,6 +2109,10 @@ if(typeof window!=="undefined"){
   window.touchCatalog = touchCatalog;
   window.removeFromList = removeFromList;
   window.runAutoAddDueItems = runAutoAddDueItems;
+  window.addMeal = addMeal;
+  window.addMealToList = addMealToList;
+  window.deleteMeal = deleteMeal;
+  window.mealList = mealList;
   if(typeof avatarHtml==="function") window.avatarHtml = avatarHtml;
 }
 if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",init);
