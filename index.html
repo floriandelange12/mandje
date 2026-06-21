@@ -2989,6 +2989,9 @@ var Cloud = {
             toast("Deze lijst is niet meer beschikbaar");
             self.openLocal();
             self.loadLists();
+          } else if(self.active === listId && typeof reRenderShareSheetIfOpen==="function"){
+            // Ledenlijst in een open deel-sheet live bijwerken (iemand joinde/verliet)
+            reRenderShareSheetIfOpen(listId);
           }
         });
       })
@@ -3013,7 +3016,22 @@ var Cloud = {
   },
   startPresence:function(){
     var self=this;
-    var beat=function(){ if(self.active&&self.userId) self.sb.from("members").update({last_seen:new Date().toISOString()}).eq("list_id",self.active).eq("user_id",self.userId).then(function(){},function(){}); };
+    // De heartbeat dient óók als vangnet: een verwijderde lijst ruimt via FK-cascade
+    // de ledenrij op zónder realtime-event. De update raakt dan 0 rijen → we vallen terug.
+    var beat=function(){
+      if(!self.active || !self.userId) return;
+      var listId=self.active;
+      self.sb.from("members").update({last_seen:new Date().toISOString()})
+        .eq("list_id",listId).eq("user_id",self.userId).select()
+        .then(function(r){
+          if(!r || r.error) return; // netwerk-/permissie-ruis → niet terugvallen (herstel volgt bij herladen)
+          if(self.active===listId && Array.isArray(r.data) && r.data.length===0){
+            toast("Deze lijst is niet meer beschikbaar");
+            self.openLocal();
+            self.loadLists();
+          }
+        }, function(){ /* netwerkfout → niets doen */ });
+    };
     beat(); if(this.presenceTimer) clearInterval(this.presenceTimer);
     this.presenceTimer=setInterval(beat,60000);
   },
@@ -3045,12 +3063,15 @@ var Cloud = {
     this._pending=this._pending.filter(function(e){ return e.id!==id && e.tmpId!==id; }); // eerdere ops vervallen
     if(!this._isTmp(id)) this._pending.push({op:"delete", id:id});
   },
+  _maxFlushAttempts:6,
   flushPending:function(){
     if(!this.sb || !this._pending.length) return;
     var self=this, batch=this._pending.splice(0), toasted=false;
     var note=function(){ if(!toasted){ toasted=true; if(typeof toast==="function") toast("Offline wijzigingen verstuurd"); } };
     batch.forEach(function(e){
-      var requeue=function(){ self._pending.push(e); };
+      // Definitief falende acties (bv. bewerken in een lijst waar je uit verwijderd bent)
+      // niet eindeloos herproberen: na _maxFlushAttempts laten vallen (realtime reconcilieert tóch).
+      var requeue=function(){ e.attempts=(e.attempts||0)+1; if(e.attempts < self._maxFlushAttempts) self._pending.push(e); };
       var done=function(r){ if(r&&r.error) requeue(); else note(); };
       try{
         if(e.op==="insert"){ if(e.payload.list_id!==self.active){ return; } self.sb.from("items").insert(e.payload).then(done, requeue); }
@@ -3840,6 +3861,15 @@ function relativeTime(iso){
   try{ return new Date(iso).toLocaleDateString("nl-NL",{day:"numeric",month:"short"}); }catch(e){ return ""; }
 }
 
+/* Werk een geopende deel-sheet live bij (iemand joinde/verliet), maar niet midden in
+   een inline-hernoem — dan zou je de getypte naam kwijtraken. */
+function reRenderShareSheetIfOpen(listId){
+  var s2=document.getElementById("sheet2");
+  if(!s2 || !s2.classList.contains("show")) return;
+  if(!s2.querySelector("#sh-invite")) return;       // is dit wel de deel-sheet?
+  if(s2.querySelector("#sh-rename-input")) return;  // niet herrenderen tijdens hernoemen
+  openShareSheet(listId);
+}
 function openShareSheet(listId){
   var l=Cloud.listById(listId); if(!l) return;
   var isOwner = (l.owner_user_id === Cloud.userId);
