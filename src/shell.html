@@ -449,6 +449,11 @@
   .search-empty{ text-align:center; padding:34px 20px 12px; color:var(--ink-soft); font-size:15px; line-height:1.5; }
   .send-screen .ss-added{ margin-top:18px; }
   .send-screen .ss-added .chip{ margin:0 8px 8px 0; }
+  /* Barcode-scanner camera-container (html5-qrcode rendert hierin) */
+  #bc-reader{ width:100%; max-width:360px; aspect-ratio:3/4; margin:6px auto 0; border-radius:18px; overflow:hidden; background:#000; position:relative; }
+  #bc-reader video{ width:100%!important; height:100%!important; object-fit:cover; display:block; }
+  #bc-reader img{ display:none; } /* html5-qrcode info-icoon verbergen */
+  .bc-status{ text-align:center; color:var(--ink-soft); font-size:14px; margin:14px 0 2px; min-height:18px; }
 
   /* ---------- Uniforme emoji-rendering ---------- */
   .emoji{ font-family:"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif; font-style:normal; font-weight:400; line-height:1; vertical-align:-1px; }
@@ -614,7 +619,7 @@
   window.MANDJE_CONFIG = {
     SUPABASE_URL:      "https://yctcpxgjpmhyohbsrygy.supabase.co",   /* ingevuld ✓ */
     SUPABASE_ANON_KEY: "sb_publishable_lT77Nkcrl6VsBIx-PFuMtw_mdJ6fyNj",   /* ingevuld ✓ (publishable key) */
-    BUILD:             "2026-06-21.4", /* alleen onderaan Meer-tab zichtbaar — handig om cache-versie te verifiëren */
+    BUILD:             "2026-06-21.5", /* alleen onderaan Meer-tab zichtbaar — handig om cache-versie te verifiëren */
     EMAIL_AUTH:        false  /* zet op true zodra e-mail magic-link aan staat in Supabase → toont "Beveilig je account" */
   };
 </script>
@@ -641,6 +646,7 @@
         <div class="field">
           <svg class="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
           <input class="name" id="add-name" type="search" inputmode="text" placeholder="Wat heb je nodig?  ·  bijv. melk 2" enterkeyhint="done" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+          <button class="addbtn-bulk" id="scan-btn" type="button" aria-label="Scan een barcode"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 7v10M11 7v10M15 7v10"/></svg></button>
           <button class="addbtn-bulk" id="voice-btn" type="button" aria-label="Inspreken" style="display:none"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><path d="M12 18v4"/></svg></button>
           <button class="addbtn" id="add-btn" aria-label="Toevoegen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
         </div>
@@ -711,6 +717,9 @@
 
   <!-- Publieke stuur-pagina -->
   <div class="send-screen" id="send-screen"></div>
+
+  <!-- Barcode-scanner (camera-overlay) -->
+  <div class="send-screen" id="barcode-screen"></div>
 
   <!-- Pull-to-refresh -->
   <div class="ptr" id="ptr" aria-hidden="true">

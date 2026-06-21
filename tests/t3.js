@@ -317,6 +317,11 @@ const ok=(n,c)=>{ if(c){pass++;console.log("  ✓ "+n);} else {fail++;console.lo
   const st22=JSON.parse(W22.localStorage.getItem("mandje.v2"));
   ok("Bundel persistent in state.meals", st22.meals && Object.keys(st22.meals).length===1);
   ok("Eenheid in bundel-item bewaard", st22.list.some(i=>i.name==="Gehakt" && i.unit==="500 g"));
+  // Barcode: OFF-categorie-mapping (pure functie) + scan-knop aanwezig
+  ok("mapOFFCategory en:dairy → zuivel-eieren", W22.mapOFFCategory(["en:dairy"])==="zuivel-eieren");
+  ok("mapOFFCategory nl:groenten → groente-fruit", W22.mapOFFCategory(["en:plant-based-foods","nl:groenten"])==="groente-fruit");
+  ok("mapOFFCategory onbekend → null", W22.mapOFFCategory(["en:xyz-unknown"])===null);
+  ok("Scan-knop aanwezig in add-balk", !!doc22.querySelector(".field #scan-btn"));
   dom22.window.close();
 
   console.log("\nt3: "+pass+" geslaagd, "+fail+" gefaald");

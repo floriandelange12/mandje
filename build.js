@@ -32,6 +32,10 @@ const supabaseSdk = fs.existsSync(supabaseSdkPath) ? read("assets/supabase.js") 
 const sdkScript = supabaseSdk ? "<script>\n" + supabaseSdk + "\n</script>\n" : "";
 if (!supabaseSdk) console.warn("! assets/supabase.js niet gevonden — Cloud valt terug op runtime CDN-fetch");
 
+// Barcode-decoder (html5-qrcode) wordt lazy van CDN geladen bij de eerste scan
+// (zie loadBarcodeDecoder in app.js) — niet ingebakken: de Open Food Facts-lookup
+// vereist tóch internet, dus offline cachen van de decoder heeft geen nut.
+
 // shell vullen
 let html = read("src/shell.html").replace("<!-- __SCRIPT__ -->", sdkScript + "<script>\n" + combined + "\n</script>");
 html = html.replace("__ICON180__", icons.ICON180)

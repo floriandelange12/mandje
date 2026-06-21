@@ -1934,6 +1934,150 @@ function setupVoiceInput(){
   });
 }
 
+/* ============================================================
+   BARCODE-SCANNEN — camera (html5-qrcode, ingebakken) + Open Food Facts
+   Lage NL-dekking → handmatig typen blijft de hoofdweg; scannen is een versneller.
+   ============================================================ */
+var OFF_CAT_MAP = {
+  "dairy":"zuivel-eieren","milk":"zuivel-eieren","milks":"zuivel-eieren","eggs":"zuivel-eieren","yogurts":"zuivel-eieren","butters":"zuivel-eieren","creams":"zuivel-eieren","zuivel":"zuivel-eieren","eieren":"zuivel-eieren",
+  "cheeses":"kaas-vleeswaren","cheese":"kaas-vleeswaren","charcuterie":"kaas-vleeswaren","hams":"kaas-vleeswaren","kaas":"kaas-vleeswaren",
+  "fruits":"groente-fruit","vegetables":"groente-fruit","fruits-and-vegetables":"groente-fruit","legumes":"groente-fruit","groenten":"groente-fruit","fruit":"groente-fruit",
+  "breads":"brood-banket","bread":"brood-banket","pastries":"brood-banket","brood":"brood-banket",
+  "breakfast-cereals":"ontbijt-beleg","cereals":"ontbijt-beleg","spreads":"ontbijt-beleg","jams":"ontbijt-beleg","honeys":"ontbijt-beleg","breakfasts":"ontbijt-beleg",
+  "snacks":"snoep-snacks","sweet-snacks":"snoep-snacks","salty-snacks":"snoep-snacks","chocolates":"snoep-snacks","biscuits":"snoep-snacks","candies":"snoep-snacks","chips-and-fries":"snoep-snacks","snoep":"snoep-snacks",
+  "meats":"vlees-vis","meat":"vlees-vis","poultry":"vlees-vis","fishes":"vlees-vis","seafood":"vlees-vis","fish":"vlees-vis","vlees":"vlees-vis",
+  "frozen-foods":"diepvries","frozen":"diepvries","ice-creams":"diepvries","diepvries":"diepvries",
+  "beverages":"dranken","waters":"dranken","sodas":"dranken","juices":"dranken","teas":"dranken","coffees":"dranken","alcoholic-beverages":"dranken","beers":"dranken","wines":"dranken","dranken":"dranken",
+  "pastas":"houdbaar","rice":"houdbaar","canned-foods":"houdbaar","condiments":"houdbaar","sauces":"houdbaar","groceries":"houdbaar","houdbaar":"houdbaar",
+  "baby-foods":"baby-kind","baby":"baby-kind","hygiene":"verzorging","beauty":"verzorging","cosmetics":"verzorging","household":"huishouden","cleaning":"huishouden"
+};
+function mapOFFCategory(tags){
+  if(!Array.isArray(tags)) return null;
+  for(var i=tags.length-1;i>=0;i--){               // meest-specifieke tag staat achteraan
+    var seg = String(tags[i]).split(":").pop();
+    if(OFF_CAT_MAP[seg]) return OFF_CAT_MAP[seg];
+  }
+  return null;
+}
+function barcodeCacheGet(ean){
+  try{ var c=JSON.parse(localStorage.getItem("mandje.barcodecache")||"{}"); var e=c[ean]; if(e && (Date.now()-e.ts)<86400000) return e; }catch(x){}
+  return null;
+}
+function barcodeCacheSet(ean, data){
+  try{ var c=JSON.parse(localStorage.getItem("mandje.barcodecache")||"{}"); c[ean]=Object.assign({ts:Date.now()}, data); localStorage.setItem("mandje.barcodecache", JSON.stringify(c)); }catch(x){}
+}
+/* EAN-13 → productnaam + schap via Open Food Facts (gratis, geen key). 24u gecachet. */
+function lookupBarcode(ean){
+  var cached = barcodeCacheGet(ean);
+  if(cached) return Promise.resolve(cached);
+  var url = "https://world.openfoodfacts.org/api/v2/product/"+encodeURIComponent(ean)+".json?fields=product_name,product_name_nl,brands,categories_tags";
+  return fetch(url, {headers:{"Accept":"application/json"}}).then(function(r){ return r.json(); }).then(function(j){
+    if(!j || j.status!==1 || !j.product){ var miss={ean:ean, found:false}; barcodeCacheSet(ean, miss); return miss; }
+    var p=j.product;
+    var name=(p.product_name_nl || p.product_name || "").trim();
+    if(!name){ var m2={ean:ean, found:false}; barcodeCacheSet(ean, m2); return m2; }
+    var data={ean:ean, found:true, name:name, cat:(mapOFFCategory(p.categories_tags)||classify(name))};
+    barcodeCacheSet(ean, data); return data;
+  }).catch(function(){ return {ean:ean, found:false, error:true}; });
+}
+
+var _bcScanner=null, _bcRunning=false, _bcLastEan="", _bcLastAt=0;
+function bcStatus(msg){ var s=$("#bc-status"); if(s) s.textContent=msg||""; }
+function openBarcodeScanScreen(){
+  var scr=$("#barcode-screen"); if(!scr) return;
+  scr.innerHTML =
+    '<div class="ss-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 7v10M11 7v10M15 7v10"/></svg></div>'+
+    '<div class="eyebrow">Scan een product</div>'+
+    '<h1>Richt op de streepjescode</h1>'+
+    '<div class="ss-sub">Niet gevonden? Typ de naam gewoon zelf.</div>'+
+    '<div id="bc-reader"></div>'+
+    '<div class="bc-status" id="bc-status"></div>'+
+    '<div class="field" style="margin-top:8px"><svg class="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>'+
+      '<input class="name" id="bc-manual-input" type="search" placeholder="…of typ een product" enterkeyhint="done" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">'+
+      '<button class="addbtn" id="bc-manual-add" aria-label="Toevoegen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>'+
+    '</div>'+
+    '<button class="mbtn" id="bc-close" style="margin-top:18px">Sluiten</button>';
+  scr.classList.add("show");
+  var close=$("#bc-close"); if(close) close.addEventListener("click", closeBarcodeScanScreen);
+  var mi=$("#bc-manual-input"), ma=$("#bc-manual-add");
+  var manualAdd=function(){ var v=(mi.value||"").trim(); if(!v) return; var p=parseQtyFromInput(v); addToList(p.name, null, {qty:p.qty, unit:p.unit}); toast(p.name+" toegevoegd"); closeBarcodeScanScreen(); };
+  if(ma) ma.addEventListener("click", manualAdd);
+  if(mi) mi.addEventListener("keydown", function(e){ if(e.key==="Enter") manualAdd(); });
+  startBarcodeScanner();
+}
+/* Decoder lazy van CDN (met fallback). Niet ingebakken: scannen heeft tóch internet
+   nodig voor de Open Food Facts-lookup, dus offline cachen heeft geen nut. */
+var _bcLibPromise=null;
+function loadBarcodeDecoder(){
+  if(window.Html5Qrcode) return Promise.resolve(true);
+  if(_bcLibPromise) return _bcLibPromise;
+  var urls=[
+    "https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js",
+    "https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"
+  ];
+  _bcLibPromise = new Promise(function(resolve){
+    var i=0;
+    (function tryNext(){
+      if(window.Html5Qrcode){ resolve(true); return; }
+      if(i>=urls.length){ resolve(false); return; }
+      var s=document.createElement("script"); s.src=urls[i++]; s.async=true;
+      s.onload=function(){ resolve(!!window.Html5Qrcode); };
+      s.onerror=tryNext;
+      document.head.appendChild(s);
+    })();
+  });
+  return _bcLibPromise;
+}
+function startBarcodeScanner(){
+  bcStatus("Scanner laden…");
+  loadBarcodeDecoder().then(function(ok){
+    if(!ok || !window.Html5Qrcode){ bcStatus("Scanner niet beschikbaar — typ de naam"); return; }
+    if(!$("#barcode-screen").classList.contains("show")) return; // gebruiker sloot al
+    bcStatus("Camera starten…");
+    try{
+      _bcScanner = new window.Html5Qrcode("bc-reader", { verbose:false });
+      var F = window.Html5QrcodeSupportedFormats;
+      var config = { fps:10, qrbox:{width:240,height:150} };
+      if(F) config.formatsToSupport = [F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E];
+      _bcScanner.start({facingMode:"environment"}, config, onBarcodeDecoded, function(){})
+        .then(function(){ _bcRunning=true; bcStatus(""); })
+        .catch(function(){ bcStatus("Kan de camera niet openen — typ de naam"); });
+    }catch(e){ bcStatus("Scanner niet beschikbaar — typ de naam"); }
+  });
+}
+function stopBarcodeScanner(){
+  if(_bcScanner && _bcRunning){ try{ _bcScanner.stop().then(function(){ try{ _bcScanner.clear(); }catch(x){} }, function(){}); }catch(e){} }
+  _bcRunning=false;
+}
+function closeBarcodeScanScreen(){
+  stopBarcodeScanner();
+  var scr=$("#barcode-screen"); if(scr) scr.classList.remove("show");
+}
+function onBarcodeDecoded(text){
+  var ean=(text||"").trim(); if(!ean) return;
+  // ontdubbel: zelfde code binnen 3s niet opnieuw
+  if(ean===_bcLastEan && (Date.now()-_bcLastAt)<3000) return;
+  _bcLastEan=ean; _bcLastAt=Date.now();
+  vibe("tick");
+  bcStatus("Opzoeken…");
+  lookupBarcode(ean).then(function(d){
+    if(d.found){
+      addToList(d.name, null, {qty:1});
+      closeBarcodeScanScreen();
+      toast(d.name+" toegevoegd");
+    } else {
+      bcStatus("Niet gevonden — typ de naam");
+      var mi=$("#bc-manual-input"); if(mi) mi.focus();
+    }
+  });
+}
+function setupBarcode(){
+  var btn=$("#scan-btn"); if(!btn) return;
+  // Camera vereist getUserMedia; anders knop verbergen
+  if(!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)){ btn.style.display="none"; return; }
+  btn.addEventListener("click", function(e){ e.stopPropagation(); openBarcodeScanScreen(); });
+}
+
 /* Service worker: instant laden + offline-installeerbaar. Bij een nieuwe build wacht de
    nieuwe SW; we tonen dan een niet-opdringerige toast i.p.v. hard te herladen. */
 function setupServiceWorker(){
@@ -2082,6 +2226,7 @@ function init(){
   setupRipples();
   setupServiceWorker();
   setupVoiceInput();
+  setupBarcode();
   // Swipe-down-to-close op beide sheets (1× binden — containers zijn persistent)
   attachSheetDismiss($("#sheet"), closeSheet);
   if(typeof closeSheet2==="function") attachSheetDismiss($("#sheet2"), closeSheet2);
@@ -2150,6 +2295,8 @@ if(typeof window!=="undefined"){
   window.addMealToList = addMealToList;
   window.deleteMeal = deleteMeal;
   window.mealList = mealList;
+  window.mapOFFCategory = mapOFFCategory;
+  window.lookupBarcode = lookupBarcode;
   if(typeof avatarHtml==="function") window.avatarHtml = avatarHtml;
 }
 if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",init);
