@@ -771,6 +771,7 @@ function renderLijst(){
   doneWrap.appendChild(doneFrag);
   updateTotals();
   updateSubhead();
+  renderShopEntry();
 }
 
 function itemRow(it){
@@ -925,6 +926,80 @@ function renderDueBanner(){
   }
   b.appendChild(chips);
   wrap.appendChild(b);
+}
+
+/* ============================================================
+   WINKELMODUS — focus-scherm voor in de winkel
+   Los overlay (#shop-screen): grote tikdoelen, schap-volgorde, voortgang.
+   Raakt de normale lijst-render niet; deelt state + toggle/finish.
+   ============================================================ */
+function renderShopEntry(){
+  var wrap=$("#shop-entry"); if(!wrap) return;
+  var open=state.list.filter(function(i){return !i.done;}).length;
+  if(activeTab!=="lijst" || open<1){ wrap.innerHTML=""; return; }
+  wrap.innerHTML="";
+  var b=el("button","shop-enter-btn",
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.7 13.4a2 2 0 0 0 2 1.6h9.7a2 2 0 0 0 2-1.6L23 6H6"/></svg>'+
+    '<span>Winkelen</span><span class="shop-enter-count">'+open+'</span>');
+  b.addEventListener("click", openShoppingMode);
+  wrap.appendChild(b);
+}
+function openShoppingMode(){
+  var scr=$("#shop-screen"); if(!scr) return;
+  scr.classList.add("show");
+  renderShoppingMode();
+}
+function closeShoppingMode(){
+  var scr=$("#shop-screen"); if(scr) scr.classList.remove("show");
+}
+function shopRow(it){
+  var row=el("button","shop-row"+(it.done?" done":"")); row.type="button";
+  row.innerHTML='<span class="shop-check">'+CHECK_SVG+'</span><span class="shop-name"></span>'+(it.qty>1?'<span class="shop-qty">'+it.qty+'</span>':'');
+  row.querySelector(".shop-name").textContent=it.name;
+  row.addEventListener("click", function(){ shopToggle(it.id); });
+  return row;
+}
+function shopToggle(id){
+  var it=state.list.find(function(i){return i.id===id;}); if(!it) return;
+  if(typeof Cloud!=="undefined" && Cloud.active){ Cloud.toggle(id); }
+  else { it.done=!it.done; if(it.done) vibe("tick"); save(); renderLijst(); }
+  renderShoppingMode();
+}
+function renderShoppingMode(){
+  var scr=$("#shop-screen"); if(!scr || !scr.classList.contains("show")) return;
+  var open=state.list.filter(function(i){return !i.done;});
+  var done=state.list.filter(function(i){return i.done;});
+  var total=state.list.length;
+  var pct = total ? Math.round(done.length/total*100) : 0;
+  scr.innerHTML =
+    '<div class="shop-head">'+
+      '<button class="shop-close" id="shop-close" type="button" aria-label="Sluiten">'+CLOSE_SVG+'</button>'+
+      '<div class="shop-title">Winkelen</div>'+
+      '<div class="shop-count">'+done.length+' / '+total+'</div>'+
+    '</div>'+
+    '<div class="shop-pbar"><i style="width:'+pct+'%"></i></div>'+
+    '<div class="shop-body" id="shop-body"></div>';
+  var body=scr.querySelector("#shop-body");
+  if(!total){ body.innerHTML='<div class="shop-empty">Niks op je lijst — voeg eerst iets toe.</div>'; }
+  var byCat={}; open.forEach(function(it){ (byCat[it.category]=byCat[it.category]||[]).push(it); });
+  state.settings.categoryOrder.forEach(function(cid){
+    var arr=byCat[cid]; if(!arr||!arr.length) return;
+    var c=CAT_BY_ID[cid]||CAT_BY_ID["overig"];
+    body.appendChild(el("div","shop-sec",'<span class="cat-emoji emoji">'+c.glyph+'</span><span>'+escapeHtml(c.label)+'</span>'));
+    arr.forEach(function(it){ body.appendChild(shopRow(it)); });
+  });
+  if(done.length){
+    body.appendChild(el("div","shop-sec done-sec",'<span>In mandje</span>'));
+    done.forEach(function(it){ body.appendChild(shopRow(it)); });
+    var fin=el("button","shop-finish","Afronden ✓");
+    fin.addEventListener("click", function(){
+      finishShopping();
+      if(state.list.filter(function(i){return !i.done;}).length===0) closeShoppingMode();
+      else renderShoppingMode();
+    });
+    body.appendChild(fin);
+  }
+  scr.querySelector("#shop-close").addEventListener("click", closeShoppingMode);
 }
 
 /* ============================================================
@@ -1128,9 +1203,11 @@ function renderMeer(){
       remRow.innerHTML='<div><div class="glabel">Herinneringen</div><div class="gsub">Een melding wanneer je vaste boodschappen waarschijnlijk op zijn.</div></div>';
       var onP = (typeof Notification!=="undefined" && Notification.permission==="granted");
       var rsw=el("button","switch"+(onP?" on":""));
+      rsw.setAttribute("aria-label","Herinneringen aan of uit");
+      rsw.setAttribute("aria-pressed", onP?"true":"false");
       rsw.addEventListener("click", function(){
-        if(rsw.classList.contains("on")){ Cloud.unsubscribePush(); rsw.classList.remove("on"); toast("Herinneringen uit"); }
-        else { Cloud.subscribeToPush().then(function(ok){ if(ok){ rsw.classList.add("on"); toast("Herinneringen aan ✓"); } else { toast("Toestemming geweigerd"); } }); }
+        if(rsw.classList.contains("on")){ Cloud.unsubscribePush(); rsw.classList.remove("on"); rsw.setAttribute("aria-pressed","false"); toast("Herinneringen uit"); }
+        else { Cloud.subscribeToPush().then(function(ok){ if(ok){ rsw.classList.add("on"); rsw.setAttribute("aria-pressed","true"); toast("Herinneringen aan ✓"); } else { toast("Toestemming geweigerd"); } }); }
       });
       remRow.appendChild(rsw);
       gP.appendChild(remRow);
@@ -1982,7 +2059,13 @@ function setupVoiceInput(){
   var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   var standalone = (navigator.standalone === true) || (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches);
   var isIOS = /iP(hone|ad|od)/.test(navigator.platform||navigator.userAgent||"") || (/Mac/.test(navigator.platform||"") && navigator.maxTouchPoints>1);
-  if(!SR || (isIOS && standalone)){ btn.style.display="none"; return; }
+  if(!SR){ btn.style.display="none"; return; }   // echt geen support → verbergen
+  if(isIOS && standalone){
+    // Web Speech werkt niet in een geïnstalleerde iOS-PWA → knop tonen met uitleg i.p.v. stil verbergen
+    btn.style.display="";
+    btn.addEventListener("click", function(e){ e.stopPropagation(); toast("Inspreken werkt op Android & desktop, niet in de iOS-app — typ of scan hier."); });
+    return;
+  }
   btn.style.display="";
   var rec=null, listening=false;
   btn.addEventListener("click", function(e){
@@ -2059,7 +2142,14 @@ function lookupBarcode(ean){
 }
 
 var _bcScanner=null, _bcRunning=false, _bcLastEan="", _bcLastAt=0;
-function bcStatus(msg){ var s=$("#bc-status"); if(s) s.textContent=msg||""; }
+var _bcStatusLast="", _bcStatusAt=0;
+function bcStatus(msg){
+  var s=$("#bc-status"); if(!s) return;
+  var now=(Date.now?Date.now():0);
+  if(msg===_bcStatusLast && (now-_bcStatusAt)<2000) return;  // debounce: geen aria-live-spam
+  _bcStatusLast=msg||""; _bcStatusAt=now;
+  s.textContent=msg||"";
+}
 function openBarcodeScanScreen(){
   var scr=$("#barcode-screen"); if(!scr) return;
   scr.innerHTML =
@@ -2068,7 +2158,7 @@ function openBarcodeScanScreen(){
     '<h1>Richt op de streepjescode</h1>'+
     '<div class="ss-sub">Niet gevonden? Typ de naam gewoon zelf.</div>'+
     '<div id="bc-reader"></div>'+
-    '<div class="bc-status" id="bc-status"></div>'+
+    '<div class="bc-status" id="bc-status" role="status" aria-live="polite" aria-atomic="true"></div>'+
     '<div class="field" style="margin-top:8px"><svg class="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>'+
       '<input class="name" id="bc-manual-input" type="search" placeholder="…of typ een product" enterkeyhint="done" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">'+
       '<button class="addbtn" id="bc-manual-add" aria-label="Toevoegen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>'+
@@ -2378,6 +2468,8 @@ if(typeof window!=="undefined"){
   window.mealList = mealList;
   window.mapOFFCategory = mapOFFCategory;
   window.lookupBarcode = lookupBarcode;
+  window.openShoppingMode = openShoppingMode;
+  window.shopToggle = shopToggle;
   if(typeof avatarHtml==="function") window.avatarHtml = avatarHtml;
 }
 if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",init);

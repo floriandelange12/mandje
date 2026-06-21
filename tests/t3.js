@@ -324,6 +324,21 @@ const ok=(n,c)=>{ if(c){pass++;console.log("  ✓ "+n);} else {fail++;console.lo
   ok("Scan-knop aanwezig in add-balk", !!doc22.querySelector(".field #scan-btn"));
   dom22.window.close();
 
+  // 27. Winkelmodus: opent, toont rijen per schap, afvinken + voortgang
+  const dom23=new JSDOM(html,{url:"https://example.com/",runScripts:"dangerously",resources:"usable",pretendToBeVisual:true});
+  await wait(150); const W23=dom23.window; const doc23=dom23.window.document;
+  ["Melk","Brood","Appels"].forEach(function(n){ doc23.querySelector("#add-name").value=n; doc23.querySelector("#add-name").dispatchEvent(new W23.KeyboardEvent("keydown",{key:"Enter",bubbles:true})); });
+  await wait(40);
+  ok("Winkelmodus: instap-knop aanwezig", !!doc23.querySelector("#shop-entry .shop-enter-btn"));
+  W23.openShoppingMode(); await wait(30);
+  ok("Winkelmodus: scherm open", doc23.querySelector("#shop-screen").classList.contains("show"));
+  ok("Winkelmodus: 3 rijen", doc23.querySelectorAll("#shop-screen .shop-row").length===3);
+  const firstId = JSON.parse(W23.localStorage.getItem("mandje.v2")).list.find(i=>!i.done).id;
+  W23.shopToggle(firstId); await wait(30);
+  ok("Winkelmodus: afvinken werkt", JSON.parse(W23.localStorage.getItem("mandje.v2")).list.filter(i=>i.done).length===1);
+  ok("Winkelmodus: voortgang 1 / 3", /1 \/ 3/.test(doc23.querySelector("#shop-screen .shop-count").textContent));
+  dom23.window.close();
+
   console.log("\nt3: "+pass+" geslaagd, "+fail+" gefaald");
   process.exit(fail?1:0);
 })().catch(e=>{console.error("t3 TESTFOUT:",e);process.exit(2)});

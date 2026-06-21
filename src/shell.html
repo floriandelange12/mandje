@@ -455,6 +455,41 @@
   #bc-reader img{ display:none; } /* html5-qrcode info-icoon verbergen */
   .bc-status{ text-align:center; color:var(--ink-soft); font-size:14px; margin:14px 0 2px; min-height:18px; }
 
+  /* ---------- Winkelmodus (in-store focus) ---------- */
+  #shop-entry:empty{ display:none; }
+  .shop-enter-btn{ display:flex; align-items:center; justify-content:center; gap:10px; width:100%; background:var(--green); color:var(--on-green); border:0; border-radius:16px; padding:14px; font-size:16px; font-weight:700; box-shadow:var(--shadow-sm); margin:2px 0 14px; transition:transform .12s var(--ease), filter .12s ease; }
+  .shop-enter-btn:active{ transform:scale(.97); filter:brightness(.95); }
+  .shop-enter-btn svg{ width:20px; height:20px; }
+  .shop-enter-btn .shop-enter-count{ background:rgba(255,255,255,.22); padding:1px 9px; border-radius:99px; font-size:14px; font-variant-numeric:tabular-nums; }
+
+  .shop-screen{ position:absolute; inset:0; z-index:80; background:var(--bg); display:none; flex-direction:column; padding:calc(var(--safe-t) + 12px) max(16px,env(safe-area-inset-left)) calc(var(--safe-b) + 12px) max(16px,env(safe-area-inset-right)); }
+  .shop-screen.show{ display:flex; animation:viewSlideIn .22s var(--ease); }
+  .shop-head{ display:flex; align-items:center; gap:12px; margin-bottom:10px; }
+  .shop-head .shop-close{ flex:0 0 auto; width:40px; height:40px; border:0; background:var(--surface-3); color:var(--ink); border-radius:50%; display:flex; align-items:center; justify-content:center; }
+  .shop-head .shop-close svg{ width:20px; height:20px; }
+  .shop-head .shop-title{ flex:1; font-family:var(--display); font-size:24px; font-weight:600; letter-spacing:-.01em; }
+  .shop-head .shop-count{ flex:0 0 auto; font-size:15px; font-weight:700; color:var(--ink-soft); font-variant-numeric:tabular-nums; }
+  .shop-pbar{ height:6px; border-radius:99px; background:var(--surface-3); overflow:hidden; margin:0 0 12px; }
+  .shop-pbar > i{ display:block; height:100%; background:var(--green); border-radius:99px; transition:width .35s var(--ease); }
+  .shop-body{ flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch; }
+  .shop-body::-webkit-scrollbar{ display:none; }
+  .shop-sec{ font-size:13px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:var(--ink-soft); margin:16px 4px 8px; display:flex; align-items:center; gap:8px; }
+  .shop-sec .emoji{ font-size:15px; }
+  .shop-sec.done-sec{ color:var(--green); }
+  .shop-row{ display:flex; align-items:center; gap:14px; width:100%; text-align:left; background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:16px; margin-bottom:8px; box-shadow:var(--shadow-sm); transition:transform .12s var(--ease), background .15s ease; }
+  .shop-row:active{ transform:scale(.99); background:var(--surface-3); }
+  .shop-row .shop-check{ flex:0 0 auto; width:30px; height:30px; border-radius:50%; border:2px solid var(--line-strong); display:flex; align-items:center; justify-content:center; }
+  .shop-row .shop-check svg{ width:18px; height:18px; opacity:0; }
+  .shop-row.done{ background:var(--surface-2); }
+  .shop-row.done .shop-check{ background:var(--green); border-color:var(--green); }
+  .shop-row.done .shop-check svg{ opacity:1; }
+  .shop-row .shop-name{ flex:1; min-width:0; font-size:18px; font-weight:600; letter-spacing:-.01em; }
+  .shop-row.done .shop-name{ color:var(--ink-faint); text-decoration:line-through; }
+  .shop-row .shop-qty{ flex:0 0 auto; font-size:15px; font-weight:700; color:var(--ink-soft); background:var(--surface-3); border-radius:10px; padding:3px 10px; min-width:30px; text-align:center; font-variant-numeric:tabular-nums; }
+  .shop-finish{ width:100%; border:0; background:var(--green); color:var(--on-green); font-weight:700; font-size:17px; padding:16px; border-radius:16px; box-shadow:var(--shadow-sm); margin:18px 0 8px; }
+  .shop-finish:active{ filter:brightness(.94); }
+  .shop-empty{ text-align:center; color:var(--ink-soft); padding:48px 20px; }
+
   /* ---------- Uniforme emoji-rendering ---------- */
   .emoji{ font-family:"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif; font-style:normal; font-weight:400; line-height:1; vertical-align:-1px; }
 
@@ -619,7 +654,7 @@
   window.MANDJE_CONFIG = {
     SUPABASE_URL:      "https://yctcpxgjpmhyohbsrygy.supabase.co",   /* ingevuld ✓ */
     SUPABASE_ANON_KEY: "sb_publishable_lT77Nkcrl6VsBIx-PFuMtw_mdJ6fyNj",   /* ingevuld ✓ (publishable key) */
-    BUILD:             "2026-06-21.8", /* alleen onderaan Meer-tab zichtbaar — handig om cache-versie te verifiëren */
+    BUILD:             "2026-06-21.9", /* alleen onderaan Meer-tab zichtbaar — handig om cache-versie te verifiëren */
     EMAIL_AUTH:        false, /* zet op true zodra e-mail magic-link aan staat in Supabase → toont "Beveilig je account" */
     VAPID_PUBLIC_KEY:  "BIkVm3JYB2t37GOXQlMTwSRipLcEvjrDY8Kb2mmNOIIrRY4zmR57RznHTJ2NQ5Z9h1fkp3if2OkDGmcmItLjy54"  /* public key (veilig in frontend). Privésleutel staat alleen als Supabase-secret. */
   };
@@ -664,6 +699,7 @@
       <div class="members-row empty" id="members-row"></div>
       <div class="presence-bar empty" id="presence-bar"></div>
       <div id="due-banner"></div>
+      <div id="shop-entry"></div>
       <div id="open-list"></div>
       <div id="done-list"></div>
       <!-- "Vergeten?"-suggesties — los van de prijzen-totaalbalk zodat ze ook zonder prijzen verschijnen -->
@@ -722,12 +758,15 @@
   <!-- Barcode-scanner (camera-overlay) -->
   <div class="send-screen" id="barcode-screen"></div>
 
+  <!-- Winkelmodus (focus-scherm voor in de winkel) -->
+  <div class="shop-screen" id="shop-screen"></div>
+
   <!-- Pull-to-refresh -->
   <div class="ptr" id="ptr" aria-hidden="true">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15-6.7l3-2.3"/><path d="M21 6v-3M21 3h-3"/><path d="M21 12a9 9 0 0 1-15 6.7l-3 2.3"/></svg>
   </div>
 
-  <div class="toast" id="toast"></div>
+  <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 </div>
 <!-- __SCRIPT__ -->
 </body>

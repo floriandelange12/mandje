@@ -332,6 +332,7 @@ var Cloud = {
       return fresh;
     });
     if(activeTab==="lijst"){ renderLijst(); renderDueBanner(); }
+    if(typeof renderShoppingMode==="function") renderShoppingMode();  // houd winkelmodus live bij realtime
   },
   refreshMembers:async function(){
     if(!this.active) return;
