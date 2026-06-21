@@ -44,3 +44,16 @@ html = html.replace("__ICON180__", icons.ICON180)
 
 fs.writeFileSync(path.join(root, "index.html"), html);
 console.log("✓ index.html gebouwd (" + html.length + " bytes)");
+
+// Service worker: BUILD-waarde injecteren + naar repo-root schrijven (scope = /mandje/ op GitHub Pages)
+const swSrcPath = path.join(root, "src/sw.js");
+if (fs.existsSync(swSrcPath)) {
+  const buildMatch = read("src/shell.html").match(/BUILD:\s*"([^"]+)"/);
+  const buildId = buildMatch ? buildMatch[1] : "dev";
+  let sw = read("src/sw.js").replace(/__BUILD__/g, buildId);
+  if (sw.indexOf("__BUILD__") !== -1) { console.error("✗ Token niet vervangen: __BUILD__ (sw.js)"); process.exit(1); }
+  fs.writeFileSync(path.join(root, "sw.js"), sw);
+  console.log("✓ sw.js gebouwd (cache mandje-" + buildId + ")");
+} else {
+  console.warn("! src/sw.js niet gevonden — service worker overgeslagen");
+}

@@ -1783,6 +1783,33 @@ function setupTopShareBtn(){
   });
 }
 
+/* Service worker: instant laden + offline-installeerbaar. Bij een nieuwe build wacht de
+   nieuwe SW; we tonen dan een niet-opdringerige toast i.p.v. hard te herladen. */
+function setupServiceWorker(){
+  if(!("serviceWorker" in navigator)) return;
+  try{
+    navigator.serviceWorker.register("sw.js").then(function(reg){
+      var promptUpdate = function(){
+        if(!reg.waiting) return;
+        toast("Nieuwe versie beschikbaar", { action:"Ververs", duration:8000, onAction:function(){
+          if(reg.waiting) reg.waiting.postMessage("SKIP_WAITING");
+        }});
+      };
+      if(reg.waiting && navigator.serviceWorker.controller) promptUpdate();
+      reg.addEventListener("updatefound", function(){
+        var nw = reg.installing; if(!nw) return;
+        nw.addEventListener("statechange", function(){
+          if(nw.state === "installed" && navigator.serviceWorker.controller) promptUpdate();
+        });
+      });
+    }).catch(function(){});
+    var reloaded = false;
+    navigator.serviceWorker.addEventListener("controllerchange", function(){
+      if(reloaded) return; reloaded = true; location.reload();
+    });
+  }catch(e){}
+}
+
 /* iOS-stijl pull-to-refresh. Werkt alleen op de Lijst-tab in een Cloud-lijst.
    Bij sleep >70px → Cloud.refreshItems() + Cloud.refreshMembers(). */
 function setupPullToRefresh(){
@@ -1902,6 +1929,7 @@ function init(){
   setupTopShareBtn();
   setupPullToRefresh();
   setupRipples();
+  setupServiceWorker();
   // Swipe-down-to-close op beide sheets (1× binden — containers zijn persistent)
   attachSheetDismiss($("#sheet"), closeSheet);
   if(typeof closeSheet2==="function") attachSheetDismiss($("#sheet2"), closeSheet2);
