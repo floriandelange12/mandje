@@ -12,6 +12,20 @@
 -- setup.sql is gelijktijdig bijgewerkt, zodat een verse installatie
 -- hetzelfde schema oplevert.
 
+-- Pre-flight: add_item_via_token mag maar één signatuur hebben (uuid, text, integer, text, text).
+-- Een afwijkende productie-signatuur zou met 'create or replace' een tweede overload opleveren
+-- en dan kiest PostgREST niet meer (PGRST203) → de hele stuur-functie valt uit. Dan eerst droppen.
+do $$
+begin
+  if exists (
+    select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.proname = 'add_item_via_token'
+      and pg_get_function_identity_arguments(p.oid) <> 'p_token uuid, p_name text, p_qty integer, p_note text, p_from text'
+  ) then
+    raise exception 'add_item_via_token bestaat met een andere signatuur — drop die eerst (zie pg_get_function_identity_arguments)';
+  end if;
+end $$;
+
 -- ==========================================================
 -- 1. RLS-gat: members-UPDATE
 -- ==========================================================
@@ -166,6 +180,7 @@ begin
   select count(*) into v_recent
     from public.items
    where list_id = v_list_id
+     and category is null                          -- alleen token-inserts (de app zet altijd een category)
      and created_at > now() - interval '1 minute';
   if v_recent >= 30 then
     raise exception 'Even rustig aan — probeer het zo nog eens';
@@ -195,3 +210,10 @@ grant execute on function public.add_item_via_token(uuid, text, int, text, text)
 -- de kolom komt automatisch mee in de events.
 
 alter table public.items add column if not exists unit text not null default '';
+
+-- ==========================================================
+-- 5. profiles: geen directe client-updates (inbox_token is bron van waarheid voor vrienden)
+-- ==========================================================
+-- De app schrijft profiles uitsluitend via de security-definer RPC's (ensure_profile, rotate_list_codes);
+-- een directe UPDATE zou een gebruiker toestaan zijn inbox_token op andermans stuur-token te zetten.
+revoke update on public.profiles from anon, authenticated;

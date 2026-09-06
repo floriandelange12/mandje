@@ -78,7 +78,7 @@ html = html.replace("__ICON180__", () => icons.ICON180)
            .replace("__ICON512__", () => icons.ICON512)
            .replace("__FONT__", () => font);
 
-/* ---------- BUILD = datum + inhoudshash ----------
+/* ---------- BUILD = inhoudshash ----------
    shell.html bevat  BUILD: "__BUILD__".  De hash wordt berekend over de complete HTML mét
    placeholder, dus elke wijziging in src/ of assets/ geeft automatisch een nieuwe cache-naam
    voor de service worker. Nooit meer handmatig ophogen.
@@ -92,32 +92,37 @@ if (!/BUILD:\s*"__BUILD__"/.test(html)) {
     process.exit(1);
   }
 }
-const hash = crypto.createHash("sha1").update(html).digest("hex").slice(0, 8);
-const buildId = new Date().toISOString().slice(0, 10) + "." + hash;
+// sw.js zit niet in de HTML maar bepaalt wél de cache-naam → mee in de hash. Geen datum: dezelfde bron = dezelfde BUILD (reproduceerbaar).
+const swSrcPath = path.join(root, "src/sw.js");
+const swSrc = fs.existsSync(swSrcPath) ? readSafe("src/sw.js") : "";
+const hash = crypto.createHash("sha1").update(html).update(swSrc).digest("hex").slice(0, 8);
+const buildId = hash;
 html = html.replace(/__BUILD__/g, buildId);
 
 ["__ICON180__", "__ICON512__", "__FONT__", "__SCRIPT__", "__BUILD__"].forEach(t => {
   if (html.indexOf(t) !== -1) { console.error("✗ Token niet vervangen: " + t); process.exit(1); }
 });
-assertClean(html, "index.html (samengesteld)");
+// Guard alleen over de eigen bronnen (shell + app + cloud), niet over de vendor-SDK/base64-assets
+assertClean(shell + combined, "index.html (eigen bronnen)");
 
-fs.writeFileSync(path.join(root, "index.html"), html);
-console.log("✓ index.html gebouwd (" + Buffer.byteLength(html) + " bytes, BUILD " + buildId + ")");
-
-// Icoon als los PNG (voor push-meldingen: een notification-icon kan geen data-URI uit de shell zijn)
+// Alle harde controles vóór het eerste weggeschreven artefact, zodat index.html/sw.js/icoon nooit uit fase lopen
 const PNG_SIG = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
 const icon512 = Buffer.from(icons.ICON512, "base64");
 if (icon512.length < 8 || !icon512.subarray(0, 8).equals(PNG_SIG)) {
   console.error("✗ ICON512 in assets/icon_b64.txt is geen geldige PNG — build gestopt.");
   process.exit(1);
 }
+
+fs.writeFileSync(path.join(root, "index.html"), html);
+console.log("✓ index.html gebouwd (" + Buffer.byteLength(html) + " bytes, BUILD " + buildId + ")");
+
+// Icoon als los PNG (voor push-meldingen: een notification-icon kan geen data-URI uit de shell zijn)
 fs.writeFileSync(path.join(root, "icon-512.png"), icon512);
 console.log("✓ icon-512.png geschreven (" + icon512.length + " bytes)");
 
 // Service worker: BUILD-waarde injecteren + naar repo-root schrijven (scope = /mandje/ op GitHub Pages)
-const swSrcPath = path.join(root, "src/sw.js");
-if (fs.existsSync(swSrcPath)) {
-  const sw = readSafe("src/sw.js").replace(/__BUILD__/g, buildId);
+if (swSrc) {
+  const sw = swSrc.replace(/__BUILD__/g, buildId);
   fs.writeFileSync(path.join(root, "sw.js"), sw);
   console.log("✓ sw.js gebouwd (cache mandje-" + buildId + ")");
 } else {

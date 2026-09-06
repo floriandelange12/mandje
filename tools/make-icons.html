@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<title>Mandje — iconen rasteren</title>
+<style>
+  body{ font:14px/1.4 system-ui, sans-serif; margin:24px; background:#F3EDE3; color:#1F1B15; }
+  h1{ font-size:18px; margin:0 0 12px; }
+  .row{ display:flex; gap:24px; align-items:flex-start; flex-wrap:wrap; margin-bottom:18px; }
+  figure{ margin:0; text-align:center; }
+  figcaption{ font-size:12px; color:#5A5347; margin-top:6px; }
+  canvas{ background:repeating-conic-gradient(#ddd 0 25%, #fff 0 50%) 0 0/16px 16px; border-radius:8px; }
+  textarea{ width:100%; height:160px; font:11px/1.3 ui-monospace, monospace; }
+  .mask{ position:relative; display:inline-block; }
+  .mask::after{ content:""; position:absolute; inset:0; border-radius:50%; box-shadow:0 0 0 999px rgba(0,0,0,.35); pointer-events:none; }
+</style>
+</head>
+<body>
+<h1>Mandje — app-iconen rasteren uit src/icons.js</h1>
+<p>Rendert <code>APP_ICON_SVG</code> (maskable, vol vlak) en <code>APP_ICON_ANY_SVG</code> (squircle) naar PNG en zet ze als base64-regels klaar voor <code>assets/icon_b64.txt</code>. De cirkel-overlay toont de maskable-veilige zone (80%).</p>
+<div class="row" id="previews"></div>
+<textarea id="out" readonly></textarea>
+<script src="../src/icons.js"></script>
+<script>
+(function(){
+  var jobs = [
+    { name: "ICON180",     svg: APP_ICON_SVG,     size: 180, mask: true  },   // apple-touch-icon (iOS rondt zelf)
+    { name: "ICON192",     svg: APP_ICON_ANY_SVG, size: 192, mask: false },   // manifest 'any' 192 + push-icon
+    { name: "ICON512",     svg: APP_ICON_ANY_SVG, size: 512, mask: false },   // manifest 'any' 512
+    { name: "ICON512MASK", svg: APP_ICON_SVG,     size: 512, mask: true  }    // manifest 'maskable' 512
+  ];
+  var out = [];
+  var wrap = document.getElementById("previews");
+  function render(job){
+    return new Promise(function(resolve){
+      var img = new Image();
+      var url = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(job.svg);
+      img.onload = function(){
+        var c = document.createElement("canvas"); c.width = job.size; c.height = job.size;
+        c.getContext("2d").drawImage(img, 0, 0, job.size, job.size);
+        var fig = document.createElement("figure");
+        var holder = document.createElement("span"); if(job.mask) holder.className = "mask";
+        var show = c.cloneNode(); show.getContext("2d").drawImage(c, 0, 0); show.style.width = show.style.height = "128px";
+        holder.appendChild(show); fig.appendChild(holder);
+        var cap = document.createElement("figcaption"); cap.textContent = job.name + " · " + job.size + "px"; fig.appendChild(cap);
+        wrap.appendChild(fig);
+        out.push(job.name + ":" + c.toDataURL("image/png").split(",")[1]);
+        resolve();
+      };
+      img.onerror = function(){ out.push(job.name + ":ERROR"); resolve(); };
+      img.src = url;
+    });
+  }
+  jobs.reduce(function(p, j){ return p.then(function(){ return render(j); }); }, Promise.resolve()).then(function(){
+    document.getElementById("out").value = out.join("\n");
+    window.__iconsReady = true;
+  });
+})();
+</script>
+</body>
+</html>

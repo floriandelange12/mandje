@@ -386,7 +386,7 @@ const ok=(n,c)=>{ if(c){pass++;console.log("  ✓ "+n);} else {fail++;console.lo
     const toastEl=docC.querySelector("#toast");
     ok("Fase0: undo-toast heeft actie", toastEl.classList.contains("show") && toastEl.classList.contains("has-action"));
     toastEl.querySelector(".toast-action").click(); await wait(30);
-    ok("Fase0: na actie is has-action weg (geen onzichtbare tap-dode-zone)", !toastEl.classList.contains("has-action") && !toastEl.classList.contains("show"));
+    ok("Fase0: na actie is de toast weg en vangt hij geen taps meer (CSS: alleen .toast.show is klikbaar)", !toastEl.classList.contains("show") && !/.toast.has-action{[^}]*pointer-events:auto/.test(html));
     ok("Fase0: undo zette het item terug", docC.querySelectorAll("#open-list .row").length===11);
     dom28c.window.close();
 
@@ -418,6 +418,66 @@ const ok=(n,c)=>{ if(c){pass++;console.log("  ✓ "+n);} else {fail++;console.lo
     ok("Fase0: na offline staat de persoonlijke lijst weer in beeld", docD.querySelectorAll("#open-list .row").length===3 && /Eigen melk/.test(docD.querySelector("#open-list").textContent));
     ok("Fase0: actieve lijst blijft bewaard voor reconnect", Wd.localStorage.getItem("mandje.activeList")==="c1");
     dom28d.window.close();
+  }
+
+
+  // 29. Review-fixes Fase 0 — unit-terugval (PGRST204), XSS via lidkleur, glyph-escape
+  {
+    const seed29=(list)=>JSON.stringify({version:3,settings:{theme:"light",showPrices:false,seenIntro:true,categoryOrder:null,minPurchases:3,cvThreshold:.6,dueWindowDays:1},list:list,catalog:{},coBuy:{},meals:{}});
+    const mkStub=(opts)=>{
+      const calls={inserts:[],updates:[]};
+      const q=(kind)=>{ const o={}; let upd=false, payload=null;
+        ["select","eq","in","order","single","limit"].forEach(m=>{ o[m]=function(){ return o; }; });
+        o.insert=function(p){ payload=p; calls.inserts.push(JSON.parse(JSON.stringify(p))); return o; };
+        o.update=function(p){ upd=true; payload=p; calls.updates.push(JSON.parse(JSON.stringify(p))); return o; };
+        o.delete=function(){ return o; }; o.upsert=function(){ return o; };
+        o.then=(res)=>{ let r={data:upd?[{}]:[],error:null}; if(payload && "unit" in payload && opts.rejectUnit) r={data:null,error:{code:"PGRST204",message:"Could not find the 'unit' column of 'items' in the schema cache"}}; return Promise.resolve(r).then(res); };
+        return o; };
+      return { calls, sb:{ from:()=>q(), rpc:()=>q(), removeChannel(){}, channel(){ const c={}; c.on=()=>c; c.subscribe=()=>c; c.track=()=>{}; c.presenceState=()=>({}); return c; } } };
+    };
+    // a) kolom items.unit ontbreekt nog (migratie M0 niet gedraaid): tweede insert gaat zónder unit, niets in de wachtrij
+    const dom29=new JSDOM(html,{url:"https://example.com/",runScripts:"dangerously",resources:"usable",pretendToBeVisual:true,
+      beforeParse(w){ w.localStorage.setItem("mandje.v2", seed29([])); }});
+    await wait(160); const W29=dom29.window, doc29=W29.document, cloud29=W29.Cloud||W29.__cloudRef;
+    const stubA=mkStub({rejectUnit:true}); cloud29.sb=stubA.sb; cloud29.enabled=true; cloud29.ready=true; cloud29.mode="cloud";
+    await cloud29.open("c1").catch(()=>{}); await wait(30);
+    doc29.querySelector("#add-name").value="500 g gehakt"; doc29.querySelector("#add-name").dispatchEvent(new W29.KeyboardEvent("keydown",{key:"Enter",bubbles:true}));
+    await wait(60);
+    ok("Review: eerste insert stuurt unit mee", stubA.calls.inserts.length>=1 && stubA.calls.inserts[0].unit==="500 g");
+    ok("Review: na PGRST204 volgt een tweede insert zónder unit", stubA.calls.inserts.length===2 && !("unit" in stubA.calls.inserts[1]));
+    ok("Review: _hasUnit staat daarna op false", cloud29._hasUnit===false);
+    ok("Review: offline-wachtrij blijft leeg (geen 'Offline'-toast-loop)", (cloud29._pending||[]).length===0);
+    ok("Review: item staat gewoon op de lijst", /gehakt/i.test(doc29.querySelector("#open-list").textContent));
+    dom29.window.close();
+
+    // b) lidkleur uit de database is geen vrijbrief voor HTML-injectie (itemRow + toewijs-chips in het sheet)
+    const dom29b=new JSDOM(html,{url:"https://example.com/",runScripts:"dangerously",resources:"usable",pretendToBeVisual:true,
+      beforeParse(w){ w.localStorage.setItem("mandje.v2", seed29([])); }});
+    await wait(160); const Wb=dom29b.window, docB=Wb.document, cloudB=Wb.Cloud||Wb.__cloudRef;
+    const stubB=mkStub({}); cloudB.sb=stubB.sb; cloudB.enabled=true; cloudB.ready=true; cloudB.mode="cloud";
+    await cloudB.open("c1").catch(()=>{}); await wait(30);
+    cloudB.members=[{id:"m1",user_id:"u-mallory",display_name:"Mallory",color:'x" onmouseover="window.__pwned=1'}];
+    docB.querySelector("#add-name").value="Brood"; docB.querySelector("#add-name").dispatchEvent(new Wb.KeyboardEvent("keydown",{key:"Enter",bubbles:true}));
+    await wait(40);
+    const firstCard=docB.querySelector("#open-list .row"); firstCard.querySelector(".card").click(); await wait(30);
+    const sheetHtml=docB.querySelector("#sheet").innerHTML;
+    ok("Review: toewijs-chips in het sheet bevatten geen geïnjecteerde attributen", sheetHtml.indexOf("onmouseover")===-1 && /background:#2F7A4F|cadchip/.test(sheetHtml));
+    // kies Mallory als 'wie haalt het' en sla op → itemRow rendert de sub-regel met haar kleur
+    const chip=[...docB.querySelectorAll("#s-assign .cadchip")].find(b=>b.dataset.m==="m1"); if(chip) chip.click();
+    docB.querySelector("#s-save").click(); await wait(40);
+    const rowHtml=docB.querySelector("#open-list").innerHTML;
+    ok("Review: rij met toegewezen lid bevat geen geïnjecteerde attributen", rowHtml.indexOf("onmouseover")===-1 && /→ Mallory/.test(docB.querySelector("#open-list").textContent));
+    ok("Review: onveilige kleur valt terug op de standaardkleur", /color:#2F7A4F/.test(rowHtml));
+    ok("Review: geen script uitgevoerd", !Wb.__pwned);
+    dom29b.window.close();
+
+    // c) eigen schap met HTML in de naam wordt als tekst getoond
+    const dom29c=new JSDOM(html,{url:"https://example.com/",runScripts:"dangerously",resources:"usable",pretendToBeVisual:true,
+      beforeParse(w){ w.localStorage.setItem("mandje.v2", JSON.stringify({version:3,settings:{theme:"light",showPrices:false,seenIntro:true,categoryOrder:null,minPurchases:3,cvThreshold:.6,dueWindowDays:1,customCategories:[{id:"cust_x",label:"<img src=x onerror=window.__pwned2=1>",glyph:"🧪"}]},list:[{id:"c1",name:"Test",category:"cust_x",qty:1,price:null,note:"",done:false,addedAt:""}],catalog:{},coBuy:{},meals:{}})); }});
+    await wait(150); const docC=dom29c.window.document;
+    ok("Review: schapnaam met HTML wordt geëscaped in de sectiekop", !docC.querySelector("#open-list .section img") && /<img src=x/.test(docC.querySelector("#open-list .section").textContent));
+    ok("Review: geen script via schapnaam", !dom29c.window.__pwned2);
+    dom29c.window.close();
   }
 
   console.log("\nt3: "+pass+" geslaagd, "+fail+" gefaald");

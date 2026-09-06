@@ -140,7 +140,7 @@ var NS = "mandje.v2";
 var CURRENT_STATE_VERSION = 3;
 var DEFAULTS = {
   version: CURRENT_STATE_VERSION,
-  settings:{ theme:"auto", showPrices:false, seenIntro:false, categoryOrder:CATS.map(function(c){return c.id;}), minPurchases:3, cvThreshold:0.6, dueWindowDays:1, customCategories:[], customCatEmoji:{}, collapsedCats:{}, seenQtyHint:false, seenBulkHint:false, seenPriceNudge:false, pushOn:false },
+  settings:{ theme:"auto", showPrices:false, seenIntro:false, categoryOrder:CATS.map(function(c){return c.id;}), minPurchases:3, cvThreshold:0.6, dueWindowDays:1, customCategories:[], customCatEmoji:{}, collapsedCats:{}, seenQtyHint:false, seenBulkHint:false, seenPriceNudge:false, pushOn:null },
   syncQueue:[],
   lastSyncState:{ mode:"local", status:"not_started", ready:false, pendingMutations:0, offline:false, reason:null, lastError:null, lastUpdated:0 },
   offlinePendingFlags:{},
@@ -689,7 +689,7 @@ function toast(msg, opts){
   var duration = opts.duration || 1500;
   // Pause-on-hover/touch zodat user 'm niet mist tijdens lezen
   var paused = false, remaining = duration, startedAt = 0;
-  var hide = function(){ t.classList.remove("show"); t.classList.remove("has-action"); };
+  var hide = function(){ t.classList.remove("show"); };
   var schedule = function(ms){
     clearTimeout(toastT);
     startedAt = Date.now();
@@ -851,13 +851,13 @@ function renderLijst(){
     }
   } else {
     // groepeer open per categorie volgens categoryOrder
-    var byCat={}; open.forEach(function(it){ (byCat[it.category]=byCat[it.category]||[]).push(it); });
+    var byCat={}; open.forEach(function(it){ var cid = CAT_BY_ID[it.category] ? it.category : "overig"; (byCat[cid]=byCat[cid]||[]).push(it); });
     catBuckets(byCat).forEach(function(cid){
       var arr=byCat[cid]; if(!arr || !arr.length) return;
       var c=CAT_BY_ID[cid]||CAT_BY_ID["overig"];
       var collapsed = !!(state.settings.collapsedCats && state.settings.collapsedCats[cid]);
       var sec=el("div","section collapsible"+(collapsed?" collapsed":""));
-      sec.innerHTML='<span class="cat-emoji emoji">'+c.glyph+'</span><span>'+c.label+'</span><span class="count">'+arr.length+'</span><svg class="sec-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>';
+      sec.innerHTML='<span class="cat-emoji emoji">'+glyphHtml(c.glyph)+'</span><span>'+escapeHtml(c.label)+'</span><span class="count">'+arr.length+'</span><svg class="sec-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>';
       openFrag.appendChild(sec);
       var ul=el("ul","list"+(collapsed?" collapsed":""));
       arr.forEach(function(it){ ul.appendChild(itemRow(it)); });
@@ -913,7 +913,7 @@ function itemRow(it){
   if(state.settings.showPrices && it.price!=null) sub+=(sub?' · ':'')+'<span>'+euro(it.price)+(it.qty>1?' × '+it.qty:'')+'</span>';
   if(Cloud.active){
     var asg = it.assigned_to ? Cloud.memberById(it.assigned_to) : null;
-    if(asg) sub+=(sub?' · ':'')+'<span style="color:'+asg.color+';font-weight:700">→ '+escapeHtml(asg.display_name)+'</span>';
+    if(asg) sub+=(sub?' · ':'')+'<span style="color:'+safeColor(asg.color)+';font-weight:700">→ '+escapeHtml(asg.display_name)+'</span>';
     else if(it.added_by_name) sub+=(sub?' · ':'')+'<span style="color:var(--ink-faint)">+ '+escapeHtml(it.added_by_name)+'</span>';
   }
 
@@ -1132,11 +1132,11 @@ function renderShoppingMode(){
     '<div class="shop-body" id="shop-body"></div>';
   var body=scr.querySelector("#shop-body");
   if(!total){ body.innerHTML='<div class="shop-empty">Niks op je lijst — voeg eerst iets toe.</div>'; }
-  var byCat={}; open.forEach(function(it){ (byCat[it.category]=byCat[it.category]||[]).push(it); });
+  var byCat={}; open.forEach(function(it){ var cid = CAT_BY_ID[it.category] ? it.category : "overig"; (byCat[cid]=byCat[cid]||[]).push(it); });
   catBuckets(byCat).forEach(function(cid){
     var arr=byCat[cid]; if(!arr||!arr.length) return;
     var c=CAT_BY_ID[cid]||CAT_BY_ID["overig"];
-    body.appendChild(el("div","shop-sec",'<span class="cat-emoji emoji">'+c.glyph+'</span><span>'+escapeHtml(c.label)+'</span>'));
+    body.appendChild(el("div","shop-sec",'<span class="cat-emoji emoji">'+glyphHtml(c.glyph)+'</span><span>'+escapeHtml(c.label)+'</span>'));
     arr.forEach(function(it){ body.appendChild(shopRow(it)); });
   });
   if(done.length){
@@ -1521,7 +1521,7 @@ function buildSheet(d){
     html+='<div class="sheet-label"><span class="lbl-cap">Wie haalt het?</span></div>';
     html+='<div class="cadrow" id="s-assign"><button class="cadchip'+(!d.assigned_to?" on":"")+'" data-m="">Niemand</button>';
     Cloud.members.forEach(function(m){
-      html+='<button class="cadchip'+(d.assigned_to===m.id?" on":"")+'" data-m="'+m.id+'" style="'+(d.assigned_to===m.id?'background:'+m.color+';border-color:transparent':'')+'">'+escapeHtml(m.display_name)+'</button>';
+      html+='<button class="cadchip'+(d.assigned_to===m.id?" on":"")+'" data-m="'+m.id+'" style="'+(d.assigned_to===m.id?'background:'+safeColor(m.color)+';border-color:transparent':'')+'">'+escapeHtml(m.display_name)+'</button>';
     });
     html+='</div>';
   }
@@ -1564,7 +1564,7 @@ function buildSheet(d){
   var renderCatChips = function(){
     catWrap.innerHTML="";
     getAllCats().forEach(function(c){
-      var b=el("button","catchip"+(c.id===chosenCat?" on":""),'<span class="emoji">'+c.glyph+'</span><span>'+escapeHtml(c.label)+'</span>');
+      var b=el("button","catchip"+(c.id===chosenCat?" on":""),'<span class="emoji">'+glyphHtml(c.glyph)+'</span><span>'+escapeHtml(c.label)+'</span>');
       b.addEventListener("click",function(){ chosenCat=c.id; catWrap.querySelectorAll(".catchip").forEach(function(x){x.classList.remove("on");}); b.classList.add("on"); });
       // Long-press: pictogram wijzigen via emoji-picker (in 2e sheet, blijft buildSheet open)
       attachLongPress(b, function(){
@@ -1722,6 +1722,11 @@ function attachSwipe(card,onDelete){
     if(!dragging) return; dragging=false; card.style.transition="";
     if(curX<=-THRESH){ card.style.transform="translateX(-100%)"; vibrate(10); setTimeout(onDelete,180); }
     else{ card.style.transform="translateX(0)"; setTimeout(function(){ card._suppressClick=false; if(card.parentNode) card.parentNode.classList.remove("swiping"); },280); }
+  });
+  // Gesture onderbroken (oproep, systeem-overlay): kaart en rode laag terugzetten
+  card.addEventListener("touchcancel",function(){
+    if(!dragging) return; dragging=false; curX=0; card.style.transition=""; card.style.transform="translateX(0)"; card._suppressClick=false;
+    if(card.parentNode) card.parentNode.classList.remove("swiping");
   });
 }
 
@@ -2161,6 +2166,8 @@ function emptyState(icon,h,p,actionLabel,actionFn){
 }
 function escapeHtml(s){ return (s||"").replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c];}); }
 function escapeAttr(s){ return escapeHtml(s).replace(/'/g,"&#39;"); }
+/* Schap-pictogram (emoji, ook uit eigen schappen = gebruikersinvoer) veilig als HTML */
+function glyphHtml(g){ return escapeHtml(String(g||"").slice(0,8)); }
 
 /* Event-delegated tap-ripples — Material-Design-light. Werkt op chips,
    menu-knoppen en sheet-acties. Hosts zijn al position:relative+overflow:hidden
@@ -2204,12 +2211,12 @@ function refreshOfflineBadge(){
   }
 
   badge.classList.add("show");
+  var txt = "Lokaal";
   if(!navigator.onLine){
     var n = (typeof Cloud!=="undefined" && Cloud.active && Cloud._pending) ? Cloud._pending.length : 0;
-    badge.textContent = n>0 ? ("Offline · "+n+" wijziging"+(n===1?"":"en")) : "Offline";
-    return;
+    txt = n>0 ? ("Offline · "+n+" wijziging"+(n===1?"":"en")) : "Offline";
   }
-  badge.textContent = "Lokaal";
+  if(badge.textContent !== txt) badge.textContent = txt;   // live region: niet bij elke save() opnieuw aankondigen
 }
 function setupOfflineIndicator(){
   if(!$("#offline-badge")) return;
@@ -2362,12 +2369,13 @@ function loadBarcodeDecoder(){
   return _bcLibPromise;
 }
 function startBarcodeScanner(){
+  var mySession=_bcSession;
   bcStatus("Scanner laden…");
   loadBarcodeDecoder().then(function(ok){
+    if(mySession!==_bcSession) return;   // scherm intussen gesloten of heropend → deze start is verouderd
     if(!ok || !window.Html5Qrcode){ bcStatus("Scanner niet beschikbaar — typ de naam"); return; }
     if(!$("#barcode-screen").classList.contains("show")) return; // gebruiker sloot al
     bcStatus("Camera starten…");
-    var mySession=_bcSession;
     try{
       _bcScanner = new window.Html5Qrcode("bc-reader", { verbose:false });
       var inst=_bcScanner;

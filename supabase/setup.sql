@@ -273,6 +273,7 @@ begin
   select count(*) into v_recent
     from public.items
    where list_id = v_list_id
+     and category is null                          -- alleen token-inserts (de app zet altijd een category)
      and created_at > now() - interval '1 minute';
   if v_recent >= 30 then
     raise exception 'Even rustig aan — probeer het zo nog eens';
@@ -559,6 +560,8 @@ drop policy if exists "profiles: zie jezelf" on public.profiles;
 create policy "profiles: zie jezelf" on public.profiles for select using (user_id = auth.uid());
 drop policy if exists "profiles: update jezelf" on public.profiles;
 create policy "profiles: update jezelf" on public.profiles for update using (user_id = auth.uid());
+-- M0: de client update profiles nooit rechtstreeks; alleen RPC's (security definer) mogen dat.
+revoke update on public.profiles from anon, authenticated;
 drop policy if exists "friendships: zie je eigen vrienden" on public.friendships;
 create policy "friendships: zie je eigen vrienden" on public.friendships for select using (from_user_id = auth.uid());
 drop policy if exists "friendships: verwijder eigen vriendschap" on public.friendships;

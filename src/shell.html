@@ -437,9 +437,8 @@
 
   /* ---------- Toast ---------- */
   .toast{ position:absolute; left:50%; bottom:calc(var(--safe-b) + 92px); transform:translateX(-50%) translateY(16px); background:var(--ink); color:var(--bg); padding:11px 18px; border-radius:14px; font-size:14px; font-weight:600; opacity:0; z-index:95; pointer-events:none; box-shadow:var(--shadow-lg); transition:opacity .25s var(--ease), transform .25s var(--ease); max-width:min(var(--app-max-width), calc(100vw - 32px)); white-space:normal; text-align:center; line-height:1.35; }
-  /* De toast zelf vangt geen taps (anders een onzichtbare dode zone boven de add-balk); alleen de actieknop */
-  .toast.show{ opacity:1; transform:translateX(-50%) translateY(0); pointer-events:none; }
-  .toast.show .toast-action{ pointer-events:auto; }
+  /* Alleen een ZICHTBARE toast vangt taps (pauze-op-aanraken); verborgen = pointer-events:none, ook met has-action */
+  .toast.show{ opacity:1; transform:translateX(-50%) translateY(0); pointer-events:auto; }
   /* In winkelmodus/stuur-pagina (full-screen overlays) staat de toast lager: geen add-balk om boven te blijven */
   .shop-screen.show ~ .toast, .send-screen.show ~ .toast{ bottom:calc(var(--safe-b) + 24px); }
 
@@ -795,7 +794,7 @@
     .app{ margin-top:10px; border-radius:var(--r-card); box-shadow:var(--shadow-lg); overflow:clip; }
     .addwrap{ left:max(16px, env(safe-area-inset-left)); right:max(16px, env(safe-area-inset-right)); }
     .pad-bottom{ height:calc(var(--safe-b) + 112px); }
-    .totals{ bottom:var(--safe-b); }
+    .totals{ bottom:calc(max(16px, var(--safe-b)) + 110px); }   /* boven de add-balk (was: 0 → overlap op desktop) */
     :root{ --totals-space: 196px; }
     .app{ padding-bottom:6px; }
     .topbar .ctitle{ max-width:64vw; }

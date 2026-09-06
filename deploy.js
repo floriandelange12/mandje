@@ -42,10 +42,12 @@ const message = custom || ("deploy: build " + buildId);
 
 // 4. add → commit → push  (commit via execFileSync: geen shell-quoting-gedoe met het bericht)
 try {
-  run("git add -A");
+  console.log("\nTe committen:\n" + status);
+  // Alleen bekende paden — nooit ongezien een los bestand (sleutel, dump) naar de publieke repo
+  run("git add -A -- src assets tests tools supabase index.html sw.js icon-512.png build.js deploy.js package.json package-lock.json CLAUDE.md README.md .gitignore .editorconfig .gitattributes");
   console.log("\n$ git commit -m " + JSON.stringify(message));
   execFileSync("git", ["commit", "-m", message], { stdio: "inherit", cwd: root });
-  run("git push");
+  run("git push origin HEAD");   // expliciet naar origin (fl-labs26 is een redirect-host, zie CLAUDE.md)
 } catch (e) {
   console.error("\n✗ Deploy afgebroken bij git (zie de output hierboven).");
   process.exit(1);

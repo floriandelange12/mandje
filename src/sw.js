@@ -11,10 +11,13 @@ var SHELL = "./index.html";
 var PRECACHE = ["./index.html", "./icon-512.png"];
 
 self.addEventListener("install", function(e){
+  // De shell is verplicht: mislukt die, dan faalt de install en blijft de oude SW + cache bedienen.
+  // Het icoon is optioneel (mag de precache niet blokkeren).
   e.waitUntil(caches.open(CACHE).then(function(c){
-    // Per bestand, zodat een (tijdelijk) ontbrekend icoon de shell-precache niet blokkeert.
-    return Promise.all(PRECACHE.map(function(u){ return c.add(u).catch(function(){}); }));
-  }).catch(function(){}));
+    return c.add(SHELL).then(function(){
+      return Promise.all(PRECACHE.filter(function(u){ return u!==SHELL; }).map(function(u){ return c.add(u).catch(function(){}); }));
+    });
+  }));
 });
 
 self.addEventListener("activate", function(e){
@@ -50,13 +53,15 @@ self.addEventListener("notificationclick", function(e){
   var url;
   try{ url = new URL(target, self.registration.scope).href; }catch(x){ url = self.registration.scope; }
   e.waitUntil(self.clients.matchAll({type:"window", includeUncontrolled:true}).then(function(cs){
-    var client = null;
+    var client = null, scope = self.registration.scope;
     for(var i=0;i<cs.length;i++){
-      if(cs[i].url.indexOf(self.location.origin) === 0 && "focus" in cs[i]){ client = cs[i]; break; }
+      if(cs[i].url.indexOf(scope) === 0 && "focus" in cs[i]){ client = cs[i]; break; }   // alleen vensters binnen /mandje/
     }
     if(client){
-      // Open venster op een andere url → daarheen navigeren en focussen; lukt dat niet, dan alleen focussen.
-      if("navigate" in client && client.url !== url){
+      // Alleen navigeren bij een expliciete doel-url naar een ánder pad (nooit een draaiende app herladen voor de root)
+      var explicit = !!(e.notification.data && e.notification.data.url);
+      var samePath = true; try{ samePath = new URL(client.url).pathname === new URL(url).pathname; }catch(x){}
+      if(explicit && !samePath && "navigate" in client){
         return client.navigate(url).then(function(c){ return c ? c.focus() : client.focus(); })
                                    .catch(function(){ return client.focus(); });
       }

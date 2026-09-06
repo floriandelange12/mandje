@@ -155,6 +155,7 @@ var Cloud = {
       if(wasActive){
         if(typeof applyListHeader==="function") applyListHeader();
         if(typeof renderLijst==="function" && typeof activeTab!=="undefined" && activeTab==="lijst"){ renderLijst(); if(typeof renderDueBanner==="function") renderDueBanner(); }
+        if(typeof renderShoppingMode==="function") renderShoppingMode();   // open winkelmodus toont anders nog de oude (cloud-)rijen
         if(typeof toast==="function") toast("Gedeelde lijst offline — je werkt nu in je eigen lijst", {duration:3500});
       }
       if(!noLog) this._warned("offline", this.initError);
@@ -275,7 +276,19 @@ var Cloud = {
   },
   checkPushSubscription:async function(){
     if(!this.pushEnabled() || !this.ready) return;
-    if(!(typeof state!=="undefined" && state && state.settings && state.settings.pushOn)) return;   // uitgezet = uit
+    var st = (typeof state!=="undefined" && state && state.settings) ? state.settings : null;
+    if(!st) return;
+    if(st.pushOn == null){
+      // Eenmalig verzoenen voor bestaande installaties: was er al een abonnement, dan staat de voorkeur 'aan'
+      try{
+        var has=false;
+        if(Notification.permission==="granted"){ var reg0=await navigator.serviceWorker.ready; has=!!(await reg0.pushManager.getSubscription()); }
+        st.pushOn = has;
+      }catch(e){ st.pushOn=false; }
+      if(typeof save==="function") save();
+      if(typeof activeTab!=="undefined" && activeTab==="meer" && typeof renderMeer==="function") renderMeer();
+    }
+    if(!st.pushOn) return;   // uitgezet = uit
     try{
       if(Notification.permission!=="granted") return;        // alleen her-abonneren als eerder toegestaan
       var reg=await navigator.serviceWorker.ready;
@@ -698,6 +711,7 @@ var Cloud = {
     var self=this, batch=this._pending.splice(0), toasted=false;
     var note=function(){ if(!toasted){ toasted=true; if(typeof toast==="function") toast("Offline wijzigingen verstuurd"); } };
     batch.forEach(function(e){
+      if(self._hasUnit===false){ if(e.payload) delete e.payload.unit; if(e.fields) delete e.fields.unit; }   // kolom ontbreekt nog (migratie M0)
       // Definitief falende acties (bv. bewerken in een lijst waar je uit verwijderd bent)
       // niet eindeloos herproberen: na _maxFlushAttempts laten vallen (realtime reconcilieert tóch).
       var requeue=function(){ e.attempts=(e.attempts||0)+1; if(e.attempts < self._maxFlushAttempts) self._pending.push(e); };
@@ -742,7 +756,12 @@ var Cloud = {
   /* Schrijft een item weg en valt terug zonder 'unit' als de kolom (migratie M0) nog ontbreekt —
      zo blijft de app werken vóór én na het draaien van de migratie. */
   _hasUnit:undefined,
-  _isMissingUnit:function(err){ return !!(err && (err.code==="42703" || /column .*unit/i.test(err.message||"")) && this._hasUnit!==false); },
+  _isMissingUnit:function(err){
+    if(!err || this._hasUnit===false) return false;
+    var m=String(err.message||"")+" "+String(err.details||"")+" "+String(err.hint||"");
+    // Postgres: 42703 (undefined column); PostgREST: PGRST204 "Could not find the 'unit' column of 'items' in the schema cache"
+    return err.code==="42703" || err.code==="PGRST204" || (/unit/i.test(m) && /(column|schema cache)/i.test(m));
+  },
   _writeItem:function(op, data, id, onFail){
     var self=this;
     var run=function(d){ return op==="insert" ? self.sb.from("items").insert(d) : self.sb.from("items").update(d).eq("id", id); };
@@ -750,9 +769,8 @@ var Cloud = {
     run(data).then(function(r){
       if(r && r.error){
         if("unit" in data && self._isMissingUnit(r.error)){
-          self._hasUnit=false; var d2={}; for(var k in data){ if(k!=="unit") d2[k]=data[k]; }
-          if(op==="insert") data=d2;
-          run(d2).then(function(r2){ if(r2&&r2.error) fail(); }, fail);
+          self._hasUnit=false; delete data.unit;   // in-place, zodat óók de fail-closures (offline-wachtrij) het veld kwijt zijn
+          run(data).then(function(r2){ if(r2&&r2.error) fail(); }, fail);
           return;
         }
         fail();
@@ -879,7 +897,7 @@ var Cloud = {
     await this.refreshItems();
     await this.loadLists();
     if(typeof reRenderShareSheetIfOpen==="function") reRenderShareSheetIfOpen(listId);
-    toast(rotated ? "Lid verwijderd — uitnodig-link vernieuwd" : "Lid verwijderd");
+    toast(rotated ? "Lid verwijderd — uitnodig- en stuur-link vernieuwd (oude links werken niet meer)" : "Lid verwijderd", {duration:4000});
     return true;
   },
   recentActivity:async function(listId){

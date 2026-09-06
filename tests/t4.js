@@ -12,8 +12,8 @@ const lineOf = (s, i) => s.slice(0, i).split("\n").length;
 const CP1252_SPECIALS = "\u20AC\u201A\u0192\u201E\u2026\u2020\u2021\u02C6\u2030\u0160\u2039\u0152\u017D\u2018\u2019\u201C\u201D\u2022\u2013\u2014\u02DC\u2122\u0161\u203A\u0153\u017E\u0178";
 const MOJIBAKE = new RegExp("[\u00C2\u00C3\u00E2\u00F0][\u0080-\u00BF" + CP1252_SPECIALS + "]");
 
-const GZIP_MAX = 230*1024;   // budget: gzip van index.html
-const HEAD_MAX = 180*1024;   // budget: bytes vóór <body (CSS + config + inline-assets in <head>)
+const GZIP_MAX = +(process.env.MANDJE_GZIP_MAX || 230*1024);   // budget: gzip van index.html (override: MANDJE_GZIP_MAX)
+const HEAD_MAX = +(process.env.MANDJE_HEAD_MAX || 180*1024);   // budget: bytes vóór <body (override: MANDJE_HEAD_MAX)
 const PNG_SIG  = Buffer.from([0x89,0x50,0x4E,0x47,0x0D,0x0A,0x1A,0x0A]);
 
 console.log("\nt4 — bundel-hygiëne (gebouwde bestanden)");
