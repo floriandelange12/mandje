@@ -366,14 +366,9 @@ var Cloud = {
     toast("Vriend toegevoegd aan de lijst");
     return true;
   },
-  /* Optioneel account beveiligen: koppelt een e-mail aan de huidige (anonieme) user.
-     Zelfde user_id blijft → vrienden/lijsten overleven een nieuw toestel na inloggen. */
-  secureWithEmail:async function(email){
-    email=(email||"").trim(); if(!email || !this.ready) return false;
-    var r=await this.sb.auth.updateUser({email:email});
-    if(r.error){ toast(r.error.message||"Lukte niet — klopt het e-mailadres?"); return false; }
-    toast("Check je mail om te bevestigen ✉️");
-    return true;
+  /* Oud pad (Meer-knop vóór Fase 3C): e-mail koppelen zonder codeblad */
+  secureWithEmail:function(email){
+    return this.linkEmail(email).then(function(r){ toast(r.ok ? "Check je mail voor de code ✉️" : (r.message||"Lukte niet — klopt het e-mailadres?")); return !!r.ok; });
   },
   memberById:function(id){ for(var i=0;i<this.members.length;i++) if(this.members[i].id===id) return this.members[i]; return null; },
   listById:function(id){ for(var i=0;i<this.lists.length;i++) if(this.lists[i].id===id) return this.lists[i]; return null; },
@@ -414,8 +409,8 @@ var Cloud = {
         if(!sdk){ sdk = await loadLocalSdk(); }
         if(!sdk){ self._warned("sdk", "Mandje: lokale SDK niet geladen, val terug op CDN"); sdk = await loadSupabaseSDK(); }
         if(!sdk || typeof sdk.createClient !== "function"){ throw new Error("Supabase SDK niet beschikbaar"); }
-        this.sb=sdk.createClient(SUPABASE_URL, SUPABASE_ANON_KEY,
-          {auth:{persistSession:true, autoRefreshToken:true, storageKey:"mandje.sb.auth"}});
+        if(!this.sb) this.sb=sdk.createClient(SUPABASE_URL, SUPABASE_ANON_KEY,
+          {auth:{persistSession:true, autoRefreshToken:true, storageKey:"mandje.sb.auth"}});   // hergebruik na inloggen/uitloggen (één GoTrue-client)
         this._restoreQueue();   // offline-wijzigingen van een vorige sessie
 
         if(!guard(true)){
@@ -447,6 +442,8 @@ var Cloud = {
         var u=await this.sb.auth.getUser(); this.userId=(u.data&&u.data.user)?u.data.user.id:null;
         try{ var s2=await this.sb.auth.getSession(); this._accessToken=(s2.data&&s2.data.session&&s2.data.session.access_token)||null; }catch(e){}
         this._bindAuth();
+        this._setAuthUser(u.data&&u.data.user);
+        if(typeof mirrorAuthSession==="function") mirrorAuthSession();
         this.ready=true;
         this.mode="cloud";
         this._stateSummaryAt = Date.now ? Date.now() : 0;
@@ -521,6 +518,7 @@ var Cloud = {
     if(this.active){ this.refreshItems(this._activeRefreshToken); this.refreshMembers(this._activeRefreshToken); }
     this.flushPending();
     if(now - (this._usLastPullAt||0) > 60000) this.pullUserState();
+    if(!this.hasAccount() && now - (this._authCheckAt||0) > 60000){ this._authCheckAt=now; this.refreshAuthUser(); }   // link in de mail getikt? dan is de koppeling nu klaar
   },
 
   loadLists:async function(){
@@ -797,6 +795,95 @@ var Cloud = {
   _pendingInsert:function(tmpId){
     for(var i=0;i<this._pending.length;i++){ var e=this._pending[i]; if(e.op==="insert"&&e.tmpId===tmpId) return e; }
     return null;
+  },
+  /* ===== Account met e-mail (Fase 3C): code per mail, link werkt ook; zelfde user_id dus alles blijft ===== */
+  authEmail:null, isAnon:true, _otpSentAt:0, _otpEmail:"", _otpMode:"", _authCheckAt:0,
+  _setAuthUser:function(user){ this.authEmail=(user && user.email) ? String(user.email) : null; this.isAnon=!this.authEmail; },
+  hasAccount:function(){ return !!this.authEmail; },
+  refreshAuthUser:async function(){
+    if(!this.sb) return false;
+    try{
+      var u=await this.sb.auth.getUser(); if(!u || !u.data || !u.data.user) return false;
+      var had=this.hasAccount(); this._setAuthUser(u.data.user);
+      if(!had && this.hasAccount()){
+        toast("E-mail gekoppeld ✓ — je account is veilig", {duration:3000});
+        if(typeof activeTab!=="undefined" && activeTab==="meer" && typeof renderMeer==="function") renderMeer();
+        if(typeof activeTab!=="undefined" && activeTab==="lijst" && typeof renderDueBanner==="function") renderDueBanner();
+      }
+      return true;
+    }catch(e){ return false; }
+  },
+  _onAuthEvent:function(ev, session){
+    if(typeof mirrorAuthSession==="function" && (ev==="SIGNED_IN" || ev==="TOKEN_REFRESHED" || ev==="USER_UPDATED")) mirrorAuthSession();
+    if(ev==="USER_UPDATED") this.refreshAuthUser();
+    // magic link in dít venster geopend voor een ander account → alles opnieuw laden onder dat account
+    if(ev==="SIGNED_IN" && session && session.user && this.userId && session.user.id!==this.userId && !this._initInProgress){ this._setAuthUser(session.user); this.reinit(); }
+  },
+  linkEmail:async function(email){
+    email=(email||"").trim().toLowerCase(); if(!email || !this.ready || !this.sb) return {ok:false, reason:"no-cloud"};
+    try{
+      var r=await this.sb.auth.updateUser({email:email});
+      if(r.error) return {ok:false, reason:(/rate|too many/i.test(String(r.error.message))?"rate":"error"), message:r.error.message};
+      this._otpSentAt=Date.now(); this._otpEmail=email; this._otpMode="email_change";
+      return {ok:true};
+    }catch(e){ return {ok:false, reason:"error", message:String((e&&e.message)||e)}; }
+  },
+  sendLoginCode:async function(email){
+    email=(email||"").trim().toLowerCase(); if(!email || !this.sb) return {ok:false, reason:"no-cloud"};
+    try{
+      var r=await this.sb.auth.signInWithOtp({email:email, options:{shouldCreateUser:false, emailRedirectTo:location.origin+location.pathname}});
+      if(r.error){ var m=String(r.error.message||""); return {ok:false, reason:(/signup|not allowed|not found|no user/i.test(m)?"unknown":(/rate|too many/i.test(m)?"rate":"error")), message:m}; }
+      this._otpSentAt=Date.now(); this._otpEmail=email; this._otpMode="email";
+      return {ok:true};
+    }catch(e){ return {ok:false, reason:"error", message:String((e&&e.message)||e)}; }
+  },
+  verifyCode:async function(code){
+    code=String(code||"").replace(/\D/g,""); if(!code || !this._otpEmail || !this.sb) return {ok:false, reason:"error"};
+    try{
+      var r=await this.sb.auth.verifyOtp({email:this._otpEmail, token:code, type:this._otpMode||"email"});
+      if(r.error) return {ok:false, reason:(/expired|invalid|not found/i.test(String(r.error.message))?"invalid":"error"), message:r.error.message};
+      var user=(r.data&&r.data.user)||null;
+      if(this._otpMode==="email_change"){
+        this._setAuthUser(user||{email:this._otpEmail});
+        if(typeof mirrorAuthSession==="function") mirrorAuthSession();
+        this._otpMode=""; this._otpEmail="";
+        return {ok:true, mode:"linked"};
+      }
+      this._setAuthUser(user); if(typeof mirrorAuthSession==="function") mirrorAuthSession();
+      this._otpMode=""; this._otpEmail="";
+      await this.reinit();
+      return {ok:true, mode:"signed-in"};
+    }catch(e){ return {ok:false, reason:"error", message:String((e&&e.message)||e)}; }
+  },
+  signOut:async function(){
+    if(!this.sb) return false;
+    try{ await this.sb.auth.signOut(); }catch(e){}
+    this.authEmail=null; this.isAnon=true;
+    try{ if(typeof idbSet==="function") idbSet("sb.auth", ""); }catch(e){}
+    await this.reinit();
+    return true;
+  },
+  /* Opnieuw laden onder de huidige sessie (na inloggen/uitloggen): lijsten, profiel, vrienden, bundels, user_state */
+  reinit:async function(){
+    this.stop();
+    this.ready=false; this.active=null; this.lists=[]; this.members=[]; this.friends=[]; this.profile=null;
+    this._usRemoteAt=null; this._usPushedHash=""; this._usLastPullAt=0; clearTimeout(this._usPushTimer); this._usPushTimer=null;
+    this._initInProgress=false;
+    try{ localStorage.setItem("mandje.activeList","local"); }catch(e){}
+    if(typeof _personalList!=="undefined" && Array.isArray(_personalList) && typeof state!=="undefined" && state) state.list=_personalList.slice();
+    if(typeof load==="function") load();
+    await this.init();
+    if(typeof applyListHeader==="function") applyListHeader();
+    if(typeof renderListSwitch==="function") renderListSwitch();
+    if(typeof renderMembersRow==="function") renderMembersRow();
+    if(typeof activeTab!=="undefined"){ if(activeTab==="lijst"){ renderLijst(); renderDueBanner(); } if(activeTab==="meer") renderMeer(); }
+  },
+  deleteAccount:async function(){
+    if(!this.ready || !this.sb) return false;
+    var r=await this.sb.rpc("delete_my_account");
+    if(r.error){ toast(r.error.message||"Verwijderen lukte niet"); return false; }
+    try{ await this.sb.auth.signOut(); }catch(e){}
+    return true;
   },
   /* ===== user_state: dezelfde slimme app op elk toestel (Fase 3B) ===== */
   _usPushTimer:null, _usPushedHash:"", _usRemoteAt:null, _usPulling:false, _usPushing:false, _usLastPullAt:0, _usHasTable:undefined, _accessToken:null, _authBound:false,

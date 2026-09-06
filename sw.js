@@ -3,8 +3,8 @@
    Strategie: stale-while-revalidate voor de shell (direct uit cache tonen, op de achtergrond
    verversen voor de volgende keer). Supabase (REST + realtime-WebSocket) en alle cross-origin
    verzoeken gaan ALTIJD rechtstreeks naar het netwerk — nooit cachen.
-   6aff9eaf wordt door build.js vervangen door de MANDJE_CONFIG.BUILD-waarde. */
-var CACHE = "mandje-6aff9eaf";
+   e2ba80bd wordt door build.js vervangen door de MANDJE_CONFIG.BUILD-waarde. */
+var CACHE = "mandje-e2ba80bd";
 var SHELL = "./index.html";
 // Precache: de shell, het manifest en de kleine iconen (push-icoon + badge). App-navigaties worden in
 // de fetch-handler op SHELL gemapt, dus "./" apart cachen zou het 600 KB-document twee keer opslaan.

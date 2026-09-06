@@ -213,7 +213,16 @@ const stored=(W)=>JSON.parse(W.localStorage.getItem("mandje.v2"));
           return Promise.resolve({data:data,error:error}).then(res,rej); };
         return o; };
       let userState=opts.userState||null;
-      const sb={ calls:calls, items:()=>items, userState:()=>userState, from:(t)=>q(t), removeChannel(){}, channel(){ const c={}; c.on=()=>c; c.subscribe=()=>c; c.track=()=>{}; c.presenceState=()=>({}); c.unsubscribe=()=>{}; return c; },
+      let authUser=opts.authUser||{id:"u1", email:null, is_anonymous:true}; const authCalls=[]; let authCb=null;
+      const auth={ calls:authCalls, user:()=>authUser,
+        getUser:async()=>({data:{user:authUser},error:null}), getSession:async()=>({data:{session:{access_token:"tok", user:authUser}},error:null}),
+        onAuthStateChange:(cb)=>{ authCb=cb; return {data:{subscription:{unsubscribe(){}}}}; }, fire:(ev,session)=>authCb&&authCb(ev,session),
+        updateUser:async(p)=>{ authCalls.push(["updateUser",p]); if(opts.updateFails) return {data:null,error:{message:opts.updateFails}}; authUser=Object.assign({},authUser,{new_email:p.email}); return {data:{user:authUser},error:null}; },
+        signInWithOtp:async(p)=>{ authCalls.push(["signInWithOtp",p]); if(!(opts.knownEmails||[]).includes(p.email)) return {data:null,error:{message:"Signups not allowed for otp"}}; return {data:{},error:null}; },
+        verifyOtp:async(p)=>{ authCalls.push(["verifyOtp",p]); if(p.token!=="12345678") return {data:null,error:{message:"Token has expired or is invalid"}}; authUser=(p.type==="email_change") ? Object.assign({},authUser,{email:p.email,is_anonymous:false,new_email:null}) : {id:"u2",email:p.email,is_anonymous:false}; return {data:{user:authUser,session:{access_token:"tok2",user:authUser}},error:null}; },
+        signOut:async()=>{ authCalls.push(["signOut"]); authUser={id:"u3",email:null,is_anonymous:true}; return {error:null}; },
+        signInAnonymously:async()=>{ authCalls.push(["signInAnonymously"]); return {data:{session:{access_token:"tok3",user:authUser}},error:null}; } };
+      const sb={ calls:calls, items:()=>items, userState:()=>userState, auth:auth, from:(t)=>q(t), removeChannel(){}, channel(){ const c={}; c.on=()=>c; c.subscribe=()=>c; c.track=()=>{}; c.presenceState=()=>({}); c.unsubscribe=()=>{}; return c; },
         rpc:(name,args)=>{ const o={table:"rpc:"+name, args:args, ops:[]}; o.then=(res,rej)=>{ calls.push(o); let r={data:null,error:null};
           if(name==="item_bump_qty" && !opts.noRpc){ const it=items.find(i=>i.id===args.p_id); if(it){ it.qty=Math.max(1,it.qty+args.p_delta); r.data=it.qty; } }
           else if(name==="member_heartbeat" && !opts.noRpc){ r.data=true; }
@@ -366,6 +375,71 @@ const stored=(W)=>JSON.parse(W.localStorage.getItem("mandje.v2"));
       ok("3B: bundel verwijderen zet een grafsteen", !st.meals.meal_r && !!st.sync.tomb.meals.meal_r);
       ok("3B: Diagnose toont de sync-status", (()=>{ D.querySelector("#gear-btn").click(); return /Sync tussen toestellen/.test(D.querySelector("#meer-content").textContent) && /zojuist|geleden/.test(D.querySelector("#meer-content").textContent); })());
       dU.window.close();
+    }
+
+    // 14. Fase 3C — account met e-mail: koppelen (code), inloggen op een ander toestel, uitloggen, quota, wis dit toestel, nudge
+    {
+      const seedA={version:3,settings:{theme:"light",showPrices:false,seenIntro:true,categoryOrder:null,minPurchases:3,cvThreshold:.6,dueWindowDays:1},list:[item("a1","appels","groente-fruit")],catalog:{},coBuy:{},meals:{},history:[],
+        localLists:[{id:"l_boodschappen",name:"Boodschappen",type:"grocery",preset:"grocery",glyph:"🧺",finish:"opruimen",items:[item("a1","appels","groente-fruit")]}],activeLocalId:"l_boodschappen"};
+      const dA=mk(seedA); await wait(160); const W=dA.window, D=W.document, C=W.Cloud;
+      const sb=mkStub2({knownEmails:["sanne@voorbeeld.nl"]}); C.sb=sb; C.enabled=true; C.ready=true; C.mode="cloud"; C.userId="u1"; C.lists=[{id:"c1",name:"Gedeeld",owner_user_id:"u1",member_count:2}];
+      C._setAuthUser(sb.auth.user());
+      C.init=async function(){ this.enabled=true; this.ready=true; this.mode="cloud"; const u=await this.sb.auth.getUser(); this.userId=u.data.user.id; this._setAuthUser(u.data.user); this._initCalls=(this._initCalls||0)+1; };
+      D.querySelector("#gear-btn").click(); await wait(60);
+      const meer=()=>D.querySelector("#meer-content").textContent;
+      const btn=(t)=>[...D.querySelectorAll("#meer-content button")].find(b=>b.textContent.trim()===t);
+      ok("3C: Meer → Account (anoniem): 'Account maken met e-mail' en 'Ik heb al een account'", /Account/.test(meer()) && !!btn("Account maken met e-mail") && !!btn("Ik heb al een account") && !btn("Beveilig je account met e-mail"));
+      ok("3C: 'Wis dit toestel' i.p.v. 'Alles wissen'", !!btn("Wis dit toestel") && !btn("Alles wissen"));
+      // koppelen: e-mail → code → verifyOtp(type email_change)
+      btn("Account maken met e-mail").click(); await wait(60);
+      const sh=D.querySelector("#sheet");
+      ok("3C: koppel-blad met e-mailveld en 'Stuur code'", sh.classList.contains("show") && !!sh.querySelector("#acc-email") && sh.querySelector("#acc-go").textContent==="Stuur code" && sh.querySelector("#acc-step2").hidden===true);
+      sh.querySelector("#acc-email").value="geen-adres"; sh.querySelector("#acc-go").click(); await wait(30);
+      ok("3C: ongeldig adres → waarschuwing, niets verstuurd", !sh.querySelector("#acc-warn").hidden && sb.auth.calls.length===0);
+      sh.querySelector("#acc-email").value="Florian@Voorbeeld.nl"; sh.querySelector("#acc-go").click(); await wait(60);
+      ok("3C: updateUser({email}) met genormaliseerd adres, stap 2 zichtbaar, knop 'Bevestig'", sb.auth.calls.some(c=>c[0]==="updateUser" && c[1].email==="florian@voorbeeld.nl") && sh.querySelector("#acc-step2").hidden===false && sh.querySelector("#acc-go").textContent==="Bevestig");
+      sh.querySelector("#acc-code").value="000000"; sh.querySelector("#acc-go").click(); await wait(60);
+      ok("3C: verkeerde code → melding, blad blijft open", !sh.querySelector("#acc-warn").hidden && sh.classList.contains("show"));
+      sh.querySelector("#acc-code").value="1234 5678"; sh.querySelector("#acc-go").click(); await wait(80);
+      const v=sb.auth.calls.filter(c=>c[0]==="verifyOtp").pop();
+      ok("3C: juiste code → verifyOtp(type email_change), blad dicht, account gekoppeld", !!v && v[1].type==="email_change" && v[1].token==="12345678" && !sh.classList.contains("show") && C.hasAccount() && C.authEmail==="florian@voorbeeld.nl");
+      D.querySelector("#gear-btn").click(); await wait(30); D.querySelector("#gear-btn").click(); await wait(60);
+      ok("3C: Meer → Account toont 'Ingelogd als' + uitloggen + verwijderen", /Ingelogd als/.test(meer()) && /florian@voorbeeld\.nl/.test(meer()) && !!btn("Uitloggen op dit toestel") && !!btn("Verwijder mijn account en cloudgegevens"));
+      // uitloggen → signOut + reinit (init opnieuw) → weer anoniem
+      W.confirm=()=>true;
+      btn("Uitloggen op dit toestel").click(); await wait(120);
+      ok("3C: uitloggen roept signOut aan en laadt opnieuw (init), account weg", sb.auth.calls.some(c=>c[0]==="signOut") && C._initCalls>=1 && !C.hasAccount());
+      // inloggen op een 'ander toestel': onbekend adres → uitleg; bekend adres → code → verifyOtp(type email) → reinit met ander user_id
+      C.lists=[{id:"c1",name:"Gedeeld",owner_user_id:"u1",member_count:2}];   // reinit (stub) laadt geen lijsten; de waarschuwing gaat over deze lijst
+      D.querySelector("#gear-btn").click(); await wait(30); D.querySelector("#gear-btn").click(); await wait(60);
+      btn("Ik heb al een account").click(); await wait(60);
+      ok("3C: inlog-blad waarschuwt over de gedeelde lijst van het anonieme profiel", /gedeelde lijst/.test(sh.querySelector("#acc-intro").textContent));
+      sh.querySelector("#acc-email").value="onbekend@voorbeeld.nl"; sh.querySelector("#acc-go").click(); await wait(60);
+      ok("3C: onbekend adres → 'Geen account met dit adres' (shouldCreateUser:false)", /Geen account/.test(sh.querySelector("#acc-warn").textContent) && sb.auth.calls.some(c=>c[0]==="signInWithOtp" && c[1].options.shouldCreateUser===false));
+      sh.querySelector("#acc-email").value="sanne@voorbeeld.nl"; sh.querySelector("#acc-go").click(); await wait(60);
+      const initsBefore=C._initCalls||0;
+      sh.querySelector("#acc-code").value="12345678"; sh.querySelector("#acc-go").click(); await wait(120);
+      const v2=sb.auth.calls.filter(c=>c[0]==="verifyOtp").pop();
+      ok("3C: bekend adres → code → verifyOtp(type email) → opnieuw geladen onder het account (user_id u2)", !!v2 && v2[1].type==="email" && C.userId==="u2" && C.authEmail==="sanne@voorbeeld.nl" && (C._initCalls||0)===initsBefore+1 && !sh.classList.contains("show"));
+      // quota vol → ruimte maken + toast met 'Exporteer'
+      const origSet=W.Storage.prototype.setItem; let threw=0;   // Storage heeft een named-setter: overschrijven moet op het prototype
+      W.Storage.prototype.setItem=function(k,v){ if(k==="mandje.v2" && threw===0){ threw++; const e=new Error("quota"); e.name="QuotaExceededError"; throw e; } return origSet.call(this,k,v); };
+      W.addToList("quotakaas", null, {silent:true}); await wait(40);
+      const qToast=[D.querySelector("#toast"),D.querySelector("#toast2")].find(t=>t && t.classList.contains("show") && /Opslag/.test(t.textContent));
+      ok("3C: opslag vol → toast 'Opslag op dit toestel is vol' met actie Exporteer, staat alsnog weggeschreven", threw===1 && !!qToast && !!qToast.querySelector(".toast-action") && qToast.querySelector(".toast-action").textContent==="Exporteer" && stored(W).catalog["quotakaas"]);
+      W.Storage.prototype.setItem=origSet;
+      // nudge op de lijst (account weg, wel een gedeelde lijst)
+      C.authEmail=null; C.isAnon=true; C.lists=[{id:"c1",name:"Gedeeld",owner_user_id:"u2",member_count:2}];
+      D.querySelector("#gear-btn").click(); await wait(60);
+      const nudge=D.querySelector("#account-nudge .ritual.account");
+      ok("3C: nudge 'Bewaar je account' op de lijst zodra je deelt", !!nudge && /Bewaar je account/.test(nudge.textContent));
+      nudge.querySelector(".r-x").click(); await wait(30);
+      ok("3C: nudge weggetikt → onthouden, niet meer tonen", stored(W).settings.accountNudgeDismissed===true && !D.querySelector("#account-nudge .ritual.account"));
+      // wis dit toestel: alle mandje.*-sleutels weg, niets meer teruggeschreven
+      W.localStorage.setItem("mandje.me", JSON.stringify({display_name:"Ik"}));
+      W.wipeDevice(); await wait(120);
+      ok("3C: wipeDevice verwijdert alle mandje.*-sleutels (incl. sessie) en blokkeert verdere saves", !W.localStorage.getItem("mandje.v2") && !W.localStorage.getItem("mandje.me") && sb.auth.calls.some(c=>c[0]==="signOut"));
+      dA.window.close();
     }
   }
 

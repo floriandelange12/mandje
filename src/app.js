@@ -297,8 +297,10 @@ function idbGet(key){
   });
 }
 /* Herstel localStorage uit het IndexedDB-checkpoint als 't leeg/corrupt is — vóór load(). */
+var AUTH_KEY="mandje.sb.auth";
+function mirrorAuthSession(){ try{ var v=localStorage.getItem(AUTH_KEY); if(v) idbSet("sb.auth", v); }catch(e){} }
 function ensureRestore(){
-  return new Promise(function(res){
+  var restoreState=new Promise(function(res){
     var raw=null; try{ raw=localStorage.getItem(NS); }catch(e){}
     var parsed = safeParse(raw);
     if(parsed && isPlainObject(parsed)){ res(); return; }
@@ -310,6 +312,12 @@ function ensureRestore(){
       res();
     });
   });
+  var restoreAuth=new Promise(function(res){
+    var a=null; try{ a=localStorage.getItem(AUTH_KEY); }catch(e){}
+    if(a){ res(); return; }
+    idbGet("sb.auth").then(function(b){ if(b){ try{ localStorage.setItem(AUTH_KEY, b); }catch(e){} } res(); });
+  });
+  return Promise.all([restoreState, restoreAuth]).then(function(){});
 }
 
 function load(){
@@ -371,7 +379,9 @@ function save(){
   Promise.resolve().then(function(){ if(_savePending){ _savePending=false; _saveNow(); } });
 }
 function saveNow(){ _savePending=false; _saveNow(); }
+var _wiping=false;
 function _saveNow(){
+  if(_wiping) return;   // toestel wordt gewist: niets meer terugschrijven
   try{
     if(typeof Cloud === "undefined" || !Cloud.active){
       _localMutationEpoch += 1;
@@ -399,10 +409,136 @@ function _saveNow(){
     localStorage.setItem(NS, str);
     // Onzichtbaar vangnet: hooguit elke ~8s naar IndexedDB checkpointen
     var now = (Date.now ? Date.now() : 0);
-    if(now - _idbCheckpointAt > 8000){ _idbCheckpointAt = now; idbSet(NS, str); }
-  }catch(e){}
+    if(now - _idbCheckpointAt > 8000){ _idbCheckpointAt = now; idbSet(NS, str); mirrorAuthSession(); }
+  }catch(e){ if(isQuotaError(e)) onQuotaExceeded(); }
   if(!navigator.onLine && typeof refreshOfflineBadge === "function") refreshOfflineBadge();
   if(typeof Cloud!=="undefined" && Cloud && Cloud.ready && typeof Cloud.scheduleUserStatePush==="function") Cloud.scheduleUserStatePush();
+}
+
+/* Opslag vol (localStorage ±5 MB): ruimte maken en om een back-up vragen */
+function isQuotaError(e){ return !!(e && (e.name==="QuotaExceededError" || e.name==="NS_ERROR_DOM_QUOTA_REACHED" || e.code===22 || e.code===1014)); }
+var _quotaToastAt=0;
+function onQuotaExceeded(){
+  try{
+    state.cloudCache={};
+    if(Array.isArray(state.history) && state.history.length>50) state.history.length=50;
+    var snap=(typeof Cloud!=="undefined" && Cloud && Cloud.active) ? Object.assign({}, state, { list: _personalList || [] }) : state;
+    localStorage.setItem(NS, JSON.stringify(snap));
+  }catch(e){}
+  var now=Date.now ? Date.now() : 0;
+  if(now-_quotaToastAt<300000) return; _quotaToastAt=now;
+  toast("Opslag op dit toestel is vol — exporteer een back-up", {duration:8000, action:"Exporteer", onAction:exportFile});
+}
+/* Dit toestel leegmaken: sessie weg (nieuwe start = nieuw anoniem profiel), alle mandje.*-sleutels en het IndexedDB-vangnet */
+function wipeDevice(){
+  _wiping=true;
+  var finish=function(){
+    try{ Object.keys(localStorage).forEach(function(k){ if(k.indexOf("mandje.")===0) localStorage.removeItem(k); }); }catch(e){}
+    try{ if(typeof indexedDB!=="undefined") indexedDB.deleteDatabase("mandje-bak"); }catch(e){}
+    try{ if(typeof caches!=="undefined" && caches.keys) caches.keys().then(function(ks){ ks.forEach(function(k){ if(k.indexOf("mandje-")===0) caches.delete(k); }); }); }catch(e){}
+    setTimeout(function(){ try{ location.reload(); }catch(e){} }, 200);
+  };
+  if(typeof Cloud!=="undefined" && Cloud && Cloud.sb && Cloud.sb.auth && typeof Cloud.sb.auth.signOut==="function"){
+    Promise.resolve().then(function(){ return Cloud.sb.auth.signOut(); }).then(finish, finish);
+  } else finish();
+}
+function storageExplainer(){
+  var acc = !!(typeof Cloud!=="undefined" && Cloud && Cloud.hasAccount && Cloud.hasAccount());
+  return "Op dit toestel: je lijsten, vaste boodschappen, bundels, geschiedenis en instellingen. Online: gedeelde lijsten"+(acc?" en — omdat je een account hebt — een kopie van je eigen gegevens voor je andere toestellen":"")+". Geen tracking, geen advertenties.";
+}
+/* Account-blad: e-mail → code (link in de mail werkt ook) */
+function openAccountSheet(mode){
+  var sh=$("#sheet"); if(!sh || typeof Cloud==="undefined" || !Cloud) return;
+  var link=(mode!=="login"), step=1, resendAt=0;
+  var cloudLists=(Cloud.lists||[]).filter(function(l){ return !(typeof isInboxList==="function" && isInboxList(l)); }).length;
+  sh.innerHTML='<div class="grip"></div><h3></h3>'+
+    '<div class="hint" id="acc-intro" style="margin:0 6px 12px"></div>'+
+    '<div class="field"><input id="acc-email" type="email" inputmode="email" autocomplete="email" autocapitalize="off" spellcheck="false" placeholder="naam@voorbeeld.nl" aria-label="E-mailadres"></div>'+
+    '<div id="acc-step2" hidden><div class="hint" id="acc-sent" style="margin:12px 6px 8px"></div>'+
+    '<div class="field"><input id="acc-code" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="Code uit de mail" aria-label="Code uit de mail"></div>'+
+    '<button class="linkbtn" id="acc-resend" type="button">Code opnieuw sturen</button></div>'+
+    '<div class="hint warn" id="acc-warn" hidden style="margin:10px 6px 0"></div>'+
+    '<div class="sheet-actions"><button class="save" id="acc-go" type="button">Stuur code</button><button class="del" id="acc-cancel" type="button">Annuleren</button></div>';
+  sh.querySelector("h3").textContent = link ? "Account maken" : "Inloggen";
+  sh.querySelector("#acc-intro").textContent = link
+    ? "Geen wachtwoord: je krijgt een code per mail. Je huidige lijsten, vrienden en koopritme blijven gewoon van jou — ze worden alleen aan dit adres gekoppeld."
+    : "Vul het e-mailadres in dat je op je andere toestel gekoppeld hebt. Je krijgt een code per mail."+(cloudLists?" Let op: de "+cloudLists+" gedeelde lijst"+(cloudLists===1?"":"en")+" van dit toestel horen bij het huidige anonieme profiel; na inloggen zie je hier de lijsten van je account (opnieuw meedoen kan altijd via een uitnodiging).":"");
+  var emailEl=sh.querySelector("#acc-email"), codeEl=sh.querySelector("#acc-code"), go=sh.querySelector("#acc-go"), warn=sh.querySelector("#acc-warn");
+  var showWarn=function(msg){ warn.textContent=msg; warn.hidden=!msg; };
+  var send=function(){
+    var email=(emailEl.value||"").trim();
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ showWarn("Dat lijkt geen e-mailadres."); emailEl.focus(); return; }
+    go.disabled=true; showWarn("");
+    (link ? Cloud.linkEmail(email) : Cloud.sendLoginCode(email)).then(function(r){
+      go.disabled=false;
+      if(!r || !r.ok){
+        var why=(r&&r.reason)||"error";
+        showWarn(why==="unknown" ? "Geen account met dit adres. Maak eerst een account op je andere toestel, of kies 'Account maken'." :
+                 why==="rate" ? "Te vaak geprobeerd — wacht een paar minuten." :
+                 why==="no-cloud" ? "Geen verbinding met de cloud — probeer het zo nog eens." :
+                 ("Versturen lukte niet"+((r&&r.message)?" ("+r.message+")":"")));
+        return;
+      }
+      step=2; resendAt=Date.now();
+      sh.querySelector("#acc-step2").hidden=false; emailEl.readOnly=true;
+      sh.querySelector("#acc-sent").textContent="Code gestuurd naar "+email+". Staat er een link in de mail? Die werkt ook — daarna kun je dit blad sluiten.";
+      go.textContent="Bevestig"; codeEl.focus();
+      announce("Code gestuurd naar "+email);
+    });
+  };
+  var verify=function(){
+    var code=(codeEl.value||"").replace(/\D/g,"");
+    if(code.length<6){ showWarn("Vul de code uit de mail in (6 tot 10 cijfers)."); codeEl.focus(); return; }
+    go.disabled=true; showWarn("");
+    Cloud.verifyCode(code).then(function(r){
+      go.disabled=false;
+      if(!r || !r.ok){ showWarn(r && r.reason==="invalid" ? "De code klopt niet of is verlopen — vraag een nieuwe aan." : "Bevestigen lukte niet"+((r&&r.message)?" ("+r.message+")":"")); return; }
+      closeSheet(); vibe("tick");
+      toast(r.mode==="signed-in" ? "Ingelogd ✓ — je lijsten en koopritme komen eraan" : "E-mail gekoppeld ✓ — je account is veilig", {duration:3500});
+      if(activeTab==="meer") renderMeer();
+      if(activeTab==="lijst") renderDueBanner();
+    });
+  };
+  go.addEventListener("click", function(){ if(step===1) send(); else verify(); });
+  emailEl.addEventListener("keydown", function(e){ if(e.key==="Enter"){ e.preventDefault(); if(step===1) send(); } });
+  codeEl.addEventListener("keydown", function(e){ if(e.key==="Enter"){ e.preventDefault(); verify(); } });
+  sh.querySelector("#acc-resend").addEventListener("click", function(){
+    if(Date.now()-resendAt<45000){ showWarn("Even geduld — je kunt over "+Math.ceil((45000-(Date.now()-resendAt))/1000)+" s opnieuw sturen."); return; }
+    step=1; send(); step=2;
+  });
+  sh.querySelector("#acc-cancel").addEventListener("click", closeSheet);
+  openSheetUI();
+  setTimeout(function(){ emailEl.focus(); }, 60);
+}
+function openDeleteAccountSheet(){
+  var sh=$("#sheet"); if(!sh) return;
+  sh.innerHTML='<div class="grip"></div><h3>Account verwijderen</h3>'+
+    '<div class="hint" style="margin:0 6px 12px">Dit verwijdert je account, je profiel, je vrienden, de gedeelde lijsten waar jij de enige van bent en de kopie van je gegevens in de cloud. Ook dit toestel wordt leeggemaakt. Dit kan niet ongedaan worden gemaakt.</div>'+
+    '<div class="field"><input id="del-acc-input" type="text" autocomplete="off" autocapitalize="characters" placeholder="Typ VERWIJDER om te bevestigen" aria-label="Typ VERWIJDER om te bevestigen"></div>'+
+    '<div class="sheet-actions"><button class="del" id="del-acc-go" type="button" disabled>Verwijder alles</button><button class="save" id="del-acc-cancel" type="button">Annuleren</button></div>';
+  var inp=sh.querySelector("#del-acc-input"), go=sh.querySelector("#del-acc-go");
+  inp.addEventListener("input", function(){ go.disabled=(inp.value||"").trim().toUpperCase()!=="VERWIJDER"; });
+  go.addEventListener("click", function(){
+    go.disabled=true;
+    Cloud.deleteAccount().then(function(ok){ if(!ok){ go.disabled=false; return; } closeSheet(); toast("Account verwijderd"); wipeDevice(); });
+  });
+  sh.querySelector("#del-acc-cancel").addEventListener("click", closeSheet);
+  openSheetUI();
+}
+/* Zachte nudge op de lijst: wie al deelt of vrienden heeft, wil zijn account niet kwijt bij een nieuwe telefoon */
+function renderAccountNudge(){
+  var wrap=$("#account-nudge"); if(!wrap) return; wrap.innerHTML="";
+  if(activeTab!=="lijst" || !(window.MANDJE_CONFIG && window.MANDJE_CONFIG.EMAIL_AUTH)) return;
+  if(typeof Cloud==="undefined" || !Cloud || !Cloud.ready || (Cloud.hasAccount && Cloud.hasAccount())) return;
+  if(state.settings.accountNudgeDismissed || !state.settings.seenIntro) return;
+  var lists=(Cloud.lists||[]).filter(function(l){ return !(typeof isInboxList==="function" && isInboxList(l)); }).length;
+  var friends=(Cloud.friends||[]).length, trips=(state.history||[]).length;
+  if(!(lists>=1 || friends>=1 || trips>=3)) return;
+  var c=el("div","ritual account");
+  c.innerHTML='<button class="r-x" type="button" aria-label="Kaart verbergen">✕</button><h4>Bewaar je account</h4><p>Koppel je e-mail, dan blijven je lijsten, vrienden en koopritme bewaard als je van telefoon wisselt.</p><div class="chips"><button class="chip" type="button" id="an-go"><span>Koppel e-mail</span><span class="plus">→</span></button></div>';
+  c.querySelector("#an-go").addEventListener("click", function(){ openAccountSheet("link"); });
+  c.querySelector(".r-x").addEventListener("click", function(){ state.settings.accountNudgeDismissed=true; save(); wrap.innerHTML=""; });
+  wrap.appendChild(c);
 }
 
 /* ============================================================
@@ -2182,6 +2318,7 @@ function renderDueBanner(){
   var wrap=$("#due-banner"); wrap.innerHTML="";
   renderCloudCacheBar();
   renderOnboardCard();
+  renderAccountNudge();
   if(!T().cadence){ var wr=$("#week-ritual"); if(wr) wr.innerHTML=""; return; }
   renderWeekRitual();
   if(activeTab!=="lijst") return;
@@ -2724,17 +2861,35 @@ function renderMeer(){
   }
   wrap.appendChild(gI);
 
-  // ---- Account beveiligen (alleen als e-mail-auth aan staat in Supabase)
-  if(window.MANDJE_CONFIG && window.MANDJE_CONFIG.EMAIL_AUTH && typeof Cloud!=="undefined" && Cloud.enabled){
+  // ---- Account (e-mail): koppelen, inloggen op een ander toestel, uitloggen, verwijderen
+  if(window.MANDJE_CONFIG && window.MANDJE_CONFIG.EMAIL_AUTH && typeof Cloud!=="undefined" && Cloud && Cloud.cfg && Cloud.cfg()){
     section("Account");
-    wrap.appendChild(el("div","hint","Koppel een e-mail zodat je vrienden en lijsten bewaard blijven als je van telefoon wisselt. Optioneel — verder hoef je nooit in te loggen."));
-    var secure=el("button","mbtn","Beveilig je account met e-mail");
-    secure.addEventListener("click",function(){
-      var email=prompt("Je e-mailadres (we sturen een bevestigingslink):");
-      if(email===null) return;
-      Cloud.secureWithEmail(email);
-    });
-    wrap.appendChild(secure);
+    if(Cloud.ready && Cloud.hasAccount && Cloud.hasAccount()){
+      var gA=el("div","group");
+      var accRow=el("div","grow acc-email-row"); accRow.innerHTML='<div class="glabel">Ingelogd als<div class="gsub" id="acc-current"></div></div>';
+      accRow.querySelector("#acc-current").textContent=Cloud.authEmail;
+      gA.appendChild(accRow); wrap.appendChild(gA);
+      wrap.appendChild(el("div","hint","Je lijsten, vrienden en koopritme zijn aan dit adres gekoppeld. Log op een ander toestel in met hetzelfde adres en je hebt daar dezelfde app."));
+      var outBtn=el("button","mbtn","Uitloggen op dit toestel"); outBtn.type="button";
+      outBtn.addEventListener("click", function(){
+        if(!confirm("Uitloggen? Je gegevens blijven op dit toestel én in je account staan.")) return;
+        Cloud.signOut().then(function(){ toast("Uitgelogd"); if(activeTab==="meer") renderMeer(); });
+      });
+      wrap.appendChild(outBtn);
+      var delBtn=el("button","mbtn danger","Verwijder mijn account en cloudgegevens"); delBtn.type="button";
+      delBtn.addEventListener("click", openDeleteAccountSheet);
+      wrap.appendChild(delBtn);
+    } else {
+      wrap.appendChild(el("div","hint", Cloud.ready
+        ? "Koppel je e-mailadres zodat je lijsten, vrienden en koopritme bewaard blijven als je van telefoon wisselt — en zodat je iPad en je telefoon dezelfde slimme app zijn. Geen wachtwoord: je krijgt een code per mail."
+        : "Zodra er verbinding met de cloud is, kun je hier een account koppelen."));
+      var mkBtn=el("button","mbtn","Account maken met e-mail"); mkBtn.type="button"; mkBtn.disabled=!Cloud.ready;
+      mkBtn.addEventListener("click", function(){ openAccountSheet("link"); });
+      wrap.appendChild(mkBtn);
+      var liBtn=el("button","mbtn","Ik heb al een account"); liBtn.type="button"; liBtn.disabled=!Cloud.ready;
+      liBtn.addEventListener("click", function(){ openAccountSheet("login"); });
+      wrap.appendChild(liBtn);
+    }
   }
 
   // ---- Schappen & winkels: looproute per winkel (of standaard), eigen schappen
@@ -2798,7 +2953,7 @@ function renderMeer(){
 
   // ---- Back-up & privacy
   section("Back-up & privacy");
-  wrap.appendChild(el("div","hint","Je persoonlijke lijst, vaste boodschappen en geschiedenis staan alleen op dit toestel — exporteer ze af en toe als back-up, of zet ze terug op een nieuw toestel. Gedeelde lijsten staan veilig online. Geen tracking, geen advertenties."));
+  wrap.appendChild(el("div","hint", storageExplainer()+" Exporteer af en toe een back-up, of zet die terug op een nieuw toestel."));
   var shareTxt=el("button","mbtn","Deel als tekst"); shareTxt.type="button";
   shareTxt.addEventListener("click", shareListAsText);
   wrap.appendChild(shareTxt);
@@ -2808,12 +2963,14 @@ function renderMeer(){
   var impf=el("button","mbtn","Importeer uit bestand");
   impf.addEventListener("click",importFromFile);
   wrap.appendChild(impf);
-  var reset=el("button","mbtn danger","Alles wissen");
+  var hasAcc = !!(typeof Cloud!=="undefined" && Cloud && Cloud.hasAccount && Cloud.hasAccount());
+  var reset=el("button","mbtn danger","Wis dit toestel"); reset.type="button";
   reset.addEventListener("click",function(){
-    if(confirm("Weet je zeker dat je alle lijsten, vaste boodschappen en geschiedenis wilt wissen?")){
-      state=normalizeState(deepClone(DEFAULTS)); state.settings.seenIntro=true; rebuildCatIndex(); syncSnapInit(); save(); applyTheme(); applyTextScale(); applyPriceVisibility();
-      renderLijst(); renderDueBanner(); renderVaste(); renderMeer(); toast("Alles gewist");
-    }
+    var msg = hasAcc
+      ? "Alles op dit toestel wissen en uitloggen? Je account en de kopie in de cloud blijven bestaan — log opnieuw in om ze terug te halen."
+      : "Alles op dit toestel wissen (lijsten, vaste boodschappen, geschiedenis, instellingen)? Gedeelde lijsten blijven online bestaan voor de andere leden.";
+    if(!confirm(msg)) return;
+    toast("Toestel wordt gewist…"); wipeDevice();
   });
   wrap.appendChild(reset);
 
@@ -4439,6 +4596,10 @@ if(typeof window!=="undefined"){
   window.mergeUserState = mergeUserState;
   window.syncStamp = syncStamp;
   window.stableStr = stableStr;
+  window.openAccountSheet = openAccountSheet;
+  window.wipeDevice = wipeDevice;
+  window.mirrorAuthSession = mirrorAuthSession;
+  window.onQuotaExceeded = onQuotaExceeded;
   window.parseRecipeText = parseRecipeText;
   window.renderAssignFilter = renderAssignFilter;
   window.onboardSteps = onboardSteps;
