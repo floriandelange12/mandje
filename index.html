@@ -533,6 +533,9 @@
   .shop-screen.show ~ .toast, .send-screen.show ~ .toast{ bottom:calc(var(--safe-b) + 24px); }
   /* Geen invoerbalk op Vaste/Meer → toast laag, niet midden over de inhoud */
   body.tab-meer .toast, body.tab-vaste .toast{ bottom:calc(var(--safe-b) + 24px); }
+  /* Sheet open: toast bovenin, anders ligt hij midden over de sheet-inhoud */
+  body.sheet-open .toast{ bottom:auto; top:calc(var(--safe-t) + 14px); transform:translateX(-50%) translateY(-16px); }
+  body.sheet-open .toast.show{ transform:translateX(-50%) translateY(0); }
 
   /* ---------- Cloud: list switch, members, share, send ---------- */
   .list-switch{ display:inline-flex; align-items:center; gap:7px; margin-top:8px; background:var(--surface-3); border:0; border-radius:var(--r-pill); padding:6px 12px 6px 13px; box-shadow:none; font-size:var(--fs-md); font-weight:var(--fw-medium); max-width:100%; }
@@ -1033,7 +1036,7 @@
   window.MANDJE_CONFIG = {
     SUPABASE_URL:      "https://yctcpxgjpmhyohbsrygy.supabase.co",   /* ingevuld ✓ */
     SUPABASE_ANON_KEY: "sb_publishable_lT77Nkcrl6VsBIx-PFuMtw_mdJ6fyNj",   /* ingevuld ✓ (publishable key) */
-    BUILD:             "740936b7", /* wordt door build.js vervangen door datum + inhoudshash (nooit handmatig ophogen) */
+    BUILD:             "5f8d49ce", /* wordt door build.js vervangen door datum + inhoudshash (nooit handmatig ophogen) */
     EMAIL_AUTH:        false, /* zet op true zodra e-mail magic-link aan staat in Supabase → toont "Beveilig je account" */
     VAPID_PUBLIC_KEY:  "BIkVm3JYB2t37GOXQlMTwSRipLcEvjrDY8Kb2mmNOIIrRY4zmR57RznHTJ2NQ5Z9h1fkp3if2OkDGmcmItLjy54"  /* public key (veilig in frontend). Privésleutel staat alleen als Supabase-secret. */
   };

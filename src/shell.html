@@ -533,6 +533,9 @@
   .shop-screen.show ~ .toast, .send-screen.show ~ .toast{ bottom:calc(var(--safe-b) + 24px); }
   /* Geen invoerbalk op Vaste/Meer → toast laag, niet midden over de inhoud */
   body.tab-meer .toast, body.tab-vaste .toast{ bottom:calc(var(--safe-b) + 24px); }
+  /* Sheet open: toast bovenin, anders ligt hij midden over de sheet-inhoud */
+  body.sheet-open .toast{ bottom:auto; top:calc(var(--safe-t) + 14px); transform:translateX(-50%) translateY(-16px); }
+  body.sheet-open .toast.show{ transform:translateX(-50%) translateY(0); }
 
   /* ---------- Cloud: list switch, members, share, send ---------- */
   .list-switch{ display:inline-flex; align-items:center; gap:7px; margin-top:8px; background:var(--surface-3); border:0; border-radius:var(--r-pill); padding:6px 12px 6px 13px; box-shadow:none; font-size:var(--fs-md); font-weight:var(--fw-medium); max-width:100%; }
