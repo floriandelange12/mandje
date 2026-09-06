@@ -724,6 +724,39 @@
   #bc-reader video{ width:100%!important; height:100%!important; object-fit:cover; display:block; }
   #bc-reader img{ display:none; } /* html5-qrcode info-icoon verbergen */
   .bc-status{ text-align:center; color:var(--ink-soft); font-size:var(--fs-md); margin:14px 0 2px; min-height:18px; }
+  /* barcode: bevestigingschip */
+  .bc-hit{ display:none; margin:10px auto 0; max-width:360px; background:var(--surface-1); border-radius:var(--r-lg); box-shadow:var(--el-2); padding:12px 14px; text-align:left; }
+  .bc-hit.show{ display:block; animation:rowSlideIn var(--dur-base) var(--ease-out); }
+  .bc-hit-main{ display:flex; align-items:center; gap:12px; }
+  .bc-hit-txt{ flex:1; min-width:0; }
+  .bc-hit-name{ font-weight:var(--fw-bold); font-size:var(--fs-base); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .bc-hit-sub{ font-size:var(--fs-sm); color:var(--ink-soft); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .bc-hit-acts{ display:flex; gap:8px; margin-top:10px; }
+  .bc-hit-add{ flex:1; border:0; background:var(--brand); color:var(--on-brand); font-weight:var(--fw-bold); border-radius:var(--r-md); padding:12px; font-size:var(--fs-md); min-height:var(--tap-size-sm); }
+  .bc-hit-more{ flex:0 0 auto; border:0; background:var(--surface-3); color:var(--ink); border-radius:var(--r-md); padding:12px 14px; font-size:var(--fs-md); min-height:var(--tap-size-sm); }
+  /* toewijzen: filterchips + avatar-badge op de rij */
+  .assign-filter{ display:flex; flex-wrap:wrap; gap:6px; margin:6px 0 4px; }
+  .assign-filter.empty{ display:none; }
+  .assign-filter .chip{ padding:6px 11px; font-size:var(--fs-sm); }
+  .assign-filter .chip.on{ background:var(--brand); color:var(--on-brand); }
+  .assign-filter .chip.on .plus{ color:var(--on-brand); }
+  .asg-av{ flex:0 0 auto; width:24px; height:24px; border-radius:50%; color:#fff; font-size:var(--fs-xs); font-weight:var(--fw-bold); display:inline-flex; align-items:center; justify-content:center; }
+  .asg-av.mini{ width:18px; height:18px; font-size:calc(var(--fs-xs) * .85); }
+  /* Aan de slag */
+  .ritual.onboard{ background:var(--surface-1); box-shadow:var(--el-1); }
+  .ritual.onboard h4{ color:var(--ink); }
+  .ob-steps{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:4px; }
+  .ob-btn{ display:flex; align-items:center; gap:10px; width:100%; border:0; background:transparent; padding:8px 4px; text-align:left; font-size:var(--fs-md); color:var(--ink); border-radius:var(--r-sm); min-height:var(--tap-size-sm); }
+  .ob-btn:disabled{ color:var(--ink-faint); }
+  .ob-step.done .ob-lbl{ text-decoration:line-through; }
+  .ob-check{ flex:0 0 auto; width:22px; height:22px; border-radius:50%; border:2px solid var(--line-control); display:inline-flex; align-items:center; justify-content:center; font-size:var(--fs-xs); font-weight:var(--fw-bold); color:var(--on-brand); }
+  .ob-step.done .ob-check{ background:var(--brand); border-color:var(--brand); }
+  .intro-chips{ justify-content:center; margin-top:12px; }
+  .intro-chips .chip.on{ background:var(--brand-2); color:var(--brand); }
+  /* QR in de deel-sheet */
+  .qr-box{ text-align:center; margin:4px 0 12px; }
+  .qr-box .qr-svg svg{ width:min(220px, 60vw); height:auto; border-radius:var(--r-md); box-shadow:var(--el-1); }
+  .qr-box .qr-cap{ font-size:var(--fs-sm); color:var(--ink-soft); margin-top:8px; }
 
   /* ---------- Winkelmodus (in-store focus) ---------- */
   #shop-entry:empty{ display:none; }
@@ -1231,7 +1264,9 @@
       <div class="co-suggest hide" id="co-suggest" aria-live="polite"></div>
       <div class="shortcuts-row empty" id="shortcuts-row"></div>
       <div class="members-row empty" id="members-row"></div>
+      <div class="assign-filter empty" id="assign-filter"></div>
       <div class="presence-bar empty" id="presence-bar"></div>
+      <div id="onboard-card"></div>
       <div id="week-ritual"></div>
       <div id="due-banner"></div>
       <div id="shop-entry"></div>

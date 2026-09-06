@@ -51,7 +51,7 @@ if (app.indexOf(MARKER) === -1) {
 }
 // Prelude-modules (iconen, overlays/toetsenbord) gaan BINNEN de IIFE vóór de app-code — function-declaraties
 // worden gehoist, dus app.js kan ze overal gebruiken; window blijft schoon.
-const PRELUDE = ["src/icons.js", "src/overlays.js"].filter(p => fs.existsSync(path.join(root, p)));
+const PRELUDE = ["src/icons.js", "src/overlays.js", "src/qr.js"].filter(p => fs.existsSync(path.join(root, p)));
 const prelude = PRELUDE.map(p => "/* ===== " + p + " ===== */\n" + readSafe(p)).join("\n");
 const IIFE_OPEN = '"use strict";\n(function(){\n';
 if (app.indexOf(IIFE_OPEN) !== 0) { console.error("✗ src/app.js begint niet met de verwachte IIFE-opener — build gestopt."); process.exit(1); }

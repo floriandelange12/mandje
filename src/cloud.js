@@ -1645,6 +1645,8 @@ function openShareSheet(listId){
     return titleHtml +
       '<div class="code-box"><div class="cb-lbl">Code</div><div class="cb-code">'+codePretty+'</div></div>'+
       '<button class="mbtn primary" id="sh-invite">Stuur uitnodiging</button>'+
+      '<button class="mbtn" id="sh-qr-toggle" type="button">Laat een QR-code scannen</button>'+
+      '<div class="qr-box" id="sh-qr" hidden><div class="qr-svg"></div><div class="qr-cap">Scan met de camera of via de scanknop in Mandje — je doet dan direct mee.</div></div>'+
       '<button class="mbtn" id="sh-more-toggle" type="button" style="font-weight:500;color:var(--ink-soft);background:transparent;border:0;box-shadow:none;padding:8px 4px;margin:4px 0 6px">Andere opties ▾</button>'+
       '<div id="sh-more" style="display:none">'+
         '<button class="mbtn" id="sh-link">Kopieer uitnodig-link</button>'+
@@ -1699,6 +1701,15 @@ function wireShareSheet(s, l, isOwner, prettyName){
     });
   }
   if(invite) invite.addEventListener("click",function(){ shareNative(Cloud.shareLink(l), "Doe mee met onze boodschappenlijst \""+prettyName+"\" in Mandje 🧺", "Uitnodig-link gekopieerd"); });
+  var qrT = s.querySelector("#sh-qr-toggle"), qrB = s.querySelector("#sh-qr");
+  if(qrT && qrB){
+    qrT.addEventListener("click", function(){
+      var open = !qrB.hidden;
+      if(open){ qrB.hidden=true; qrT.textContent="Laat een QR-code scannen"; return; }
+      if(typeof qrSvg==="function" && !qrB.querySelector("svg")){ qrB.querySelector(".qr-svg").innerHTML = qrSvg(Cloud.shareLink(l), {px:220, label:"QR-code van de uitnodig-link"}); }
+      qrB.hidden=false; qrT.textContent="Verberg QR-code";
+    });
+  }
   if(lnk) lnk.addEventListener("click",function(){ copyText(Cloud.shareLink(l),"Uitnodig-link gekopieerd"); });
   if(snd) snd.addEventListener("click",function(){ shareNative(Cloud.sendLink(l), "Stuur boodschappen naar onze lijst \""+prettyName+"\" 🧺", "Stuur-link gekopieerd"); });
 

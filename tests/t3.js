@@ -111,11 +111,14 @@ const ok=(n,c)=>{ if(c){pass++;console.log("  ✓ "+n);} else {fail++;console.lo
   const dom8=new JSDOM(html,{url:"https://example.com/",runScripts:"dangerously",resources:"usable",pretendToBeVisual:true});
   await wait(150); const doc8=dom8.window.document;
   const dots = doc8.querySelectorAll("#sheet .intro-dots .id-dot");
-  ok("Intro: 3 stages aanwezig", dots.length === 3);
+  ok("Intro: 4 stages aanwezig (demo, vaste, samen, startchips)", dots.length === 4);
   ok("Intro: stap 1 → Volgende-knop", !!doc8.querySelector("#intro-next"));
   doc8.querySelector("#intro-next").click(); await wait(20);
   doc8.querySelector("#intro-next").click(); await wait(20);
-  ok("Intro: laatste stap → Aan-de-slag knop", !!doc8.querySelector("#intro-go"));
+  doc8.querySelector("#intro-next").click(); await wait(20);
+  ok("Intro: laatste stap → Aan-de-slag knop + vaak-gekochte chips", !!doc8.querySelector("#intro-go") && doc8.querySelectorAll("#intro-chips .chip").length===8);
+  doc8.querySelector("#intro-chips .chip").click(); await wait(40);
+  ok("Intro: chip tikken zet het product op de lijst", doc8.querySelectorAll("#open-list li.row").length===1 && doc8.querySelector("#intro-chips .chip").classList.contains("on"));
   dom8.window.close();
 
   // 10. Co-purchase tracking + suggesties
@@ -466,8 +469,8 @@ const ok=(n,c)=>{ if(c){pass++;console.log("  ✓ "+n);} else {fail++;console.lo
     const chip=[...docB.querySelectorAll("#s-assign .cadchip")].find(b=>b.dataset.m==="m1"); if(chip) chip.click();
     docB.querySelector("#s-save").click(); await wait(40);
     const rowHtml=docB.querySelector("#open-list").innerHTML;
-    ok("Review: rij met toegewezen lid bevat geen geïnjecteerde attributen", rowHtml.indexOf("onmouseover")===-1 && /→ Mallory/.test(docB.querySelector("#open-list").textContent));
-    ok("Review: onveilige kleur valt terug op de standaardkleur", /color:#24593F/.test(rowHtml));
+    ok("Review: rij met toegewezen lid bevat geen geïnjecteerde attributen (avatar-badge)", rowHtml.indexOf("onmouseover")===-1 && /Voor Mallory/.test(rowHtml) && !!docB.querySelector("#open-list .asg-av"));
+    ok("Review: onveilige kleur valt terug op de standaardkleur", /background:#24593F/.test(rowHtml));
     ok("Review: geen script uitgevoerd", !Wb.__pwned);
     dom29b.window.close();
 
@@ -720,6 +723,46 @@ const ok=(n,c)=>{ if(c){pass++;console.log("  ✓ "+n);} else {fail++;console.lo
     rit.querySelector(".r-x").click(); await wait(20);
     ok("Fase 2d: kaart weggetikt voor vandaag", !Dr.querySelector("#week-ritual .ritual") && JSON.parse(Wr.localStorage.getItem("mandje.v2")).settings.ritualDismissed===dstr(0));
     dR.window.close();
+  }
+
+  // 34. Fase 7b — recept-parser, barcode-bevestiging + categorie, QR-encoder, Aan-de-slag-kaart, row-cache
+  {
+    const now34=new Date().toISOString();
+    const seed34=JSON.stringify({version:3,settings:{theme:"light",showPrices:false,seenIntro:true,categoryOrder:null,minPurchases:3,cvThreshold:.6,dueWindowDays:1},list:[
+      {id:"a1",name:"appels",category:"groente-fruit",qty:3,unit:"",done:false,note:"",price:null,assigned_to:null,added_by_name:"",addedAt:now34}
+    ],catalog:{},coBuy:{},meals:{}});
+    const d34=new JSDOM(html,{url:"https://example.com/",runScripts:"dangerously",resources:"usable",pretendToBeVisual:true,beforeParse(w){ w.localStorage.setItem("mandje.v2", seed34); }});
+    await wait(160); const W=d34.window, D=W.document;
+    // a) recept → ingrediënten
+    const ings=W.parseRecipeText("Ingrediënten (voor 4 personen)\n- 500 g spaghetti\n- 2 el olijfolie\n- 1 ui, gesnipperd\n- 2 teentjes knoflook\n- 400 g gehakt\n- 1 blik tomatenblokjes (400 g)\n- zout en peper naar smaak\nBereiding\n1. Verhit de olie in een pan en bak de ui glazig.\n2. Voeg het gehakt toe en bak het rul.\nLaat 20 minuten sudderen en serveer met parmezaan.");
+    const names=ings.map(i=>i.name);
+    ok("Fase 7b: recept-parser pakt de ingrediënten met hoeveelheid en laat instructies weg", names.indexOf("Spaghetti")!==-1 && names.indexOf("Ui")!==-1 && names.indexOf("Knoflook")!==-1 && names.indexOf("Gehakt")!==-1 && names.indexOf("Tomatenblokjes")!==-1 && !names.some(n=>/verhit|voeg|laat|bereiding|ingredi/i.test(n)));
+    ok("Fase 7b: hoeveelheden als eenheid ('500 g') of aantal (2 teentjes → eenheid)", ings.find(i=>i.name==="Spaghetti").unit==="500 g" && ings.find(i=>i.name==="Olijfolie").unit==="2 el" && ings.find(i=>i.name==="Knoflook").unit==="2 teentjes");
+    // b) barcode-bevestiging zet het schap uit de lookup
+    W.addToList("Blikje energiedrank", null, {qty:1, category:"dranken", silent:true}); await wait(30);
+    const st=JSON.parse(W.localStorage.getItem("mandje.v2"));
+    ok("Fase 7b: addToList met category (barcode) gebruikt dat schap en leert het in de catalogus", st.list.find(i=>i.name==="Blikje energiedrank").category==="dranken" && st.catalog["blikje energiedrank"].category==="dranken");
+    // c) QR-encoder: structuur (finders, donkere module, maat) — de decodeer-ronde draait apart via tools/qr-check.js
+    const q=W.qrMatrix("https://floriandelange12.github.io/mandje/?join=ABC123");
+    const fin=(r,c)=>q.get(r,c)&&q.get(r+6,c)&&q.get(r,c+6)&&q.get(r+6,c+6)&&q.get(r+3,c+3)&&!q.get(r+1,c+1);
+    ok("Fase 7b: QR-matrix versie 4 (33×33) met drie finders en donkere module", !!q && q.version===4 && q.size===33 && fin(0,0) && fin(0,26) && fin(26,0) && q.get(25,8)===true);
+    ok("Fase 7b: qrSvg levert een SVG met pad", /^<svg[^>]*viewBox="0 0 29 29"/.test(W.qrSvg("Mandje",{px:120})) && /<path d="M/.test(W.qrSvg("Mandje")));
+    // d) Aan-de-slag-kaart: stappen vinken zichzelf af
+    const steps=W.onboardSteps();
+    ok("Fase 7b: Aan de slag heeft 5 stappen, 'zet iets op je lijst' is al gedaan", steps.length===5 && steps[0].done===true && steps[1].done===false);
+    const card=D.querySelector("#onboard-card .ritual.onboard");
+    ok("Fase 7b: kaart zichtbaar met 1 van 5 gedaan", !!card && /1 van 5/.test(card.textContent) && card.querySelectorAll(".ob-step.done").length===1);
+    card.querySelector(".r-x").click(); await wait(30);
+    ok("Fase 7b: kaart wegtikken is blijvend", !D.querySelector("#onboard-card .ritual") && JSON.parse(W.localStorage.getItem("mandje.v2")).settings.onboardDismissed===true);
+    // e) row-cache: ongewijzigde rij is hetzelfde DOM-element na een re-render; gewijzigde rij is nieuw
+    const before=D.querySelector('#open-list li.row[data-id="a1"]');
+    W.addToList("Brood", null, {silent:true}); await wait(30);
+    const after=D.querySelector('#open-list li.row[data-id="a1"]');
+    ok("Fase 7b: row-cache hergebruikt een ongewijzigde rij", before===after);
+    after.querySelector(".q-plus").click(); await wait(30);
+    const after2=D.querySelector('#open-list li.row[data-id="a1"]');
+    ok("Fase 7b: gewijzigde rij (aantal) wordt opnieuw gebouwd", after2!==after && after2.querySelector(".qty span").textContent==="4");
+    d34.window.close();
   }
 
   console.log("\nt3: "+pass+" geslaagd, "+fail+" gefaald");

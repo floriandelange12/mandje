@@ -962,13 +962,14 @@ function addToList(name, price, opts){
     if(unit) existing.unit=unit;
     if(!silent) toast(name + " → " + existing.qty + "×");
   } else{
-    var cat = (state.catalog[k] && state.catalog[k].category) || classify(name);
+    var cat = (opts.category && CAT_BY_ID[opts.category]) ? opts.category : ((state.catalog[k] && state.catalog[k].category) || classify(name));
     var defPrice = price!=null ? price : (state.catalog[k] ? state.catalog[k].defaultPrice : null);
     var newId=uid();
     state.list.unshift({ id:newId, name:name, category:cat, qty:addQty, price:(state.settings.showPrices?defPrice:null), note:"", unit:unit, done:false, addedAt:nowISO() });
     if(!silent){ var cl=CAT_BY_ID[cat]||CAT_BY_ID["overig"]; toast((addQty>1 ? addQty+"× " : "") + name + " → " + cl.label, {duration:1600, onTap:function(){ scrollToRow(newId); }}); }
   }
   touchCatalog(name, price);
+  if(opts.category && CAT_BY_ID[opts.category] && state.catalog[k] && !state.catalog[k].userOverrideCat) state.catalog[k].category = opts.category;   // barcode kent het schap
   save(); renderLijst(); renderDueBanner();
   if(!silent) renderCoSuggest(norm(name));
   return true;
@@ -1336,13 +1337,13 @@ function renderPlainLists(open, done, openFrag, doneFrag){
   groups.forEach(function(g){
     var wrap=el("div","shelf plain"); wrap.dataset.section=g.name;
     if(g.name){ var sec=el("div","section plain-sec",'<span class="ps-name"></span><span class="count">'+g.items.length+'</span>'); sec.querySelector(".ps-name").textContent=g.name; wrap.appendChild(sec); }
-    var ul=el("ul","list"); g.items.forEach(function(it){ ul.appendChild(itemRow(it)); }); wrap.appendChild(ul);
+    var ul=el("ul","list"); g.items.forEach(function(it){ ul.appendChild(cachedRow(it)); }); wrap.appendChild(ul);
     attachSortHandles(Array.prototype.slice.call(ul.children), function(ids){ reorderPlainItems(ids); }, 8);
     openFrag.appendChild(wrap);
   });
   if(done.length){
     var s2=el("div","section",'<span class="ps-name"></span><span class="count">'+done.length+'</span>'); s2.querySelector(".ps-name").textContent=lab.doneTitle; doneFrag.appendChild(s2);
-    var ul2=el("ul","list"); done.forEach(function(it){ ul2.appendChild(itemRow(it)); }); doneFrag.appendChild(ul2);
+    var ul2=el("ul","list"); done.forEach(function(it){ ul2.appendChild(cachedRow(it)); }); doneFrag.appendChild(ul2);
     var meta=currentListMeta();
     var fw=el("div","finish-inline");
     var fb=el("button","finish-inline-btn", meta.finish==="terugzetten" ? "Alles terugzetten ↺" : "Opruimen ✓"); fb.type="button";
@@ -1463,9 +1464,46 @@ function catBuckets(byCat){
   Object.keys(byCat).forEach(function(cid){ if(!seen[cid] && byCat[cid].length) out.push(cid); });
   return out;
 }
+var _assignFilter=null;   // null | member-id — "Voor mij"/lid-filter op een gedeelde lijst
+function renderAssignFilter(){
+  var wrap=$("#assign-filter"); if(!wrap) return;
+  var on = activeTab==="lijst" && typeof Cloud!=="undefined" && Cloud.active && Array.isArray(Cloud.members) && Cloud.members.length>1 && !isPlainList();
+  if(!on){ wrap.innerHTML=""; wrap.className="assign-filter empty"; if(!Cloud.active) _assignFilter=null; return; }
+  var open=state.list.filter(function(i){return !i.done;});
+  var me=Cloud.members.filter(function(m){ return m.user_id===Cloud.userId; })[0];
+  var counts={}; open.forEach(function(i){ if(i.assigned_to) counts[i.assigned_to]=(counts[i.assigned_to]||0)+1; });
+  wrap.className="assign-filter"; wrap.innerHTML=""; wrap.setAttribute("role","group"); wrap.setAttribute("aria-label","Filter op wie het haalt");
+  var mk=function(id,label,n,color){
+    var isOn=(_assignFilter===id);
+    var b=el("button","chip"+(isOn?" on":""),(color?'<span class="asg-av mini" style="background:'+safeColor(color)+'">'+escapeHtml(initials(label).slice(0,1))+'</span>':'')+'<span>'+escapeHtml(label)+'</span>'+(n!=null?'<span class="plus">'+n+'</span>':''));
+    b.type="button"; b.setAttribute("aria-pressed", isOn?"true":"false");
+    b.addEventListener("click",function(){ _assignFilter = isOn ? null : id; renderLijst(); });
+    return b;
+  };
+  wrap.appendChild(mk(null,"Iedereen",null,null));
+  if(me) wrap.appendChild(mk(me.id,"Voor mij",counts[me.id]||0,null));
+  Cloud.members.forEach(function(m){ if(me && m.id===me.id) return; wrap.appendChild(mk(m.id, m.display_name, counts[m.id]||0, m.color)); });
+}
+/* Keyed row-cache: een rij wordt alleen opnieuw gebouwd als iets zichtbaars veranderde (naam, aantal, notitie, prijs, done, schap, toewijzing) */
+var _rowCache={};
+function rowSig(it){
+  return [it.name, it.qty, it.unit||"", it.note||"", it.price==null?"":it.price, it.done?1:0, it.category||"", it.assigned_to||"", it.section||"", it.added_by_name||"",
+    (state.settings.showPrices?1:0), ((typeof Cloud!=="undefined" && Cloud.active)?1:0), (isPlainList()?1:0)].join("\u0001");
+}
+function cachedRow(it){
+  var sig=rowSig(it), c=_rowCache[it.id];
+  if(c && c.sig===sig && c.li && !c.li.classList.contains("swiping")){ c.li.style.display=""; return c.li; }
+  var li=itemRow(it); _rowCache[it.id]={li:li, sig:sig}; return li;
+}
+function pruneRowCache(){
+  var present={}; state.list.forEach(function(i){ present[i.id]=1; });
+  Object.keys(_rowCache).forEach(function(id){ if(!present[id]) delete _rowCache[id]; });
+}
 function renderLijst(){
   var open = state.list.filter(function(i){return !i.done;});
   var done = state.list.filter(function(i){return i.done;});
+  if(_assignFilter && typeof Cloud!=="undefined" && Cloud.active){ open = open.filter(function(i){ return i.assigned_to===_assignFilter; }); }
+  pruneRowCache();
   var openWrap=$("#open-list"); openWrap.innerHTML="";
   var doneWrap=$("#done-list"); doneWrap.innerHTML="";
   toggleSearchBar();
@@ -1491,6 +1529,7 @@ function renderLijst(){
   } else if(isPlainList()){
     renderPlainLists(open, done, openFrag, doneFrag);
   } else {
+    if(_assignFilter && !open.length) openFrag.appendChild(el("div","hint","Niets toegewezen — tik op 'Iedereen' om alles te zien."));
     // groepeer open per categorie volgens categoryOrder
     var byCat={}; open.forEach(function(it){ var cid = CAT_BY_ID[it.category] ? it.category : "overig"; (byCat[cid]=byCat[cid]||[]).push(it); });
     catBuckets(byCat).forEach(function(cid){
@@ -1503,7 +1542,7 @@ function renderLijst(){
       var shelf=el("div","shelf"); shelf.dataset.cat=cid;
       shelf.appendChild(sec);
       var ul=el("ul","list"+(collapsed?" collapsed":"")); ul.id="cat-"+cid;
-      arr.forEach(function(it){ ul.appendChild(itemRow(it)); });
+      arr.forEach(function(it){ ul.appendChild(cachedRow(it)); });
       shelf.appendChild(ul);
       openFrag.appendChild(shelf);
       sec.addEventListener("click", function(){
@@ -1519,7 +1558,7 @@ function renderLijst(){
       var s2=el("div","section");
       s2.innerHTML='<span>In mandje</span><span class="count">'+done.length+'</span>';
       doneFrag.appendChild(s2);
-      var ul2=el("ul","list"); done.forEach(function(it){ ul2.appendChild(itemRow(it)); });
+      var ul2=el("ul","list"); done.forEach(function(it){ ul2.appendChild(cachedRow(it)); });
       doneFrag.appendChild(ul2);
       // Afrond-knop direct onder de afgevinkte items — alleen tonen wanneer de
       // prijzen-totals-bar (met z'n eigen afrond-knop) uit staat, anders dubbel.
@@ -1540,6 +1579,7 @@ function renderLijst(){
   updateSubhead();
   renderShopEntry();
   renderStorePick();
+  renderAssignFilter();
 }
 
 /* FLIP: rijen die door een re-render van plek veranderen (afvinken → "In mandje") glijden naar hun nieuwe plek */
@@ -1586,16 +1626,17 @@ function itemRow(it){
   if(it.unit) sub+='<span>'+escapeHtml(it.unit)+'</span>';
   if(it.note) sub+=(sub?' · ':'')+'<span>'+escapeHtml(it.note)+'</span>';
   if(state.settings.showPrices && it.price!=null) sub+=(sub?' · ':'')+'<span>'+euro(it.price)+(it.qty>1?' × '+it.qty:'')+'</span>';
+  var asg=null;
   if(Cloud.active){
-    var asg = it.assigned_to ? Cloud.memberById(it.assigned_to) : null;
-    if(asg) sub+=(sub?' · ':'')+'<span style="color:'+safeColor(asg.color)+';font-weight:700">→ '+escapeHtml(asg.display_name)+'</span>';
-    else if(it.added_by_name) sub+=(sub?' · ':'')+'<span style="color:var(--ink-faint)">+ '+escapeHtml(it.added_by_name)+'</span>';
+    asg = it.assigned_to ? Cloud.memberById(it.assigned_to) : null;
+    if(!asg && it.added_by_name) sub+=(sub?' · ':'')+'<span style="color:var(--ink-faint)">+ '+escapeHtml(it.added_by_name)+'</span>';
   }
+  var asgHtml = asg ? '<span class="asg-av" style="background:'+safeColor(asg.color)+'" title="Voor '+escapeAttr(asg.display_name)+'" aria-label="Voor '+escapeAttr(asg.display_name)+'">'+escapeHtml(initials(asg.display_name).slice(0,1))+'</span>' : '';
 
   if(!it.done && (!CAT_BY_ID[it.category] || it.category==="overig")) sub+=(sub?' · ':'')+'<button class="pick-cat" type="button">Schap kiezen</button>';
   card.innerHTML =
     '<button class="check" type="button" role="checkbox" aria-checked="'+(it.done?"true":"false")+'" aria-label="'+escapeAttr(it.name)+(it.done?" — vinkje weghalen":" afvinken")+'">'+CHECK_SVG+'</button>'+
-    '<div class="meta"><div class="nm"></div>'+(sub?'<div class="sub2">'+sub+'</div>':'')+'</div>'+
+    '<div class="meta"><div class="nm"></div>'+(sub?'<div class="sub2">'+sub+'</div>':'')+'</div>'+asgHtml+
     '<div class="qty"><button class="q-minus" type="button" aria-label="Minder '+escapeAttr(it.name)+'">–</button><span aria-live="polite">'+it.qty+'</span><button class="q-plus" type="button" aria-label="Meer '+escapeAttr(it.name)+'">+</button></div>'+
     (state.settings.showPrices && it.price!=null ? '<div class="price">'+euro(it.price*it.qty)+'</div>' : '')+
     ((typeof HAS_POINTER!=="undefined" && HAS_POINTER) ? '<div class="row-actions"><button class="ra-btn ra-opt" type="button" aria-label="Opties voor '+escapeAttr(it.name)+'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></svg></button><button class="ra-btn ra-del" type="button" aria-label="Verwijder '+escapeAttr(it.name)+'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg></button></div>' : '');
@@ -1778,8 +1819,40 @@ function renderWeekRitual(){
   c.querySelector(".r-x").addEventListener("click",function(){ state.settings.ritualDismissed=todayStr(); save(); wrap.innerHTML=""; });
   wrap.appendChild(c);
 }
+/* "Aan de slag": vijf stappen die zichzelf afvinken; verdwijnt als alles gedaan is of na wegtikken */
+function onboardSteps(){
+  var standalone = (navigator.standalone===true) || (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches);
+  var shared = !!(typeof Cloud!=="undefined" && Cloud && Array.isArray(Cloud.lists) && Cloud.lists.some(function(l){ return (l.member_count||1)>1; }));
+  return [
+    { key:"add",     label:"Zet iets op je lijst",              done: state.list.length>0 || Object.keys(state.catalog||{}).length>0, go:function(){ var i=$("#add-name"); if(i) i.focus(); } },
+    { key:"finish",  label:"Vink af en tik op Afronden",         done: (state.history||[]).length>0, go:function(){ toast("Tik het rondje voor een product en daarna op Afronden ✓", {duration:3000}); } },
+    { key:"install", label:"Zet Mandje op je beginscherm",       done: standalone, go:function(){ switchTab("meer"); } },
+    { key:"share",   label:"Deel een lijst met een huisgenoot", done: shared, go:function(){ if(typeof openNewListSheet==="function") openNewListSheet(); } },
+    { key:"push",    label:"Zet meldingen aan",                  done: state.settings.pushOn===true, go:function(){ switchTab("meer"); } }
+  ];
+}
+function renderOnboardCard(){
+  var wrap=$("#onboard-card"); if(!wrap) return; wrap.innerHTML="";
+  if(activeTab!=="lijst" || !state.settings.seenIntro || state.settings.onboardDone || state.settings.onboardDismissed) return;
+  if(isPlainList()) return;
+  var steps=onboardSteps(), doneN=steps.filter(function(s){ return s.done; }).length;
+  if(doneN===steps.length){ state.settings.onboardDone=true; save(); return; }
+  var c=el("div","ritual onboard");
+  c.innerHTML='<button class="r-x" type="button" aria-label="Kaart verbergen">✕</button><h4>Aan de slag</h4><p>'+doneN+' van '+steps.length+' gedaan</p><ul class="ob-steps"></ul>';
+  var ul=c.querySelector(".ob-steps");
+  steps.forEach(function(s){
+    var li=el("li","ob-step"+(s.done?" done":""));
+    var b=el("button","ob-btn",'<span class="ob-check" aria-hidden="true">'+(s.done?"✓":"")+'</span><span class="ob-lbl"></span>'); b.type="button"; b.querySelector(".ob-lbl").textContent=s.label;
+    b.setAttribute("aria-label", s.label+(s.done?" — gedaan":""));
+    if(!s.done) b.addEventListener("click", s.go); else b.disabled=true;
+    li.appendChild(b); ul.appendChild(li);
+  });
+  c.querySelector(".r-x").addEventListener("click",function(){ state.settings.onboardDismissed=true; save(); wrap.innerHTML=""; });
+  wrap.appendChild(c);
+}
 function renderDueBanner(){
   var wrap=$("#due-banner"); wrap.innerHTML="";
+  renderOnboardCard();
   if(!T().cadence){ var wr=$("#week-ritual"); if(wr) wr.innerHTML=""; return; }
   renderWeekRitual();
   if(activeTab!=="lijst") return;
@@ -2078,6 +2151,33 @@ function mealRow(m){
   li.appendChild(div);
   return li;
 }
+/* Recepttekst → ingrediënten: opsommingstekens, hoeveelheden (200 g, 2 el) en bijzinnen (", gesnipperd") eraf; instructiezinnen overslaan */
+function parseRecipeText(text){
+  var out=[], seen={};
+  String(text||"").split(/\r?\n/).forEach(function(raw){
+    var l=raw.trim(); if(!l) return;
+    l=l.replace(/^[\-\u2022\*\u2013\u2014·]+\s*/, "").replace(/^\d+[\.)]\s+/, "").trim();
+    if(!l) return;
+    if(/^(ingredi[eë]nten|bereiding|bereidingswijze|benodigdheden|voor \d+ personen|stap \d|tip:)/i.test(l)) return;
+    if(l.length>60) return;
+    var words=l.split(/\s+/);
+    if(words.length>4 && /\b(bak|bakken|roer|voeg|laat|snijd|snij|kook|meng|verwarm|schep|giet|serveer|bestrooi|zet|haal|doe|breng|hak|pers|rasp|dek|verhit|smelt|klop|schil|was|proef|garneer)\b/i.test(l)) return;
+    l=l.replace(/\(.*?\)/g, "").replace(/,.*$/, "").trim();
+    var m=l.match(/^(\d+(?:[.,]\d+)?|½|¼|¾|een|1\/2|1\/4)\s*(g|gr|gram|kg|ml|l|liter|dl|cl|el|eetlepels?|tl|theelepels?|snuf|snufjes?|teen|teentjes?|blaadjes?|takjes?|stuks?|st|plakj?e?s?|blikj?e?s?|pakj?e?s?|zakj?e?s?|bosj?e?s?|handj?e?s?|scheutj?e?s?|mespuntj?e?s?|kopj?e?s?|cm|stengels?|bol|bolletjes?|blokjes?)?\.?\s+(.+)$/i);
+    var name=l, unit="", qty=1;
+    if(m){
+      name=m[3].trim();
+      var amt=m[1].replace(/^een$/i,"1").replace("½","0,5").replace("¼","0,25").replace("¾","0,75").replace("1/2","0,5").replace("1/4","0,25");
+      if(m[2]) unit=amt+" "+m[2].toLowerCase();
+      else if(/^\d+$/.test(amt)) qty=Math.max(1, Math.min(99, parseInt(amt,10)));
+    }
+    name=name.replace(/^(van|de|het|een|verse?|wat)\s+/i,"").replace(/\s+(naar smaak|optioneel|fijngehakt|fijngesneden|gesnipperd|geraspt|gehakt|in blokjes|in plakjes|in reepjes|gepeld|ontpit|uitgelekt)$/i,"").trim();
+    if(!name || name.length<2 || /^\d+$/.test(name)) return;
+    var k=matchKey(name); if(seen[k]) return; seen[k]=1;
+    out.push({ name:name.charAt(0).toUpperCase()+name.slice(1), unit:unit, qty:qty });
+  });
+  return out;
+}
 function buildMealEditor(id){
   var m = (id && state.meals) ? state.meals[id] : null;
   var picked = m ? (m.emoji||"🍽️") : "🍽️";
@@ -2096,6 +2196,9 @@ function buildMealEditor(id){
     '<div class="emoji-picker" id="ml-emojis">'+emojis+'</div>'+
     '<div class="sheet-label"><span class="lbl-cap">Producten</span><span class="lbl-hint">één per regel</span></div>'+
     '<textarea class="io" id="ml-items" placeholder="Pasta&#10;Pastasaus&#10;Gehakt 500g&#10;Parmezaan" autocapitalize="sentences" autocomplete="off" spellcheck="false">'+escapeHtml(itemsText)+'</textarea>'+
+    '<button class="mbtn" id="ml-recipe-toggle" type="button" style="margin-top:8px">Plak een recept</button>'+
+    '<div id="ml-recipe" hidden><textarea class="io" id="ml-recipe-text" placeholder="Plak hier de ingrediëntenlijst — of het hele recept, Mandje pikt de ingrediënten eruit" style="height:140px" autocomplete="off" spellcheck="false"></textarea>'+
+    '<button class="mbtn" id="ml-recipe-go" type="button">Ingrediënten overnemen</button></div>'+
     '<div class="sheet-actions">'+
       '<button class="save" id="ml-save">'+(m?"Opslaan":"Aanmaken")+'</button>'+
       (m?'<button class="del" id="ml-del">Verwijder</button>':'<button class="del" id="ml-cancel">Annuleren</button>')+
@@ -2109,6 +2212,19 @@ function buildMealEditor(id){
     });
   });
   var cancel=$("#ml-cancel"); if(cancel) cancel.addEventListener("click", closeSheet);
+  var rcT=$("#ml-recipe-toggle"), rcW=$("#ml-recipe");
+  if(rcT && rcW){
+    rcT.addEventListener("click", function(){ rcW.hidden=!rcW.hidden; if(!rcW.hidden){ var ta=$("#ml-recipe-text"); if(ta) ta.focus(); } });
+    $("#ml-recipe-go").addEventListener("click", function(){
+      var ings=parseRecipeText($("#ml-recipe-text").value||"");
+      if(!ings.length){ toast("Geen ingrediënten herkend — plak de ingrediëntenlijst"); return; }
+      var ta=$("#ml-items"); var have=(ta.value||"").split(/\r?\n/).map(function(l){ return matchKey(parseQtyFromInput(l).name||""); });
+      var added=0, lines=(ta.value||"").trim() ? [ta.value.trim()] : [];
+      ings.forEach(function(i){ if(have.indexOf(matchKey(i.name))!==-1) return; lines.push(i.unit ? (i.unit+" "+i.name) : (i.qty>1 ? i.name+" x"+i.qty : i.name)); added++; });
+      ta.value=lines.join("\n"); rcW.hidden=true; $("#ml-recipe-text").value="";
+      toast(added+(added===1?" ingrediënt overgenomen":" ingrediënten overgenomen"));
+    });
+  }
   var del=$("#ml-del"); if(del) del.addEventListener("click", function(){
     var snap = m ? { name:m.name, emoji:m.emoji, items:(m.items||[]).slice() } : null;
     deleteMeal(id); closeSheet(); renderVaste();
@@ -3305,13 +3421,13 @@ function barcodeCacheSet(ean, data){
 function lookupBarcode(ean){
   var cached = barcodeCacheGet(ean);
   if(cached) return Promise.resolve(cached);
-  var url = "https://world.openfoodfacts.org/api/v2/product/"+encodeURIComponent(ean)+".json?fields=product_name,product_name_nl,brands,categories_tags";
+  var url = "https://world.openfoodfacts.org/api/v2/product/"+encodeURIComponent(ean)+".json?fields=product_name,product_name_nl,brands,quantity,categories_tags";
   return fetch(url, {headers:{"Accept":"application/json"}}).then(function(r){ return r.json(); }).then(function(j){
     if(!j || j.status!==1 || !j.product){ var miss={ean:ean, found:false}; barcodeCacheSet(ean, miss); return miss; }
     var p=j.product;
     var name=(p.product_name_nl || p.product_name || "").trim();
     if(!name){ var m2={ean:ean, found:false}; barcodeCacheSet(ean, m2); return m2; }
-    var data={ean:ean, found:true, name:name, cat:(mapOFFCategory(p.categories_tags)||classify(name))};
+    var data={ean:ean, found:true, name:name, cat:(mapOFFCategory(p.categories_tags)||classify(name)), brand:String(p.brands||"").split(",")[0].trim().slice(0,40), quantity:String(p.quantity||"").trim().slice(0,20)};
     barcodeCacheSet(ean, data); return data;
   }).catch(function(){ return {ean:ean, found:false, error:true}; });
 }
@@ -3332,9 +3448,10 @@ function openBarcodeScanScreen(){
     '<div class="ss-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 7v10M11 7v10M15 7v10"/></svg></div>'+
     '<div class="eyebrow">Scan een product</div>'+
     '<h1>Richt op de streepjescode</h1>'+
-    '<div class="ss-sub">Niet gevonden? Typ de naam gewoon zelf.</div>'+
+    '<div class="ss-sub">Of scan de QR-code van een huisgenoot om mee te doen.</div>'+
     '<div id="bc-reader"></div>'+
     '<div class="bc-status" id="bc-status" role="status" aria-live="polite" aria-atomic="true"></div>'+
+    '<div class="bc-hit" id="bc-hit"></div>'+
     '<div class="field" style="margin-top:8px"><svg class="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>'+
       '<input class="name" id="bc-manual-input" type="search" placeholder="…of typ een product" enterkeyhint="done" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">'+
       '<button class="addbtn" id="bc-manual-add" aria-label="Toevoegen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>'+
@@ -3385,7 +3502,7 @@ function startBarcodeScanner(){
       var inst=_bcScanner;
       var F = window.Html5QrcodeSupportedFormats;
       var config = { fps:10, qrbox:{width:240,height:150} };
-      if(F) config.formatsToSupport = [F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E];
+      if(F) config.formatsToSupport = [F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E, F.QR_CODE];   // QR = uitnodig-link van een huisgenoot
       _bcScanner.start({facingMode:"environment"}, config, onBarcodeDecoded, function(){})
         .then(function(){
           if(mySession!==_bcSession){ // scherm is intussen gesloten → camera direct weer uit
@@ -3413,18 +3530,40 @@ function onBarcodeDecoded(text){
   if(ean===_bcLastEan && (Date.now()-_bcLastAt)<3000) return;
   _bcLastEan=ean; _bcLastAt=Date.now();
   vibe("tick");
+  // QR van een uitnodig-/stuur-link: direct meedoen of de stuur-pagina openen
+  var joinCode=null, sendTok=null;
+  try{ var u=new URL(ean); joinCode=u.searchParams.get("join"); sendTok=u.searchParams.get("send"); }catch(x){}
+  if(joinCode){
+    closeBarcodeScanScreen();
+    if(typeof Cloud!=="undefined" && Cloud.enabled && typeof ensureIdentity==="function"){ ensureIdentity(function(){ Cloud.joinList(joinCode); }); }
+    else toast("Delen staat uit op dit toestel");
+    return;
+  }
+  if(sendTok){ closeBarcodeScanScreen(); location.href=location.pathname+"?send="+encodeURIComponent(sendTok); return; }
+  if(!/^\d{6,14}$/.test(ean)){ bcStatus("Geen streepjescode — typ de naam"); return; }
+  var mySession=_bcSession;
   bcStatus("Opzoeken…");
   lookupBarcode(ean).then(function(d){
-    if(d.found){
-      addToList(d.name, null, {qty:1});
-      closeBarcodeScanScreen();
-      vibe("tick");
-      toast("✓ "+d.name+" toegevoegd");
-    } else {
-      bcStatus("Niet gevonden — typ de naam");
+    if(mySession!==_bcSession) return;
+    if(d.found){ bcStatus(""); showBarcodeHit(d); }
+    else {
+      bcStatus(d.error ? "Geen verbinding — typ de naam" : "Niet gevonden — typ de naam");
       var mi=$("#bc-manual-input"); if(mi) mi.focus();
     }
   });
+}
+/* Bevestigingschip: naam · merk · inhoud · schap; 'Toevoegen' sluit, 'Nog een' blijft scannen */
+function showBarcodeHit(d){
+  var box=$("#bc-hit"); if(!box) return;
+  var c=CAT_BY_ID[d.cat]||CAT_BY_ID["overig"];
+  box.innerHTML='<div class="bc-hit-main">'+shelfIcon(c,{bubble:true})+'<div class="bc-hit-txt"><div class="bc-hit-name"></div><div class="bc-hit-sub"></div></div></div>'+
+    '<div class="bc-hit-acts"><button class="bc-hit-add" id="bc-add" type="button">Toevoegen</button><button class="bc-hit-more" id="bc-again" type="button">Nog een scannen</button></div>';
+  box.querySelector(".bc-hit-name").textContent=d.name;
+  box.querySelector(".bc-hit-sub").textContent=[d.brand, d.quantity, c.label].filter(Boolean).join(" · ");
+  box.classList.add("show");
+  var add=function(){ addToList(d.name, null, {qty:1, category:d.cat, silent:true}); vibe("tick"); toast("✓ "+d.name+" → "+c.label); };
+  box.querySelector("#bc-add").addEventListener("click", function(){ add(); closeBarcodeScanScreen(); });
+  box.querySelector("#bc-again").addEventListener("click", function(){ add(); box.classList.remove("show"); box.innerHTML=""; bcStatus("Toegevoegd — scan de volgende"); });
 }
 function setupBarcode(){
   var btn=$("#scan-btn"); if(!btn) return;
@@ -3516,7 +3655,8 @@ function maybeIntro(force){
   var stages = [
     {interactive:true, title:"Typ wat je nodig hebt", body:"Producten sorteren zichzelf in het juiste schap. Probeer maar:"},
     {glyph:"🔁", title:"Vaste leert mee", body:"Vink af, rond af. Na een paar keer herkent Mandje wat 'bijna op' is — zonder dat je iets hoeft in te stellen."},
-    {glyph:"👥", title:"Samen of solo", body:"Maak meerdere lijsten — privé of gedeeld. Deel een stuur-link en iemand kan items naar jou droppen zonder app."}
+    {glyph:"👥", title:"Samen of solo", body:"Maak meerdere lijsten — privé of gedeeld. Deel een stuur-link en iemand kan items naar jou droppen zonder app."},
+    {chips:true, title:"Zet alvast wat op je lijst", body:"Tik wat je vaak koopt — het staat meteen klaar in het juiste schap."}
   ];
   var idx = 0;
   var dismiss = function(){
@@ -3551,6 +3691,12 @@ function maybeIntro(force){
             '<div class="idemo-hint" id="idemo-hint"></div>'+
           '</div>'+
         '</div>'
+      : s.chips
+      ? '<div class="intro-card">'+
+          '<h4>'+escapeHtml(s.title)+'</h4>'+
+          '<p>'+escapeHtml(s.body)+'</p>'+
+          '<div class="chips intro-chips" id="intro-chips">'+COMMON.slice(0,8).map(function(n){ var c=CAT_BY_ID[classify(n)]||CAT_BY_ID["overig"]; return '<button type="button" class="chip" data-name="'+escapeAttr(n)+'">'+shelfIcon(c)+'<span>'+escapeHtml(n)+'</span><span class="plus">+</span></button>'; }).join("")+'</div>'+
+        '</div>'
       : '<div class="intro-card">'+
           '<div class="ic-glyph emoji">'+s.glyph+'</div>'+
           '<h4>'+escapeHtml(s.title)+'</h4>'+
@@ -3572,6 +3718,14 @@ function maybeIntro(force){
       $("#intro-go").addEventListener("click", dismiss);
     } else {
       $("#intro-next").addEventListener("click", function(){ idx++; render(); });
+    }
+    if(s.chips){
+      sh.querySelectorAll("#intro-chips .chip").forEach(function(b){
+        b.addEventListener("click", function(){
+          if(b.classList.contains("on")) return;
+          if(addToList(b.dataset.name, null, {silent:true})){ b.classList.add("on"); b.querySelector(".plus").textContent="✓"; vibe("tap"); }
+        });
+      });
     }
     if(s.interactive){
       var di = $("#idemo-input");
@@ -3784,6 +3938,12 @@ if(typeof window!=="undefined"){
   window.addStore = addStore;
   window.createLocalList = createLocalList;
   window.listAsText = listAsText;
+  window.parseRecipeText = parseRecipeText;
+  window.renderAssignFilter = renderAssignFilter;
+  window.onboardSteps = onboardSteps;
+  window.showBarcodeHit = showBarcodeHit;
+  window.qrMatrix = qrMatrix;
+  window.qrSvg = qrSvg;
   window.saveNow = saveNow;
   window.switchLocalList = switchLocalList;
   window.deleteLocalList = deleteLocalList;
