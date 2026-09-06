@@ -294,6 +294,8 @@
   .topbar .offline-badge::before{ content:""; width:6px; height:6px; border-radius:50%; background:var(--accent); }
 
   html,body{ overflow:hidden; }
+  main, .sheet, .shop-body, .send-screen{ overflow-x:hidden; overscroll-behavior-x:none; }   /* nooit zijwaarts kunnen pannen (iOS) — de verticale scrollers knippen horizontaal af */
+  main{ touch-action:pan-y; }
 
   /* ---------- Add bar (floating, one-handed) ---------- */
   /* --kb-lift wordt door JS op de toetsenbord-hoogte gezet (visualViewport).
@@ -674,9 +676,9 @@
   .code-box .cb-code{ font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:var(--fs-2xl); font-weight:var(--fw-bold); letter-spacing:.14em; margin-top:4px; white-space:nowrap; overflow-wrap:anywhere; overflow:hidden; text-overflow:ellipsis; }
 
   /* ---------- "Stuur naar"-snelkoppelingen ---------- */
-  .shortcuts-row{ margin:-2px -16px 10px; padding:0; }
+  .shortcuts-row{ margin:-2px calc(-1 * var(--app-padding)) 10px; padding:0; }
   .shortcuts-row.empty{ display:none; }
-  .shortcuts-row .sc-scroll{ display:flex; gap:8px; overflow-x:auto; padding:4px 16px; scroll-snap-type:x proximity; -webkit-overflow-scrolling:touch; }
+  .shortcuts-row .sc-scroll{ display:flex; gap:8px; overflow-x:auto; padding:4px var(--app-padding); scroll-snap-type:x proximity; -webkit-overflow-scrolling:touch; }
   .shortcuts-row .sc-scroll::-webkit-scrollbar{ display:none; }
   .sc-chip{ flex:0 0 auto; display:inline-flex; align-items:center; gap:7px; background:var(--surface-3); border:0; border-radius:var(--r-pill); padding:7px 13px 7px 9px; font-size:var(--fs-md); font-weight:var(--fw-medium); color:var(--ink); box-shadow:none; scroll-snap-align:start; transition:transform var(--dur-instant) var(--ease-out); }
   .sc-chip:active{ transform:var(--press); }
@@ -1229,7 +1231,7 @@
   window.MANDJE_CONFIG = {
     SUPABASE_URL:      "https://yctcpxgjpmhyohbsrygy.supabase.co",   /* ingevuld ✓ */
     SUPABASE_ANON_KEY: "sb_publishable_lT77Nkcrl6VsBIx-PFuMtw_mdJ6fyNj",   /* ingevuld ✓ (publishable key) */
-    BUILD:             "ee7d49ab", /* wordt door build.js vervangen door datum + inhoudshash (nooit handmatig ophogen) */
+    BUILD:             "6ba2ef16", /* wordt door build.js vervangen door datum + inhoudshash (nooit handmatig ophogen) */
     EMAIL_AUTH:        false, /* zet op true zodra e-mail magic-link aan staat in Supabase → toont "Beveilig je account" */
     VAPID_PUBLIC_KEY:  "BIkVm3JYB2t37GOXQlMTwSRipLcEvjrDY8Kb2mmNOIIrRY4zmR57RznHTJ2NQ5Z9h1fkp3if2OkDGmcmItLjy54"  /* public key (veilig in frontend). Privésleutel staat alleen als Supabase-secret. */
   };
