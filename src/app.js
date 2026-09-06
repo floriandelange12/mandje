@@ -85,7 +85,12 @@ var FLAT_KW = [];
 Object.keys(KW).forEach(function(cat){ KW[cat].forEach(function(w){ FLAT_KW.push({w:w, cat:cat}); }); });
 FLAT_KW.sort(function(a,b){ return b.w.length - a.w.length; });
 
-function norm(s){ return (s||"").toString().trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,""); }
+/* Sleutels die op Object.prototype landen mogen nooit een catalogus-/vaak-samen-sleutel worden:
+   één gedeeld item met zo'n naam zou anders elk object in de app (en dus elke PostgREST-payload)
+   vervuilen. Twee gordels: hier geen geldige sleutel, en alle kaartlezers gebruiken ownProp(). */
+function isUnsafeKey(k){ return k==="__proto__" || k==="constructor" || k==="prototype"; }
+function ownProp(obj, k){ return (obj && Object.prototype.hasOwnProperty.call(obj, k)) ? obj[k] : undefined; }
+function norm(s){ var v=(s||"").toString().trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,""); return isUnsafeKey(v) ? "" : v; }
 /* Vergelijkingssleutel voor dubbele regels: koppeltekens/underscores → spatie, meervoudige spaties → één */
 function matchKey(s){ return norm(s).replace(/[-_\/]+/g," ").replace(/\s+/g," ").trim(); }
 
@@ -468,12 +473,24 @@ function syncBadge(){
 function isQuotaError(e){ return !!(e && (e.name==="QuotaExceededError" || e.name==="NS_ERROR_DOM_QUOTA_REACHED" || e.code===22 || e.code===1014)); }
 var _quotaToastAt=0;
 function onQuotaExceeded(){
-  try{
-    state.cloudCache={};
-    if(Array.isArray(state.history) && state.history.length>50) state.history.length=50;
+  var write=function(){
     var snap=(typeof Cloud!=="undefined" && Cloud && Cloud.active) ? Object.assign({}, state, { list: _personalList || [] }) : state;
     localStorage.setItem(NS, JSON.stringify(snap));
-  }catch(e){}
+  };
+  try{
+    state.cloudCache={};   // eerst wat niet gesynct wordt: de cloud-cache is altijd opnieuw op te halen
+    write();
+  }catch(e){
+    try{
+      if(Array.isArray(state.history) && state.history.length>50){
+        state.history.length=50;
+        // Ruimte maken is géén verwijdering: de momentopname meeverzetten, anders maakt syncStamp()
+        // grafstenen die deze ritten ook op alle andere toestellen (en in de cloud) wissen.
+        if(_syncSnap){ _syncSnap.history={}; state.history.forEach(function(h){ if(h && h.id) _syncSnap.history[h.id]=1; }); }
+      }
+      write();
+    }catch(e2){}
+  }
   var now=Date.now ? Date.now() : 0;
   if(now-_quotaToastAt<300000) return; _quotaToastAt=now;
   toast("Opslag op dit toestel is vol — exporteer een back-up", {duration:8000, action:"Exporteer", onAction:exportFile});
@@ -488,7 +505,13 @@ function wipeDevice(){
     setTimeout(function(){ try{ location.reload(); }catch(e){} }, 200);
   };
   if(typeof Cloud!=="undefined" && Cloud && Cloud.sb && Cloud.sb.auth && typeof Cloud.sb.auth.signOut==="function"){
-    Promise.resolve().then(function(){ return Cloud.sb.auth.signOut(); }).then(finish, finish);
+    // Eerst het push-abonnement opzeggen: het overleeft een wis en zou anders bij het volgende
+    // (nieuwe, anonieme) account blijven hangen — dit toestel kreeg dan andermans meldingen.
+    Promise.resolve()
+      .then(function(){ return (typeof Cloud.unsubscribePush==="function") ? Cloud.unsubscribePush() : null; })
+      .catch(function(){})
+      .then(function(){ return Cloud.sb.auth.signOut(); })
+      .then(finish, finish);
   } else finish();
 }
 function storageExplainer(){
@@ -511,7 +534,7 @@ function openAccountSheet(mode){
   sh.querySelector("h3").textContent = link ? "Account maken" : "Inloggen";
   sh.querySelector("#acc-intro").textContent = link
     ? "Geen wachtwoord: je krijgt een code per mail. Je huidige lijsten, vrienden en koopritme blijven gewoon van jou — ze worden alleen aan dit adres gekoppeld."
-    : "Vul het e-mailadres in dat je op je andere toestel gekoppeld hebt. Je krijgt een code per mail."+(cloudLists?" Let op: de "+cloudLists+" gedeelde lijst"+(cloudLists===1?"":"en")+" van dit toestel horen bij het huidige anonieme profiel; na inloggen zie je hier de lijsten van je account (opnieuw meedoen kan altijd via een uitnodiging).":"");
+    : "Vul het e-mailadres in dat je op je andere toestel gekoppeld hebt. Je krijgt een code per mail."+(cloudLists?" Let op: "+(cloudLists===1?"de gedeelde lijst van dit toestel hoort":"de "+cloudLists+" gedeelde lijsten van dit toestel horen")+" bij het huidige anonieme profiel; na inloggen zie je hier de lijsten van je account (opnieuw meedoen kan altijd via een uitnodiging).":"");
   var emailEl=sh.querySelector("#acc-email"), codeEl=sh.querySelector("#acc-code"), go=sh.querySelector("#acc-go"), warn=sh.querySelector("#acc-warn");
   var showWarn=function(msg){ warn.textContent=msg; warn.hidden=!msg; };
   var send=function(){
@@ -523,6 +546,7 @@ function openAccountSheet(mode){
       if(!r || !r.ok){
         var why=(r&&r.reason)||"error";
         showWarn(why==="unknown" ? "Geen account met dit adres. Maak eerst een account op je andere toestel, of kies 'Account maken'." :
+                 why==="exists" ? "Dit e-mailadres hoort al bij een account. Sluit dit blad en kies 'Ik heb al een account'." :
                  why==="rate" ? "Te vaak geprobeerd — wacht een paar minuten." :
                  why==="no-cloud" ? "Geen verbinding met de cloud — probeer het zo nog eens." :
                  ("Versturen lukte niet"+((r&&r.message)?" ("+r.message+")":"")));
@@ -530,7 +554,9 @@ function openAccountSheet(mode){
       }
       step=2; resendAt=Date.now();
       sh.querySelector("#acc-step2").hidden=false; emailEl.readOnly=true;
-      sh.querySelector("#acc-sent").textContent="Code gestuurd naar "+email+". Staat er een link in de mail? Die werkt ook — daarna kun je dit blad sluiten.";
+      sh.querySelector("#acc-sent").textContent = link
+        ? "Code gestuurd naar "+email+". Staat er een link in de mail? Die werkt ook — daarna kun je dit blad sluiten."
+        : "Code gestuurd naar "+email+". Vul de code hier in: de link in de mail opent je browser, en daar log je deze app niet mee in.";
       go.textContent="Bevestig"; codeEl.focus();
       announce("Code gestuurd naar "+email);
     });
@@ -595,6 +621,20 @@ function renderAccountNudge(){
    ============================================================ */
 var SYNC_SETTINGS=["showPrices","seenIntro","categoryOrder","minPurchases","cvThreshold","dueWindowDays","customCategories","customCatEmoji","stores","activeStoreId","shopHideDone","push"];
 var _syncSnap=null;
+/* Welke catalogussleutels en lijsten sinds de vorige save zijn aangeraakt. syncStamp ondertekent alleen die
+   opnieuw; schrijvers melden zich met syncTouch("catalog", sleutel) of syncTouch("lists", lijst-id). */
+var _syncDirty=null, _syncSweptAt=0, _syncSweepT=null, _syncStamped=false;
+function syncTouch(kind, id){
+  if(kind!=="catalog" && kind!=="lists") return;
+  if(!_syncDirty) _syncDirty={catalog:{}, lists:{}, allCatalog:false, allLists:false};
+  if(id==null){ _syncDirty[kind==="catalog"?"allCatalog":"allLists"]=true; return; }
+  _syncDirty[kind][String(id)]=true;
+}
+/* Elke weggeschreven staat krijgt een nieuw nummer; cloud.js slaat daarmee een dure hash over */
+function syncEpochBump(){
+  if(typeof window==="undefined") return;
+  window.__mandjeStateEpoch=(typeof window.__mandjeStateEpoch==="number" ? window.__mandjeStateEpoch : 0)+1;
+}
 /* JSON met gesorteerde sleutels: jsonb in Postgres herschikt sleutels, dus vergelijken kan alleen zo */
 function stableStr(v){
   if(v===undefined) return "null";
@@ -612,13 +652,19 @@ function syncEnsure(){
   if(!isPlainObject(s.settingsAt)) s.settingsAt={};
   if(!isPlainObject(s.tomb)) s.tomb={};
   ["catalog","lists","meals","history"].forEach(function(k){ if(!isPlainObject(s.tomb[k])) s.tomb[k]={}; });
+  if(!isPlainObject(s.listSeen)) s.listSeen={};   // per lijst: de remote updatedAt die hier het laatst is samengevoegd
   return s;
 }
-function catalogSig(e){ var c={}; for(var k in e){ if(k!=="u") c[k]=e[k]; } return stableStr(c); }
+/* Alleen déze velden zijn "voorkeuren". Zou de stempel ook op timesAdded/lastAddedAt/purchaseDates
+   slaan, dan draait het simpelweg toevoegen van melk op het ene toestel de cadans- of schapkeuze
+   van het andere toestel terug — terwijl de tellers zelf toch al verenigd worden. */
+var CATALOG_PREF_FIELDS=["name","category","userOverrideCat","cadenceMode","manualIntervalDays","defaultPrice","hidden","autoAdd","snoozeUntil"];
+function catalogSig(e){ var c={}; for(var i=0;i<CATALOG_PREF_FIELDS.length;i++){ var f=CATALOG_PREF_FIELDS[i]; if(e[f]!==undefined) c[f]=e[f]; } return stableStr(c); }
 function listSig(l){ var c={}; for(var k in l){ if(k!=="updatedAt") c[k]=l[k]; } return stableStr(c); }
 /* Momentopname zonder stempelen: wat er nu staat is de basis; alleen latere wijzigingen tellen als "hier gewijzigd" */
 function syncSnapInit(){
   _syncSnap={catalog:{}, settings:{}, lists:{}, meals:{}, history:{}};
+  _syncDirty=null; _syncSweptAt=Date.now(); syncEpochBump();   // verse momentopname: niets staat meer open
   if(!state) return;
   var cat=state.catalog||{}; Object.keys(cat).forEach(function(k){ if(isPlainObject(cat[k])) _syncSnap.catalog[k]=catalogSig(cat[k]); });
   SYNC_SETTINGS.forEach(function(f){ _syncSnap.settings[f]=stableStr(state.settings ? state.settings[f] : null); });
@@ -631,21 +677,37 @@ function syncStamp(){
   if(!state) return;
   if(!_syncSnap){ syncSnapInit(); return; }
   var s=syncEnsure(), now=Date.now(), iso=nowISO();
+  syncEpochBump();
+  /* De hele wereld ondertekenen kost bij een volle catalogus ~10 ms per save — te duur voor elke tik in de
+     winkel, waar elke realtime-gebeurtenis ook al een save doet. Daarom ondertekenen we alleen sleutels die
+     een schrijver via syncTouch aanraakte; nieuwe sleutels tellen altijd mee en verdwenen sleutels vindt de
+     grafsteen-lus hieronder sowieso (die kost geen handtekening). Vangnet: hooguit elke 2,5 s tóch een
+     volledige ronde, en kort na een overgeslagen ronde nog één. Vergeet een schrijver zijn syncTouch, dan is
+     de staat lokaal gewoon goed en komt het stempel enkele seconden later alsnog. */
+  var d=_syncDirty || {catalog:{}, lists:{}, allCatalog:false, allLists:false};
+  _syncDirty=null;
+  var sweep=(now-_syncSweptAt)>2500;
+  if(sweep){ _syncSweptAt=now; if(_syncSweepT){ clearTimeout(_syncSweepT); _syncSweepT=null; } }
+  var allC=sweep||d.allCatalog, allL=sweep||d.allLists, skipped=false;
   var cat=state.catalog||{}, seen={};
   Object.keys(cat).forEach(function(k){
     var e=cat[k]; if(!isPlainObject(e)) return;
-    var sig=catalogSig(e); seen[k]=1;
-    if(_syncSnap.catalog[k]!==sig){ e.u=now; _syncSnap.catalog[k]=catalogSig(e); if(s.tomb.catalog[k]) delete s.tomb.catalog[k]; }
+    seen[k]=1;
+    if(!allC && !d.catalog[k] && _syncSnap.catalog[k]!==undefined){ skipped=true; return; }
+    var sig=catalogSig(e);   // catalogSig laat 'u' weg, dus e.u zetten verandert de handtekening niet
+    if(_syncSnap.catalog[k]!==sig){ e.u=now; _syncStamped=true; _syncSnap.catalog[k]=sig; if(s.tomb.catalog[k]) delete s.tomb.catalog[k]; }
   });
   Object.keys(_syncSnap.catalog).forEach(function(k){ if(!seen[k]){ s.tomb.catalog[k]=now; delete _syncSnap.catalog[k]; } });
   SYNC_SETTINGS.forEach(function(f){
     var sig=stableStr(state.settings ? state.settings[f] : null);
     if(_syncSnap.settings[f]!==sig){ s.settingsAt[f]=now; _syncSnap.settings[f]=sig; }
   });
-  var seenL={};
+  var seenL={}, _actL=activeLocalList(), _actId=_actL?_actL.id:null;
   localLists().forEach(function(l){
-    var sig=listSig(l); seenL[l.id]=1;
-    if(_syncSnap.lists[l.id]!==sig){ l.updatedAt=iso; _syncSnap.lists[l.id]=sig; if(s.tomb.lists[l.id]) delete s.tomb.lists[l.id]; }
+    seenL[l.id]=1;
+    if(!allL && l.id!==_actId && !d.lists[l.id] && _syncSnap.lists[l.id]!==undefined){ skipped=true; return; }
+    var sig=listSig(l);
+    if(_syncSnap.lists[l.id]!==sig){ l.updatedAt=iso; _syncStamped=true; _syncSnap.lists[l.id]=sig; if(s.tomb.lists[l.id]) delete s.tomb.lists[l.id]; }
   });
   Object.keys(_syncSnap.lists).forEach(function(id){ if(!seenL[id]){ s.tomb.lists[id]=now; delete _syncSnap.lists[id]; } });
   var ms=state.meals||{}, seenM={};
@@ -657,6 +719,17 @@ function syncStamp(){
   // grafstenen ouder dan 90 dagen mogen weg
   var cutoff=now-90*86400000;
   ["catalog","lists","meals","history"].forEach(function(k){ Object.keys(s.tomb[k]).forEach(function(id){ if(s.tomb[k][id]<cutoff) delete s.tomb[k][id]; }); });
+  /* Iets overgeslagen? Kort daarna één volledige ronde, zodat een vergeten syncTouch nooit blijft hangen —
+     ook als er daarna geen save meer komt. Alleen wegschrijven wanneer die ronde alsnog iets stempelt: anders
+     zou elke stille save-ronde de uitgestelde cloud-push weer 5 s vooruitschuiven. */
+  if(skipped && !_syncSweepT && typeof setTimeout==="function"){
+    _syncSweepT=setTimeout(function(){
+      _syncSweepT=null; _syncSweptAt=0;
+      if(!state) return;
+      _syncStamped=false; syncStamp();
+      if(_syncStamped) saveNow();
+    }, 3000);
+  }
 }
 function deviceLabel(){
   var ua=(typeof navigator!=="undefined" && navigator.userAgent)||"", name="Toestel";
@@ -669,6 +742,13 @@ function deviceLabel(){
   var id=""; try{ id=localStorage.getItem("mandje.device")||""; if(!id){ id=Math.random().toString(36).slice(2,6); localStorage.setItem("mandje.device", id); } }catch(e){}
   return name+(id?" · "+id:"");
 }
+/* Een rit weegt in de user_state-rij vooral door zijn items-array (honderden kB bij 200 ritten). Andere
+   toestellen hebben alleen de kop nodig — uitgaven-inzicht en de vereniging op id. "Herhaal vorige lijst"
+   leest de lokale geschiedenis, en die blijft compleet. */
+function tripForSync(h){
+  if(!isPlainObject(h)) return h;
+  return { id:h.id, at:h.at, count:h.count, total:(h.total==null?null:h.total), paid:(h.paid==null?null:h.paid), list:h.list||"local" };
+}
 /* Wat naar de cloud gaat (de vorm van de user_state-rij, zonder user_id/device/updated_at) */
 function buildUserStatePayload(){
   var s=syncEnsure()||{settingsAt:{}, tomb:{}};
@@ -680,21 +760,30 @@ function buildUserStatePayload(){
     co_buy: state.coBuy||{},
     settings: settings,
     meals: state.meals||{},
-    history: (state.history||[]).slice(0,200),
+    history: (state.history||[]).slice(0,200).map(tripForSync),
     local_lists: localLists().map(function(l){ return Object.assign({}, l, { items: localListItems(l) }); })
   };
 }
+/* Bij gelijkspel op de stempel moet elk toestel dezelfde kant kiezen, anders houden twee toestellen
+   voor eeuwig verschillende waarden en pushen ze bij elke hervatting opnieuw. */
+function _catalogRank(e){ return [(e.purchaseDates||[]).length, String(e.lastAddedAt||""), stableStr(e)]; }
+function _catalogFirst(a, b){
+  var ra=_catalogRank(a), rb=_catalogRank(b);
+  for(var i=0;i<ra.length;i++){ if(rb[i]>ra[i]) return b; if(ra[i]>rb[i]) return a; }
+  return a;
+}
 function _mergeCatalogEntry(a, b){   // a = lokaal, b = remote; geen winnaar op stempel → verenigen
   var au=a.u||0, bu=b.u||0, w=(bu>au)?b:(au>bu?a:null), out={};
-  var base = w || a;
+  var base = w || _catalogFirst(a, b);
+  var other = w ? null : (base===a ? b : a);
   for(var k in base) out[k]=base[k];
-  if(!w){   // beide ongestempeld: het "meeste" bewaren
-    if(b.userOverrideCat && !a.userOverrideCat){ out.category=b.category; out.userOverrideCat=true; }
-    if((a.cadenceMode||"auto")==="auto" && b.cadenceMode && b.cadenceMode!=="auto"){ out.cadenceMode=b.cadenceMode; out.manualIntervalDays=b.manualIntervalDays; }
-    if(out.defaultPrice==null && b.defaultPrice!=null) out.defaultPrice=b.defaultPrice;
-    if(b.hidden) out.hidden=true;
-    if(b.autoAdd) out.autoAdd=true;
-    if(b.snoozeUntil && (!out.snoozeUntil || b.snoozeUntil>out.snoozeUntil)) out.snoozeUntil=b.snoozeUntil;
+  if(!w){   // beide ongestempeld: het "meeste" bewaren, vanaf een deterministisch gekozen basis
+    if(other.userOverrideCat && !base.userOverrideCat){ out.category=other.category; out.userOverrideCat=true; }
+    if((base.cadenceMode||"auto")==="auto" && other.cadenceMode && other.cadenceMode!=="auto"){ out.cadenceMode=other.cadenceMode; out.manualIntervalDays=other.manualIntervalDays; }
+    if(out.defaultPrice==null && other.defaultPrice!=null) out.defaultPrice=other.defaultPrice;
+    if(other.hidden) out.hidden=true;
+    if(other.autoAdd) out.autoAdd=true;
+    if(other.snoozeUntil && (!out.snoozeUntil || other.snoozeUntil>out.snoozeUntil)) out.snoozeUntil=other.snoozeUntil;
   }
   var seen={}; out.purchaseDates=(a.purchaseDates||[]).concat(b.purchaseDates||[]).filter(function(d){ if(!d||seen[d]) return false; seen[d]=1; return true; }).sort();
   if(out.purchaseDates.length>120) out.purchaseDates.splice(0, out.purchaseDates.length-120);
@@ -702,12 +791,34 @@ function _mergeCatalogEntry(a, b){   // a = lokaal, b = remote; geen winnaar op 
   if((b.lastAddedAt||"")>(out.lastAddedAt||"")) out.lastAddedAt=b.lastAddedAt;
   if((b.lastAutoAddAt||"")>(out.lastAutoAddAt||"")) out.lastAutoAddAt=b.lastAutoAddAt;
   out.u=Math.max(au,bu)||undefined; if(!out.u) delete out.u;
+  // Het resultaat is nieuw t.o.v. beide kanten → stempelen, zodat het de volgende ronde wint
+  // en beide toestellen ophouden met heen-en-weer pushen.
+  var sg=catalogSig(out);
+  if(sg!==catalogSig(a) && sg!==catalogSig(b)) out.u=Math.max(out.u||0, Date.now());
   return out;
 }
-function _mergeListItems(winner, loser, loserPristine){
-  var byId={}; (winner.items||[]).forEach(function(i){ byId[i.id]=1; });
-  var extra=(loser.items||[]).filter(function(i){ return i && !byId[i.id] && (loserPristine || (i.addedAt && winner.updatedAt && i.addedAt>winner.updatedAt)); });
+/* baseIso = het ijkpunt waarop beide kanten het laatst zijn samengevoegd. Alles wat de verliezende
+   kant dáárna kreeg is nieuw en mag niet verdwijnen; wat de winnaar erna wegdeed blijft weg.
+   Zonder ijkpunt (nog nooit samengevoegd) terug naar de oude regel. */
+function _mergeListItems(winner, loser, loserPristine, baseIso){
+  var byId=Object.create(null); (winner.items||[]).forEach(function(i){ if(i && i.id) byId[i.id]=1; });
+  var base=baseIso || winner.updatedAt;
+  var extra=(loser.items||[]).filter(function(i){ return i && !byId[i.id] && (loserPristine || (i.addedAt && base && i.addedAt>base)); });
   return (winner.items||[]).concat(extra);
+}
+/* Lijstvormige instellingen (schappen, winkels) verenigen op id i.p.v. vervangen: anders wist
+   het toestel dat als tweede synct de zelfgemaakte schappen van het andere toestel. */
+function _unionById(a, b){
+  var out=[], seen=Object.create(null);
+  [a, b].forEach(function(arr){
+    if(!Array.isArray(arr)) return;
+    arr.forEach(function(x){
+      if(!isPlainObject(x) || x.id==null) return;
+      var id=String(x.id); if(seen[id]) return;
+      seen[id]=1; out.push(deepClone(x));
+    });
+  });
+  return out;
 }
 /* Remote rij samenvoegen in de lokale staat. Geeft {changedLocal, differsFromRemote} terug. */
 function mergeUserState(row){
@@ -720,22 +831,47 @@ function mergeUserState(row){
   var rc=isPlainObject(row.catalog)?row.catalog:{}, lc=state.catalog||{}, outC={};
   var keys={}; Object.keys(lc).forEach(function(k){ keys[k]=1; }); Object.keys(rc).forEach(function(k){ keys[k]=1; });
   Object.keys(keys).forEach(function(k){
-    var a=isPlainObject(lc[k])?lc[k]:null, b=isPlainObject(rc[k])?rc[k]:null;
+    if(isUnsafeKey(k)) return;   // via de cloud nooit een prototype-sleutel binnenlaten
+    var a=isPlainObject(ownProp(lc,k))?lc[k]:null, b=isPlainObject(ownProp(rc,k))?rc[k]:null;
     var tomb=Math.max((s.tomb.catalog||{})[k]||0, (rTomb.catalog||{})[k]||0);
     var au=a?(a.u||0):0, bu=b?(b.u||0):0;
     if(tomb && tomb>au && tomb>bu){ s.tomb.catalog[k]=tomb; return; }
     if(a && b) outC[k]=_mergeCatalogEntry(a,b); else outC[k]=a||b;
   });
   state.catalog=outC;
+  // Grafstenen voor sleutels die hier én in de cloud al weg zijn ook overnemen; anders blijft
+  // differsFromRemote 90 dagen lang waar en pusht elk toestel bij elke hervatting opnieuw.
+  Object.keys(rTomb.catalog||{}).forEach(function(k){
+    if(isUnsafeKey(k) || ownProp(state.catalog,k)!==undefined) return;
+    var t=Number(rTomb.catalog[k])||0; if(t>(s.tomb.catalog[k]||0)) s.tomb.catalog[k]=t;
+  });
   // --- vaak-samen: per paar het maximum
   var rcb=isPlainObject(row.co_buy)?row.co_buy:{}; state.coBuy=state.coBuy||{};
-  Object.keys(rcb).forEach(function(a){ if(!isPlainObject(rcb[a])) return; state.coBuy[a]=state.coBuy[a]||{}; Object.keys(rcb[a]).forEach(function(b){ var v=Number(rcb[a][b])||0; if(v>(state.coBuy[a][b]||0)) state.coBuy[a][b]=v; }); });
+  Object.keys(rcb).forEach(function(a){
+    if(isUnsafeKey(a) || !isPlainObject(ownProp(rcb,a))) return;
+    var lp=ownProp(state.coBuy,a); if(!isPlainObject(lp)){ lp={}; state.coBuy[a]=lp; }
+    Object.keys(rcb[a]).forEach(function(b){ if(isUnsafeKey(b)) return; var v=Number(ownProp(rcb[a],b))||0; if(v>(Number(ownProp(lp,b))||0)) lp[b]=v; });
+  });
   // --- instellingen: per veld de nieuwste stempel; nooit hier gewijzigd → de cloud volgen
   if(isPlainObject(row.settings)){
     SYNC_SETTINGS.forEach(function(f){
       if(!(f in row.settings)) return;
       var la=s.settingsAt[f]||0, ra=rAt[f]||0;
-      if(ra>la || (la===0 && stableStr(state.settings[f])!==stableStr(row.settings[f]))){ state.settings[f]=deepClone(row.settings[f]); s.settingsAt[f]=Math.max(ra,la); }
+      var lv=stableStr(state.settings[f]), rv=stableStr(row.settings[f]);
+      if(lv===rv){ if(ra>la) s.settingsAt[f]=ra; return; }
+      if(f==="customCategories" || f==="stores"){
+        // Schappen en winkels van beide toestellen naast elkaar laten bestaan i.p.v. vervangen
+        var u=_unionById(state.settings[f], row.settings[f]);
+        if(stableStr(u)!==lv){ state.settings[f]=u; s.settingsAt[f]=Math.max(ra, la, Date.now()); }
+        else if(ra>la) s.settingsAt[f]=ra;
+        return;
+      }
+      if(ra>la){ state.settings[f]=deepClone(row.settings[f]); s.settingsAt[f]=ra; return; }
+      if(la>0) return;   // hier bewust gewijzigd en de cloud heeft geen nieuwere stempel
+      // Geen enkele stempel (van vóór 3B): de kant die van de standaard afwijkt is bewust ingesteld
+      var dflt=stableStr(DEFAULTS.settings[f]);
+      if(lv!==dflt){ s.settingsAt[f]=Date.now(); return; }
+      if(rv!==dflt){ state.settings[f]=deepClone(row.settings[f]); s.settingsAt[f]=ra; }
     });
   }
   // --- bundels: nieuwste updatedAt wint; grafstenen
@@ -756,24 +892,39 @@ function mergeUserState(row){
   state.history=Object.keys(byId).map(function(id){ return byId[id]; }).sort(function(a,b){ return String(b.at||"").localeCompare(String(a.at||"")); }).slice(0,200);
   // --- lokale lijsten: per lijst LWW; ongerepte kant → items verenigen; grafstenen
   var rl=Array.isArray(row.local_lists)?row.local_lists.filter(isPlainObject):[], ll=localLists();
-  var lById={}; ll.forEach(function(l){ lById[l.id]=l; });
+  var lById=Object.create(null); ll.forEach(function(l){ if(l && l.id) lById[l.id]=l; });
   var order=[]; ll.forEach(function(l){ order.push(l.id); }); rl.forEach(function(l){ if(l.id && order.indexOf(l.id)===-1) order.push(l.id); });
   var outL=[];
   order.forEach(function(id){
     var a=lById[id], b=null; for(var i=0;i<rl.length;i++){ if(rl[i].id===id){ b=rl[i]; break; } }
     var tomb=Math.max((s.tomb.lists||{})[id]||0, (rTomb.lists||{})[id]||0);
     var at=a&&a.updatedAt?new Date(a.updatedAt).getTime():0, bt=b&&b.updatedAt?new Date(b.updatedAt).getTime():0;
-    if(tomb && tomb>at && tomb>bt){ s.tomb.lists[id]=tomb; return; }
+    if(tomb && tomb>at && tomb>bt){ s.tomb.lists[id]=tomb; delete s.listSeen[id]; return; }
+    // IJkpunt: tot hier waren beide kanten het eens. Alles wat de verliezer sindsdien kreeg blijft.
+    var base=s.listSeen[id] || null;
+    if(b && b.updatedAt) s.listSeen[id]=String(b.updatedAt);
     if(a && !b){ outL.push(a); return; }
     if(b && !a){ outL.push(normalizeState({localLists:[b]}).localLists[0]); return; }
     var aP=!at, bP=!bt, win, lose, losePristine;
     if(bt>at){ win=b; lose=a; losePristine=aP; } else { win=a; lose=b; losePristine=bP; }
-    var merged=Object.assign({}, win, { items:_mergeListItems(win, lose, losePristine) });
-    if(aP && bP) merged.updatedAt=nowISO();
+    var items=_mergeListItems(win, lose, losePristine, base);
+    var merged=Object.assign({}, win, { items:items });
+    // De fusie bevat méér dan de winnaar: verse stempel, anders neemt het andere toestel 'm nooit
+    // over (gelijke stempel = lokaal wint) en verschillen beide kanten voor altijd.
+    if((aP && bP) || items.length!==(win.items||[]).length) merged.updatedAt=nowISO();
     outL.push(normalizeState({localLists:[merged]}).localLists[0]);
   });
   if(!outL.length) outL=normalizeState({}).localLists;
   state.localLists=outL;
+  Object.keys(rTomb.lists||{}).forEach(function(id){
+    if(localListById(id)) return;
+    var t=Number(rTomb.lists[id])||0; if(t>(s.tomb.lists[id]||0)) s.tomb.lists[id]=t;
+  });
+  Object.keys(rTomb.meals||{}).forEach(function(id){
+    if(ownProp(state.meals,id)!==undefined) return;
+    var t=Number(rTomb.meals[id])||0; if(t>(s.tomb.meals[id]||0)) s.tomb.meals[id]=t;
+  });
+  Object.keys(s.listSeen).forEach(function(id){ if(!localListById(id)) delete s.listSeen[id]; });
   if(!localListById(state.activeLocalId)) state.activeLocalId=outL[0].id;
   var act=activeLocalList();
   if(act){ if(typeof Cloud!=="undefined" && Cloud && Cloud.active) _personalList=act.items.slice(); else state.list=act.items; }
@@ -781,11 +932,12 @@ function mergeUserState(row){
   if(!Array.isArray(state.settings.categoryOrder)) state.settings.categoryOrder=DEFAULTS.settings.categoryOrder.slice();
   state.settings.categoryOrder=state.settings.categoryOrder.filter(function(cid){ return typeof cid==="string"; });
   DEFAULTS.settings.categoryOrder.forEach(function(cid){ if(state.settings.categoryOrder.indexOf(cid)===-1) state.settings.categoryOrder.push(cid); });
+  (Array.isArray(state.settings.customCategories)?state.settings.customCategories:[]).forEach(function(c){ if(c && c.id && state.settings.categoryOrder.indexOf(c.id)===-1) state.settings.categoryOrder.push(c.id); });
   rebuildCatIndex();
   syncSnapInit();
   var after=stableStr(buildUserStatePayload());
   var remoteStr=stableStr({ catalog:row.catalog||{}, co_buy:row.co_buy||{}, settings:row.settings||{}, meals:row.meals||{}, history:row.history||[], local_lists:row.local_lists||[] });
-  return { changedLocal: before!==after, differsFromRemote: after!==remoteStr };
+  return { changedLocal: before!==after, differsFromRemote: after!==remoteStr, payloadStr: after };
 }
 function syncStatusLabel(){
   if(typeof Cloud==="undefined" || !Cloud || !Cloud.ready) return "uit (geen verbinding)";
@@ -797,6 +949,7 @@ function syncStatusLabel(){
 }
 function rerenderAfterSync(){
   try{
+    if(typeof applyListType==="function") applyListType();   // de merge kan naar een andere lijstsoort geschakeld zijn
     applyPriceVisibility(); renderStorePick();
     if(activeTab==="lijst"){ renderLijst(); renderDueBanner(); }
     if(activeTab==="vaste") renderVaste();
@@ -812,8 +965,8 @@ function rerenderAfterSync(){
 function touchCatalog(name, price){
   var k = norm(name);
   if(!k) return null;
-  var e = state.catalog[k];
-  if(!e){
+  var e = ownProp(state.catalog, k);
+  if(!isPlainObject(e)){
     e = { name:name.trim(), category:classify(name), defaultPrice:(price==null?null:price), purchaseDates:[], timesAdded:0, lastAddedAt:null, cadenceMode:"auto", manualIntervalDays:null };
     state.catalog[k]=e;
   }
@@ -821,6 +974,7 @@ function touchCatalog(name, price){
   if(price!=null) e.defaultPrice = price;
   e.timesAdded = (e.timesAdded||0)+1;
   e.lastAddedAt = nowISO();
+  syncTouch("catalog", k);
   return e;
 }
 
@@ -829,22 +983,25 @@ function mergePurchaseDate(name, category, iso){
   var k=norm(name); if(!k || !iso) return false;
   var d=new Date(iso); if(isNaN(d.getTime())) return false;
   var day=d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());
-  var e=state.catalog[k];
-  if(!e){ e={ name:String(name).trim(), category:(category && CAT_BY_ID[category]) ? category : classify(name), defaultPrice:null, purchaseDates:[], timesAdded:0, lastAddedAt:null, cadenceMode:"auto", manualIntervalDays:null }; state.catalog[k]=e; }
+  var e=ownProp(state.catalog, k);
+  if(!isPlainObject(e)){ e={ name:String(name).trim(), category:(category && CAT_BY_ID[category]) ? category : classify(name), defaultPrice:null, purchaseDates:[], timesAdded:0, lastAddedAt:null, cadenceMode:"auto", manualIntervalDays:null }; state.catalog[k]=e; }
   e.purchaseDates=e.purchaseDates||[];
   if(e.purchaseDates.indexOf(day)!==-1) return false;
   e.purchaseDates.push(day); e.purchaseDates.sort();
   if(e.purchaseDates.length>120) e.purchaseDates.splice(0, e.purchaseDates.length-120);
+  syncTouch("catalog", k);
   return true;
 }
 function recordPurchase(name, price){
-  var k = norm(name); var e = state.catalog[k];
-  if(!e){ e = touchCatalog(name, price); }
+  var k = norm(name); var e = k ? ownProp(state.catalog, k) : null;
+  if(!isPlainObject(e)){ e = touchCatalog(name, price); }
+  if(!e) return;   // geen bruikbare sleutel (leeg of prototype-vervuilend): niets te leren
   var today = todayStr();
   e.purchaseDates = e.purchaseDates||[];
   // niet dubbel op dezelfde dag
   if(e.purchaseDates[e.purchaseDates.length-1] !== today) e.purchaseDates.push(today);
   if(price!=null) e.defaultPrice = price;
+  syncTouch("catalog", k);
 }
 
 /* Co-purchase: alle paren in dezelfde finish-sessie krijgen +1 count.
@@ -859,20 +1016,21 @@ function recordCoBuy(names){
   for(var i=0; i<uniq.length; i++){
     for(var j=0; j<uniq.length; j++){
       if(i===j) continue;
-      state.coBuy[uniq[i]] = state.coBuy[uniq[i]] || {};
-      state.coBuy[uniq[i]][uniq[j]] = (state.coBuy[uniq[i]][uniq[j]]||0) + 1;
+      var pairs = ownProp(state.coBuy, uniq[i]);
+      if(!isPlainObject(pairs)){ pairs = {}; state.coBuy[uniq[i]] = pairs; }
+      pairs[uniq[j]] = (Number(ownProp(pairs, uniq[j]))||0) + 1;
     }
   }
 }
 function getCoSuggestions(key, limit){
-  var co = (state.coBuy||{})[key];
-  if(!co) return [];
+  var co = ownProp(state.coBuy||{}, key);
+  if(!isPlainObject(co)) return [];
   var onListKeys = state.list.filter(function(i){return !i.done;}).map(function(i){return norm(i.name);});
   var out = [];
   Object.keys(co).forEach(function(k){
     if(co[k] < 3) return;
     if(onListKeys.indexOf(k) !== -1) return;
-    var cat = state.catalog[k]; if(!cat) return;
+    var cat = ownProp(state.catalog, k); if(!isPlainObject(cat)) return;
     out.push({key:k, name:cat.name, count:co[k]});
   });
   out.sort(function(a,b){ return b.count - a.count; });
@@ -978,8 +1136,9 @@ function snoozeDue(k, days){
   var e=state.catalog[k]; if(!e) return;
   var d=addDays(parseDay(todayStr()), days||7);
   e.snoozeUntil = d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());
+  syncTouch("catalog", k);
   save(); renderDueBanner(); if(activeTab==="vaste") renderVaste();
-  toast(e.name+" uitgesteld — "+(days===7?"volgende week":days+" dagen")+" niet meer vragen", {duration:2600, action:"Ongedaan", onAction:function(){ delete e.snoozeUntil; save(); renderDueBanner(); if(activeTab==="vaste") renderVaste(); }});
+  toast(e.name+" uitgesteld — "+(days===7?"volgende week":days+" dagen")+" niet meer vragen", {duration:2600, action:"Ongedaan", onAction:function(){ delete e.snoozeUntil; syncTouch("catalog", k); save(); renderDueBanner(); if(activeTab==="vaste") renderVaste(); }});
 }
 function dismissDueBanner(){
   var due = getDueItems(); if(!due.length) return;
@@ -1013,6 +1172,7 @@ function runAutoAddDueItems(){
       note:"", done:false, addedAt:nowISO()
     });
     e.lastAutoAddAt = nowISO();
+    syncTouch("catalog", k);
     addedNames.push(e.name);
   });
   if(addedNames.length){
@@ -1081,7 +1241,7 @@ function renameCatalogEntry(oldKey, newName){
   newName=(newName||"").trim(); if(!newName) return false;
   var e=state.catalog[oldKey]; if(!e) return false;
   var newKey=norm(newName);
-  if(newKey===oldKey){ e.name=newName; save(); return true; }
+  if(newKey===oldKey){ e.name=newName; syncTouch("catalog", oldKey); save(); return true; }
   var t=state.catalog[newKey];
   if(t){
     var seen={}; t.purchaseDates=(t.purchaseDates||[]).concat(e.purchaseDates||[]).filter(function(d){ if(seen[d]) return false; seen[d]=1; return true; }).sort();
@@ -1090,6 +1250,7 @@ function renameCatalogEntry(oldKey, newName){
     if(!t.lastAddedAt || (e.lastAddedAt && e.lastAddedAt>t.lastAddedAt)) t.lastAddedAt=e.lastAddedAt;
     t.name=newName;
   } else { e.name=newName; state.catalog[newKey]=e; }
+  syncTouch("catalog", newKey);
   delete state.catalog[oldKey];
   if(state.coBuy && state.coBuy[oldKey]){
     var co=state.coBuy[oldKey]; delete state.coBuy[oldKey];
@@ -1141,7 +1302,7 @@ function openCatalogSheet(){
         var mkA=function(label, fn, cls){ var b=el("button",cls||"",label); b.type="button"; b.addEventListener("click", fn); acts.appendChild(b); };
         mkA("Details", function(){ openSheetForCatalog(k); });
         mkA("Hernoem", function(){ var nn=prompt("Nieuwe naam voor "+e.name+" (bestaat de naam al, dan worden ze samengevoegd):", e.name); if(nn===null) return; if(renameCatalogEntry(k, nn)){ openKey=null; render(); renderLijst(); toast("Hernoemd"); } });
-        mkA(e.hidden?"Weer voorstellen":"Niet meer voorstellen", function(){ e.hidden=!e.hidden; save(); render(); });
+        mkA(e.hidden?"Weer voorstellen":"Niet meer voorstellen", function(){ e.hidden=!e.hidden; syncTouch("catalog", k); save(); render(); });
         mkA("Verwijder", function(){ if(!confirm(e.name+" uit de catalogus verwijderen? Koopgeschiedenis en ritme gaan verloren.")) return; delete state.catalog[k]; if(state.coBuy) delete state.coBuy[k]; save(); openKey=null; render(); }, "danger");
         list.appendChild(acts);
       }
@@ -1478,7 +1639,7 @@ function finishShopping(){
   vibe("nudge"); celebrate();
   var undo=function(){
     snapshot.forEach(function(i){ if(!state.list.some(function(x){ return x.id===i.id; })) state.list.push(i); });
-    marks.forEach(function(m){ var e=state.catalog[m.k]; if(e && !m.had){ var idx=(e.purchaseDates||[]).indexOf(today); if(idx!==-1) e.purchaseDates.splice(idx,1); } });
+    marks.forEach(function(m){ var e=state.catalog[m.k]; if(e && !m.had){ var idx=(e.purchaseDates||[]).indexOf(today); if(idx!==-1) e.purchaseDates.splice(idx,1); syncTouch("catalog", m.k); } });
     // vaak-samen-tellers van deze afronding terugdraaien
     if(state.coBuy && coKeys.length>1){
       coKeys.forEach(function(a){ coKeys.forEach(function(b){ if(a===b || !state.coBuy[a]) return; if(state.coBuy[a][b]!=null){ state.coBuy[a][b]-=1; if(state.coBuy[a][b]<=0) delete state.coBuy[a][b]; } }); });
@@ -1509,7 +1670,7 @@ function finishAfterCloud(done, cloudUndo){
   recordCoBuy(done.map(function(it){return it.name;}));
   var entry=recordTrip(done); save();
   var undo = cloudUndo ? function(){
-    marks.forEach(function(m){ var e=state.catalog[m.k]; if(e && !m.had){ var idx=(e.purchaseDates||[]).indexOf(today); if(idx!==-1) e.purchaseDates.splice(idx,1); } });
+    marks.forEach(function(m){ var e=state.catalog[m.k]; if(e && !m.had){ var idx=(e.purchaseDates||[]).indexOf(today); if(idx!==-1) e.purchaseDates.splice(idx,1); syncTouch("catalog", m.k); } });
     if(state.coBuy && coKeys.length>1){ coKeys.forEach(function(a){ coKeys.forEach(function(b){ if(a===b || !state.coBuy[a]) return; if(state.coBuy[a][b]!=null){ state.coBuy[a][b]-=1; if(state.coBuy[a][b]<=0) delete state.coBuy[a][b]; } }); }); }
     state.history=(state.history||[]).filter(function(h){ return h.id!==entry.id; });
     save(); cloudUndo(); renderVaste();
@@ -1638,7 +1799,7 @@ function switchLocalList(id){
   var target=localListById(id); if(!target) return false;
   if(typeof Cloud!=="undefined" && Cloud && Cloud.active && typeof Cloud.openLocal==="function"){ Cloud.openLocal(); }   // eerst terug naar lokaal
   var cur=activeLocalList();
-  if(cur && cur.id!==target.id) cur.items = state.list.slice();
+  if(cur && cur.id!==target.id){ cur.items = state.list.slice(); syncTouch("lists", cur.id); }
   state.activeLocalId = target.id;
   if(cur && cur.id===target.id){ /* al actief */ } else { state.list = (target.items||[]).slice(); }
   save();
@@ -1648,7 +1809,7 @@ function switchLocalList(id){
   if(activeTab!=="lijst") switchTab("lijst"); else { renderLijst(); renderDueBanner(); updateSubhead(); }
   return true;
 }
-function renameLocalList(id, name){ var l=localListById(id); if(!l) return false; name=String(name||"").trim().slice(0,40); if(!name) return false; l.name=name; save(); if(typeof applyListHeader==="function") applyListHeader(); if(typeof renderListSwitch==="function") renderListSwitch(); return true; }
+function renameLocalList(id, name){ var l=localListById(id); if(!l) return false; name=String(name||"").trim().slice(0,40); if(!name) return false; l.name=name; syncTouch("lists", id); save(); if(typeof applyListHeader==="function") applyListHeader(); if(typeof renderListSwitch==="function") renderListSwitch(); return true; }
 function duplicateLocalList(id){
   var l=localListById(id); if(!l) return null;
   var items=localListItems(l).map(function(i){ var c=Object.assign({}, i); c.id=uid(); c.done=false; return c; });
@@ -1980,10 +2141,22 @@ function renderAssignFilter(){
   if(me) wrap.appendChild(mk(me.id,"Voor mij",counts[me.id]||0,null));
   Cloud.members.forEach(function(m){ if(me && m.id===me.id) return; wrap.appendChild(mk(m.id, m.display_name, counts[m.id]||0, m.color)); });
 }
+/* Grove emmer van de OP-tijd: verandert precies wanneer relativeTime() een ander label geeft.
+   Zonder dit blijft een rij "OP jij · net" zeggen terwijl het winkelscherm al "3 u" toont. */
+function opTimeBucket(it){
+  if(!it || !it.flaggedAt) return "";
+  var t=new Date(it.flaggedAt).getTime(); if(isNaN(t)) return "";
+  var d=(Date.now()-t)/1000;
+  if(d<45) return "n";
+  if(d<3600) return "m"+Math.floor(d/60);
+  if(d<86400) return "u"+Math.floor(d/3600);
+  if(d<604800) return "d"+Math.floor(d/86400);
+  return "x";
+}
 /* Keyed row-cache: een rij wordt alleen opnieuw gebouwd als iets zichtbaars veranderde (naam, aantal, notitie, prijs, done, schap, toewijzing) */
 var _rowCache={};
 function rowSig(it){
-  return [it.name, it.qty, it.unit||"", it.note||"", it.price==null?"":it.price, it.done?1:0, it.category||"", it.assigned_to||"", it.section||"", it.added_by_name||"", (isOpFresh(it)?1:0), it.flaggedAt||"", it.flaggedBy||"",
+  return [it.name, it.qty, it.unit||"", it.note||"", it.price==null?"":it.price, it.done?1:0, it.category||"", it.assigned_to||"", it.section||"", it.added_by_name||"", (isOpFresh(it)?1:0), it.flaggedAt||"", it.flaggedBy||"", opTimeBucket(it),
     (state.settings.showPrices?1:0), ((typeof Cloud!=="undefined" && Cloud.active)?1:0), (isPlainList()?1:0)].join("\u0001");
 }
 function cachedRow(it){
@@ -2350,10 +2523,10 @@ function renderCloudCacheBar(){
   var id=null; try{ id=localStorage.getItem("mandje.activeList"); }catch(e){}
   if(!id || id==="local") return;
   var c=state.cloudCache && state.cloudCache[id]; if(!c || !c.items) return;
-  var when=""; try{ var d=new Date(c.at); when=pad(d.getHours())+":"+pad(d.getMinutes()); }catch(e){}
+  var when=""; try{ var d=new Date(c.at); if(!isNaN(d.getTime())) when=pad(d.getHours())+":"+pad(d.getMinutes()); }catch(e){}   // ongeldige stempel → geen "NaN:NaN" in beeld
   var open=c.items.filter(function(i){ return !i.done; }).length;
   var bar=el("div","ritual cache-bar");
-  bar.innerHTML='<h4></h4><p>Gedeelde lijst niet bereikbaar — dit is de stand van '+escapeHtml(when)+' ('+open+' te halen).</p><div class="chips"><button class="chip" type="button" id="cc-open"><span>Bekijk de lijst</span><span class="plus">→</span></button></div>';
+  bar.innerHTML='<h4></h4><p>Gedeelde lijst niet bereikbaar — dit is '+(when?'de stand van '+escapeHtml(when):'de laatst geziene stand')+' ('+open+' te halen).</p><div class="chips"><button class="chip" type="button" id="cc-open"><span>Bekijk de lijst</span><span class="plus">→</span></button></div>';
   bar.querySelector("h4").textContent=c.name||"Gedeelde lijst";
   bar.querySelector("#cc-open").addEventListener("click", function(){ openCloudCacheSheet(id); });
   wrap.appendChild(bar);
@@ -2867,7 +3040,7 @@ function renderMeer(){
     section("Meldingen");
     var gP=el("div","group");
     if(isApple && !standaloneP){
-      gP.appendChild(el("div","grow",'<div class="glabel">Herinneringen<div class="gsub">Zet Mandje eerst op je beginscherm (zie hieronder) om meldingen te kunnen krijgen.</div></div>'));
+      gP.appendChild(el("div","grow",'<div class="glabel">Meldingen<div class="gsub">Zet Mandje eerst op je beginscherm (zie hieronder) om meldingen te kunnen krijgen.</div></div>'));
     } else {
       var remRow=el("div","grow");
       remRow.innerHTML='<div class="glabel">Meldingen<div class="gsub">Een seintje van je huisgenoten: als iets op is, of als iemand gaat winkelen.</div></div>';
@@ -2936,7 +3109,7 @@ function renderMeer(){
       var outBtn=el("button","mbtn","Uitloggen op dit toestel"); outBtn.type="button";
       outBtn.addEventListener("click", function(){
         if(!confirm("Uitloggen? Je gegevens blijven op dit toestel én in je account staan.")) return;
-        Cloud.signOut().then(function(){ toast("Uitgelogd"); if(activeTab==="meer") renderMeer(); });
+        Cloud.signOut().then(function(okOut){ if(!okOut) return; toast("Uitgelogd"); if(activeTab==="meer") renderMeer(); });
       });
       wrap.appendChild(outBtn);
       var delBtn=el("button","mbtn danger","Verwijder mijn account en cloudgegevens"); delBtn.type="button";
@@ -3150,6 +3323,11 @@ function importFromFile(){
    BOTTOM SHEET
    ============================================================ */
 var sheetCtx=null; // {type:'list'|'catalog', id|key}
+/* Het tmp-id van een net toegevoegd item is echt geworden: het open blad meeverhuizen,
+   anders schrijft Klaar/Verwijder naar een rij die niet meer bestaat. */
+function remapSheetId(tmpId, realId){
+  if(sheetCtx && sheetCtx.type==="list" && sheetCtx.id===tmpId) sheetCtx.id=realId;
+}
 
 function openSheet(listId){
   if(isPlainList()){ openPlainSheet(listId); return; }
@@ -3319,8 +3497,8 @@ function cadChip(v,label,sel){ return '<button class="cadchip'+(sel===v?" on":""
 function saveSheet(cat, cad, qty, price, note, catalogOnly, assignee, autoAdd, opFlag){
   var key = sheetCtx.key;
   // categorie + cadans naar (lokale) catalog — cadans blijft persoonlijk
-  var e = state.catalog[key];
-  if(!e){ e = touchCatalog(sheetCtx.type==="list" ? (state.list.find(function(i){return i.id===sheetCtx.id;})||{}).name : key, price); e.timesAdded=Math.max(0,(e.timesAdded||1)-1); }
+  var e = ownProp(state.catalog, key);
+  if(!isPlainObject(e)){ e = touchCatalog(sheetCtx.type==="list" ? (state.list.find(function(i){return i.id===sheetCtx.id;})||{}).name : key, price); if(e) e.timesAdded=Math.max(0,(e.timesAdded||1)-1); }
   if(e){
     // Catalog leert van correcties — handmatige cat-wijziging blokkeert toekomstige overschrijving door classifier.
     if(cat !== e.category) e.userOverrideCat = true;
@@ -3330,6 +3508,7 @@ function saveSheet(cat, cad, qty, price, note, catalogOnly, assignee, autoAdd, o
     else { e.cadenceMode="manual"; e.manualIntervalDays=parseInt(cad.slice(1),10); }
     if(price!=null) e.defaultPrice=price;
     if(typeof autoAdd === "boolean") e.autoAdd = autoAdd;
+    syncTouch("catalog", key);
   }
   save();
   if(Cloud.active && !catalogOnly && sheetCtx.type==="list"){
@@ -3753,7 +3932,7 @@ function deleteCustomCategory(id){
   state.settings.categoryOrder = state.settings.categoryOrder.filter(function(cid){return cid!==id;});
   (state.settings.stores||[]).forEach(function(s){ s.order = s.order.filter(function(cid){return cid!==id;}); });
   state.list.forEach(function(it){ if(it.category===id) it.category="overig"; });
-  Object.keys(state.catalog).forEach(function(k){ if(state.catalog[k].category===id) state.catalog[k].category="overig"; });
+  Object.keys(state.catalog).forEach(function(k){ if(state.catalog[k].category===id){ state.catalog[k].category="overig"; syncTouch("catalog", k); } });
   if(state.settings.customCatEmoji) delete state.settings.customCatEmoji[id];
   rebuildCatIndex(); save();
   renderMeer(); renderLijst();
@@ -4153,10 +4332,10 @@ function loadBarcodeDecoder(){
 }
 var _bcStream=null, _bcTick=null, _bcZoom=1;
 /* Diagnose van de laatste scansessie: decoder, cameraresolutie, zoom, beelden, laatste fout (Meer → Diagnose + statusregel) */
-var _bcDiag={ decoder:"", res:"", zoom:1, frames:0, errors:0, lastError:"", startedAt:0, hit:"" };
+var _bcDiag={ decoder:"", res:"", zoom:1, frames:0, errors:0, lastError:"", startedAt:0, hit:"", pass:"" };
 function bcDiagLine(){
   var d=_bcDiag; if(!d.decoder) return "";
-  return d.decoder+(d.res?" · "+d.res:"")+(d.zoom>1?" · "+d.zoom+"×":"")+(d.frames?" · "+d.frames+" beelden":"")+(d.lastError?" · fout: "+d.lastError:"");
+  return d.decoder+(d.res?" · "+d.res:"")+(d.zoom>1?" · "+d.zoom+"×":"")+(d.frames?" · "+d.frames+" beelden":"")+(d.pass?" · "+d.pass:"")+(d.lastError?" · fout: "+d.lastError:"");
 }
 function bcDiagTick(){
   // na 4 s zonder treffer: laten zien dat er gezocht wordt (en waarmee), zodat "niets gebeurt" nooit stil is
@@ -4172,7 +4351,7 @@ function openBarcodeCamera(mySession, video, onReady){
     if(mySession!==_bcSession){ stream.getTracks().forEach(function(t){ t.stop(); }); return; }
     _bcStream=stream; video.srcObject=stream;
     try{ video.play().catch(function(){}); }catch(e){}
-    _bcDiag.startedAt=Date.now(); _bcDiag.frames=0; _bcDiag.errors=0; _bcDiag.lastError=""; _bcDiag.hit="";
+    _bcDiag.startedAt=Date.now(); _bcDiag.frames=0; _bcDiag.errors=0; _bcDiag.lastError=""; _bcDiag.hit=""; _bcDiag.pass="";
     try{ var st=stream.getVideoTracks()[0].getSettings ? stream.getVideoTracks()[0].getSettings() : null; if(st && st.width) _bcDiag.res=st.width+"×"+st.height; }catch(e){}
     video.addEventListener("loadedmetadata", function(){ if(video.videoWidth) _bcDiag.res=video.videoWidth+"×"+video.videoHeight; });
     setupBarcodeZoom(stream.getVideoTracks()[0]);
@@ -4250,8 +4429,15 @@ function startBarcodeScanner(){
     startZxingScanner(mySession);
   });
 }
-/* ZXing-lus: elk ±90 ms het kadergebied op volle resolutie (max 1600 px breed) naar een canvas en decoderen.
-   TRY_HARDER: ook gekantelde/zwakke codes. Alleen EAN/UPC + QR (uitnodig-link van een huisgenoot). */
+/* Welke ronde is dit? Standaard alleen 1D-formaten zónder TRY_HARDER: ±25 ms per beeld in plaats van ±500 ms,
+   waardoor het scanscherm (handmatig veld, zoomchip, sluiten) blijft reageren. QR hoort bij de uitnodig-link
+   van een huisgenoot — zeldzaam — dus elk 4e beeld. Levert 3 s zoeken niets op, dan om de 5 beelden één
+   grondige ronde: traag, maar alleen wanneer het snelle pad faalt. */
+function bcScanPass(tick, sinceStartMs, hit){
+  return { qr:(tick%4)===0, hard:!hit && sinceStartMs>3000 && (tick%5)===0 };
+}
+/* ZXing-lus: elk ±90 ms het kadergebied naar een canvas (max 800 px breed — nog altijd ruim twee keer de
+   CSS-grootte van het kader, dus scherp genoeg voor een streepjescode) en decoderen volgens bcScanPass. */
 function startZxingScanner(mySession){
   loadBarcodeDecoder().then(function(ok){
     if(mySession!==_bcSession) return;   // scherm intussen gesloten of heropend → deze start is verouderd
@@ -4259,12 +4445,20 @@ function startZxingScanner(mySession){
     var scr=$("#barcode-screen"); if(!scr || !scr.classList.contains("show")) return; // gebruiker sloot al
     var video=newBarcodeVideo(); if(!video) return;
     _bcDiag.decoder="ZXing"; bcStatus("Camera starten…");
-    var Z=window.ZXing, reader=null;
-    try{
+    var Z=window.ZXing, reader=null, mode=null, frame=0;
+    var setMode=function(m){
+      if(m===mode) return;   // alleen bij een wisseling: setHints gooit de decoder-cache van decodeWithState weg
+      mode=m;
+      var fmts=[Z.BarcodeFormat.EAN_13, Z.BarcodeFormat.EAN_8, Z.BarcodeFormat.UPC_A, Z.BarcodeFormat.UPC_E];
+      if(m.indexOf("q")!==-1) fmts.push(Z.BarcodeFormat.QR_CODE);
       var hints=new Map();
-      hints.set(Z.DecodeHintType.POSSIBLE_FORMATS, [Z.BarcodeFormat.EAN_13, Z.BarcodeFormat.EAN_8, Z.BarcodeFormat.UPC_A, Z.BarcodeFormat.UPC_E, Z.BarcodeFormat.QR_CODE]);
-      hints.set(Z.DecodeHintType.TRY_HARDER, true);
-      reader=new Z.MultiFormatReader(); reader.setHints(hints);
+      hints.set(Z.DecodeHintType.POSSIBLE_FORMATS, fmts);
+      if(m.indexOf("h")!==-1) hints.set(Z.DecodeHintType.TRY_HARDER, true);
+      reader.setHints(hints);
+      _bcDiag.pass=(m.indexOf("h")!==-1) ? "grondig" : (m.indexOf("q")!==-1 ? "1D+QR" : "1D");
+    };
+    try{
+      reader=new Z.MultiFormatReader(); setMode("");
     }catch(e){ bcStatus("Scanner niet beschikbaar — typ de naam"); return; }
     var canvas=document.createElement("canvas"), ctx=canvas.getContext("2d", {willReadFrequently:true});
     openBarcodeCamera(mySession, video, function(){
@@ -4275,7 +4469,9 @@ function startZxingScanner(mySession){
           var r=barcodeCropRect(video, box);
           if(r){
             try{
-              var k=Math.min(1, 1600/Math.max(1,r.w));
+              var p=bcScanPass(++frame, Date.now()-(_bcDiag.startedAt||Date.now()), _bcDiag.hit);
+              setMode((p.qr?"q":"")+(p.hard?"h":""));
+              var k=Math.min(1, 800/Math.max(1,r.w));
               var cw=Math.max(1,Math.round(r.w*k)), ch=Math.max(1,Math.round(r.h*k));
               if(canvas.width!==cw) canvas.width=cw; if(canvas.height!==ch) canvas.height=ch;
               ctx.drawImage(video, r.x, r.y, r.w, r.h, 0, 0, cw, ch);
@@ -4358,6 +4554,7 @@ function setupBarcode(){
 /* Service worker: instant laden + offline-installeerbaar. Bij een nieuwe build wacht de
    nieuwe SW; we tonen dan een niet-opdringerige toast i.p.v. hard te herladen. */
 var _userAskedUpdate = false;
+var _lastPushToast = { body:"", at:0 };
 function setupServiceWorker(){
   if(!("serviceWorker" in navigator)) return;
   try{
@@ -4380,7 +4577,15 @@ function setupServiceWorker(){
     // Eerste bezoek: clients.claim() vuurt óók controllerchange — dan NIET herladen
     // (dat kostte elke nieuwe bezoeker een dubbele download van de hele app).
     navigator.serviceWorker.addEventListener("message", function(e){
-      if(e && e.data && e.data.type==="PUSH_RESUBSCRIBE" && typeof Cloud!=="undefined" && Cloud && Cloud.checkPushSubscription) Cloud.checkPushSubscription();
+      var d = e && e.data; if(!d) return;
+      if(d.type==="PUSH_RESUBSCRIBE" && typeof Cloud!=="undefined" && Cloud && Cloud.checkPushSubscription) Cloud.checkPushSubscription();
+      // De SW toont géén OS-melding zolang dit venster zichtbaar is; dan hoort hier de gewone toast.
+      if(d.type==="PUSH_IN_APP" && d.body){
+        var b = String(d.body), t = Date.now();
+        if(b===_lastPushToast.body && t-_lastPushToast.at < 15000) return;   // dezelfde gebeurtenis kwam net al via de live-verversing
+        _lastPushToast = { body:b, at:t };
+        toast(b, {duration:5000});
+      }
     });
     var reloaded = false;
     navigator.serviceWorker.addEventListener("controllerchange", function(){
@@ -4732,12 +4937,21 @@ if(typeof window!=="undefined"){
   window.finishAfterCloud = finishAfterCloud;
   window.buildUserStatePayload = buildUserStatePayload;
   window.mergeUserState = mergeUserState;
+  window.rerenderAfterSync = rerenderAfterSync;
+  window.ownProp = ownProp;
+  window._mergeCatalogEntry = _mergeCatalogEntry;
+  window._mergeListItems = _mergeListItems;
+  window.__state = function(){ return state; };
   window.syncStamp = syncStamp;
   window.stableStr = stableStr;
   window.parseOpCommand = parseOpCommand;
   window.flagItemOp = flagItemOp;
   window.flagByName = flagByName;
   window.isOpFresh = isOpFresh;
+  window.opTimeBucket = opTimeBucket;
+  window.rowSig = rowSig;
+  window.remapSheetId = remapSheetId;
+  window.__sheetCtx = function(){ return sheetCtx; };
   window.openAccountSheet = openAccountSheet;
   window.wipeDevice = wipeDevice;
   window.mirrorAuthSession = mirrorAuthSession;
@@ -4748,6 +4962,7 @@ if(typeof window!=="undefined"){
   window.renderAssignFilter = renderAssignFilter;
   window.onboardSteps = onboardSteps;
   window.showBarcodeHit = showBarcodeHit;
+  window.bcScanPass = bcScanPass;
   window.qrMatrix = qrMatrix;
   window.qrSvg = qrSvg;
   window.saveNow = saveNow;

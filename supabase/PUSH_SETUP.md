@@ -52,3 +52,9 @@ draai `npm run build` en deploy. De "Herinneringen"-toggle verschijnt nu in Meer
 - iOS: geen stille/achtergrond-push; abonnementen kunnen verlopen → de app her-abonneert
   bij openen (`Cloud.checkPushSubscription`). 404/410 ruimt de Edge Function zelf op.
 - Privésleutel **nooit** in de frontend — alleen als function-secret.
+- Draai naast M5 ook `supabase/migrations/2026-09-07_m7_notify_fix.sql` (M7): een abonnement mag na
+  in-/uitloggen op `endpoint` worden overgenomen, `notify_outbox` krijgt een `attempts`-teller en
+  clients mogen niet meer rechtstreeks in de wachtrij schrijven.
+- `push-events` claimt de rijen (`sent_at`) vóór het versturen — twee gelijktijdige aanroepen sturen
+  dus niet dubbel — en toetst 'op'-rijen opnieuw tegen `items`, zodat "Ongedaan" geen spookmelding geeft.
+  Na een tijdelijke fout (429/5xx) gaat de claim terug; na 5 pogingen geeft hij de rij op.

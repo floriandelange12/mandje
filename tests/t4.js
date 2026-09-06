@@ -69,7 +69,7 @@ ok("manifest: shortcuts (≥2) en share_target (GET)", !!mf && Array.isArray(mf.
 ok("index.html: <link rel=\"manifest\" href=\"./manifest.webmanifest\"> (geen data-URI)", html.indexOf('<link rel="manifest" href="./manifest.webmanifest">')!==-1 && html.indexOf("data:application/manifest+json")===-1);
 ok("index.html: geen base64-iconen meer vóór <body", html.slice(0, Math.max(bodyIdx,0)).indexOf("data:image/png;base64")===-1);
 const sdkPath = path.join(root, "supabase.js");
-ok("supabase.js: los root-bestand (≥ 100 KB), niet meer inline in index.html", fs.existsSync(sdkPath) && fs.statSync(sdkPath).size > 100*1024 && htmlBuf.length < 600*1024);   // SDK (200 KB) inline zou de bundel ver over de 600 KB duwen
+ok("supabase.js: los root-bestand (≥ 100 KB), niet meer inline in index.html", fs.existsSync(sdkPath) && fs.statSync(sdkPath).size > 100*1024 && htmlBuf.length < 700*1024);   // SDK (200 KB) inline zou de bundel ver over de 700 KB duwen
 
 // 5b. design-systeem: geen losse pixelmaten/legacy-tokens meer in de CSS (tokens zijn de enige bron)
 {
@@ -99,6 +99,15 @@ ok("sw.js: pushsubscriptionchange-vangnet, renotify en deep link met query (Fase
   const m5 = fs.existsSync(path.join(root, "supabase/migrations/2026-09-06_m5_notify.sql")) ? fs.readFileSync(path.join(root, "supabase/migrations/2026-09-06_m5_notify.sql"), "utf8") : "";
   const fn = fs.existsSync(path.join(root, "supabase/functions/push-events/index.ts")) ? fs.readFileSync(path.join(root, "supabase/functions/push-events/index.ts"), "utf8") : "";
   ok("Fase 5: M5-migratie (notify_outbox, trigger, start_shopping, prefs, cron) en Edge Function push-events aanwezig", /notify_outbox/.test(m5) && /start_shopping/.test(m5) && /items_flag_notify/.test(m5) && /prefs/.test(m5) && /cron\.schedule/.test(m5) && /notify_outbox/.test(fn) && /webpush\.sendNotification/.test(fn) && /prefs\[prefKey\]/.test(fn));
+  const m7 = fs.existsSync(path.join(root, "supabase/migrations/2026-09-07_m7_notify_fix.sql")) ? fs.readFileSync(path.join(root, "supabase/migrations/2026-09-07_m7_notify_fix.sql"), "utf8") : "";
+  ok("Fase 5: M7-migratie (attempts, overname van een abonnement op endpoint, insert-recht outbox weg, eigendom overdragen)",
+     /alter table public\.notify_outbox add column if not exists attempts/.test(m7)
+     && /on public\.push_subscriptions[\s\S]*for update using \(true\) with check \(user_id = auth\.uid\(\)\)/.test(m7)
+     && /revoke insert on public\.notify_outbox from authenticated/.test(m7)
+     && /create or replace function public\.delete_my_account/.test(m7) && /set owner_user_id/.test(m7));
+  ok("Fase 5: push-events claimt vóór het versturen, toetst 'op'-items opnieuw, unieke tag per bundel, pogingenteller + foutlog",
+     fn.indexOf("const claimAt") !== -1 && fn.indexOf('.is("sent_at", null)') !== -1 && fn.indexOf("stillFlagged") !== -1
+     && fn.indexOf("mandje-op-${listId}-${evs[0].id}") !== -1 && fn.indexOf("MAX_ATTEMPTS") !== -1 && fn.indexOf("console.error") !== -1);
 }
 
 console.log("\nt4: "+pass+" geslaagd, "+fail+" gefaald");

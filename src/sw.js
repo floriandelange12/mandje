@@ -48,12 +48,22 @@ self.addEventListener("push", function(e){
     renotify: !!data.renotify,
     data: { url: data.url || "./" }
   };
-  e.waitUntil(self.registration.showNotification(title, opts));
+  var show = function(){ return self.registration.showNotification(title, opts); };
+  e.waitUntil(self.clients.matchAll({type:"window", includeUncontrolled:true}).then(function(cs){
+    var scope = self.registration.scope, seen = null;
+    for(var i=0;i<cs.length;i++){
+      if(cs[i].url.indexOf(scope) === 0 && cs[i].visibilityState === "visible"){ seen = cs[i]; break; }
+    }
+    if(!seen) return show();
+    try{ seen.postMessage({type:"PUSH_IN_APP", title:title, body:opts.body, url:opts.data.url, tag:opts.tag}); }
+    catch(x){ return show(); }
+  }).catch(show));
 });
 /* Abonnement door de browser vernieuwd: open vensters opnieuw laten abonneren (de app herstelt anders bij de volgende start) */
 self.addEventListener("pushsubscriptionchange", function(e){
+  var ep = null; try{ ep = e.newSubscription && e.newSubscription.endpoint; }catch(x){}
   e.waitUntil(self.clients.matchAll({type:"window", includeUncontrolled:true}).then(function(cs){
-    cs.forEach(function(c){ try{ c.postMessage({type:"PUSH_RESUBSCRIBE"}); }catch(x){} });
+    cs.forEach(function(c){ try{ c.postMessage({type:"PUSH_RESUBSCRIBE", endpoint: ep}); }catch(x){} });
   }).catch(function(){}));
 });
 self.addEventListener("notificationclick", function(e){

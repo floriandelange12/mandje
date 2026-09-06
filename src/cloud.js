@@ -152,6 +152,9 @@ var Cloud = {
       this.ready = false;
       this.mode = "local";
       this.initError = reason || "Cloud niet beschikbaar";
+      // Auth-listener hoort bij déze client: opzeggen, anders bindt de volgende client er nooit een.
+      try{ if(this._authSub && typeof this._authSub.unsubscribe==="function") this._authSub.unsubscribe(); }catch(e){}
+      this._authSub = null; this._authBound = false; this._accessToken = null;
       this.sb = null; this.userId = null;
       this.lists = [];
       this.members = [];
@@ -254,10 +257,21 @@ var Cloud = {
       var r=await this.sb.from("meals").select("*").eq("user_id", this.userId);
       if(r.error || !r.data) return;
       state.meals = state.meals || {};
+      var tombs=(state.sync && state.sync.tomb && isPlainObject(state.sync.tomb.meals)) ? state.sync.tomb.meals : {};
+      var changed=0;
       r.data.forEach(function(row){
+        if(!row || !row.id) return;
+        var rt=row.updated_at ? new Date(row.updated_at).getTime() : 0;
+        var tomb=Number(Object.prototype.hasOwnProperty.call(tombs,row.id) ? tombs[row.id] : 0)||0;
+        if(tomb && tomb>rt) return;   // hier verwijderd ná deze versie: niet laten herrijzen
+        var cur=Object.prototype.hasOwnProperty.call(state.meals,row.id) ? state.meals[row.id] : null;
+        var ct=(cur && cur.updatedAt) ? new Date(cur.updatedAt).getTime() : 0;
+        if(cur && !(rt>ct)) return;   // lokaal is even nieuw of nieuwer
         state.meals[row.id] = { id:row.id, name:row.name, emoji:row.emoji||"🍽️",
           items:Array.isArray(row.items)?row.items:[], updatedAt:row.updated_at };
+        changed++;
       });
+      if(!changed) return;
       if(typeof save==="function") save();
       if(activeTab==="vaste" && typeof renderVaste==="function") renderVaste();
     }catch(e){}
@@ -293,20 +307,27 @@ var Cloud = {
       if(!reg || !reg.pushManager) return {ok:false, reason:"no-sw"};
       var sub=await reg.pushManager.getSubscription();
       if(!sub) sub=await reg.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey:urlB64ToUint8Array(key) });
-      var j=sub.toJSON();
-      var row={
-        user_id:this.userId, endpoint:sub.endpoint,
-        p256dh:(j.keys&&j.keys.p256dh)||"", auth:(j.keys&&j.keys.auth)||"",
-        updated_at:new Date().toISOString()
-      };
-      if(this._hasPrefs!==false) row.prefs=this._pushPrefs();
-      var r=await this.sb.from("push_subscriptions").upsert(row, { onConflict:"endpoint" });
-      if(r.error && this._isMissingCol(r.error, "prefs")){ this._hasPrefs=false; delete row.prefs; r=await this.sb.from("push_subscriptions").upsert(row, { onConflict:"endpoint" }); }
-      if(r.error){ console.warn("Mandje: push_subscriptions upsert faalde", r.error); return {ok:false, reason:"error"}; }
-      this._hasPrefs=true;
+      if(!(await this.upsertPushRow(sub))) return {ok:false, reason:"error"};
       if(typeof state!=="undefined" && state && state.settings){ state.settings.pushOn = true; if(typeof save==="function") save(); }
       return {ok:true, reason:"ok"};
     }catch(e){ console.warn("Mandje: push aanzetten faalde", e); return {ok:false, reason:"error"}; }
+  },
+  /* Het browser-abonnement blijft bij in-/uitloggen bestaan, maar de eigenaar verandert: zonder deze
+     her-upsert wijst de rij naar het vórige account en krijgt dit toestel andermans meldingen. */
+  upsertPushRow:async function(sub){
+    if(!this.ready || !this.userId || !this.sb || !sub || !sub.endpoint) return false;
+    var j={}; try{ j=sub.toJSON()||{}; }catch(e){}
+    var row={
+      user_id:this.userId, endpoint:sub.endpoint,
+      p256dh:(j.keys&&j.keys.p256dh)||"", auth:(j.keys&&j.keys.auth)||"",
+      updated_at:new Date().toISOString()
+    };
+    if(this._hasPrefs!==false) row.prefs=this._pushPrefs();
+    var r=await this.sb.from("push_subscriptions").upsert(row, { onConflict:"endpoint" });
+    if(r && r.error && this._isMissingCol(r.error, "prefs")){ this._hasPrefs=false; delete row.prefs; r=await this.sb.from("push_subscriptions").upsert(row, { onConflict:"endpoint" }); }
+    if(r && r.error){ console.warn("Mandje: push_subscriptions upsert faalde", r.error); return false; }
+    if(row.prefs) this._hasPrefs=true;
+    return true;
   },
   _hasPrefs:undefined, _shopNotifiedFor:null, _shopNotifiedAt:0,
   _pushPrefs:function(){ return (typeof pushPrefs==="function") ? pushPrefs() : {op:true, shopping:true}; },
@@ -335,7 +356,12 @@ var Cloud = {
     try{
       var reg=await navigator.serviceWorker.ready;
       var sub=await reg.pushManager.getSubscription();
-      if(sub){ var ep=sub.endpoint; await sub.unsubscribe(); if(this.ready) this.sb.from("push_subscriptions").delete().eq("endpoint", ep).then(function(){},function(){}); }
+      if(sub){
+        var ep=sub.endpoint;
+        // Eerst de rij weg (RLS staat dat straks, als andere gebruiker, niet meer toe), dan het abonnement zelf
+        if(this.ready && this.sb){ try{ await this.sb.from("push_subscriptions").delete().eq("endpoint", ep); }catch(e){} }
+        try{ await sub.unsubscribe(); }catch(e){}
+      }
       return true;
     }catch(e){ return false; }
   },
@@ -358,7 +384,10 @@ var Cloud = {
       if(Notification.permission!=="granted") return;        // alleen her-abonneren als eerder toegestaan
       var reg=await navigator.serviceWorker.ready;
       var sub=await reg.pushManager.getSubscription();
-      if(!sub) await this.subscribeToPush();                 // iOS kan een abonnement droppen → herstel
+      if(!sub){ await this.subscribeToPush(); return; }       // iOS kan een abonnement droppen → herstel
+      // Abonnement bestaat al: de rij kan nog bij een vorige gebruiker horen en de voorkeuren kunnen
+      // via user_state van een ander toestel gewijzigd zijn — allebei rechtzetten met één upsert.
+      await this.upsertPushRow(sub);
     }catch(e){}
   },
   friendByUser:function(uid){ for(var i=0;i<this.friends.length;i++) if(this.friends[i].user_id===uid) return this.friends[i]; return null; },
@@ -465,6 +494,14 @@ var Cloud = {
         }
         if(!guard(true)) return;
         var u=await this.sb.auth.getUser(); this.userId=(u.data&&u.data.user)?u.data.user.id:null;
+        if(!this.userId){
+          // Sessie elders ingetrokken: één keer opnieuw anoniem aanmelden. Lukt dat niet, dan
+          // liever eerlijk lokaal verder dan "verbonden" doen zonder auth.
+          try{ await this.sb.auth.signInAnonymously(); }catch(e){}
+          try{ u=await this.sb.auth.getUser(); }catch(e){ u=null; }
+          this.userId=(u&&u.data&&u.data.user)?u.data.user.id:null;
+          if(!this.userId){ this._setOfflineMode("Niet ingelogd — je werkt nu in je eigen lijst"); return; }
+        }
         try{ var s2=await this.sb.auth.getSession(); this._accessToken=(s2.data&&s2.data.session&&s2.data.session.access_token)||null; }catch(e){}
         this._bindAuth();
         this._setAuthUser(u.data&&u.data.user);
@@ -614,6 +651,7 @@ var Cloud = {
   stop:function(){
     if(this.channel){ try{ this.sb.removeChannel(this.channel); }catch(e){} this.channel=null; }
     if(this.presenceTimer){ clearInterval(this.presenceTimer); this.presenceTimer=null; }
+    if(this._rtT){ clearTimeout(this._rtT); this._rtT=null; }
     this.present=[]; if(typeof renderPresence==="function") renderPresence();
   },
     refreshItems:async function(token){
@@ -822,6 +860,12 @@ var Cloud = {
      items (tmp_-id) worden in de uitgestelde insert gevouwen → niets gaat verloren. */
   _pending:[],
   _deletedIds:{},   // ids die we net afgerond/verwijderd hebben → niet her-toevoegen via realtime-refresh
+  _idMap:{},              // tmp_-id → echt id: een blad dat nog op het oude id staat, blijft werken
+  _inflight:{},           // tmp_-id → payload van een insert die nu onderweg is
+  _pendingAfterInsert:{}, // tmp_-id → velden die pas ná het echte id verstuurd kunnen worden
+  _killAfterInsert:{},    // tmp_-id → de rij is al afgerond/verwijderd: na de insert alsnog opruimen
+  /* Een id dat inmiddels vervangen is, teruggeven als het echte id (anders schrijven we naar een dode rij) */
+  _realId:function(id){ return (id && this._idMap[id]) || id; },
   _isTmp:function(id){ return typeof id==="string" && id.indexOf("tmp_")===0; },
   _pendingInsert:function(tmpId){
     for(var i=0;i<this._pending.length;i++){ var e=this._pending[i]; if(e.op==="insert"&&e.tmpId===tmpId) return e; }
@@ -837,10 +881,11 @@ var Cloud = {
     var self=this, me=this.myName(), fresh=[], now=Date.now();
     var primed = (this._flagsPrimedFor===listId);
     (mapped||[]).forEach(function(it){
-      if(!it.flaggedAt || it.done) return;
+      if(!it.flaggedAt) return;
       var key=it.id+"|"+it.flaggedAt;
-      if(self._seenFlags[key]) return;
-      self._seenFlags[key]=1;
+      var known=!!self._seenFlags[key];
+      self._seenFlags[key]=1;   // óók van afgevinkte rijen: anders toast een oude vlag alsnog na het uitvinken
+      if(known || it.done) return;
       var t=new Date(it.flaggedAt).getTime();
       if(primed && (it.flaggedBy||"")!==me && !isNaN(t) && (now-t) < 6*3600000) fresh.push(it);
     });
@@ -851,24 +896,60 @@ var Cloud = {
     toast(txt, {duration:4000, onTap:function(){ if(typeof scrollToRow==="function") scrollToRow(fresh[0].id); }});
     if(typeof vibe==="function") vibe("nudge");
   },
+  _shopWindowMs:2*3600000,   // gelijk aan de server-throttle op start_shopping
   _noticeShopping:function(others){
     var self=this; if(!Array.isArray(others)) return;
+    var now=Date.now(), win=this._shopWindowMs;
     others.forEach(function(p){
       if(!p || !p.shopping || !p.user_id) return;
-      if(self._shoppingSeen[p.user_id]) return;
-      self._shoppingSeen[p.user_id]=Date.now();
+      var last=self._shoppingSeen[p.user_id];
+      if(last && (now-last) < win) return;   // tussen twee schappen door even offline: niet opnieuw melden
+      self._shoppingSeen[p.user_id]=now;
       if(typeof toast==="function" && !(typeof shopIsOpen==="function" && shopIsOpen())){
         toast("🛒 "+(p.name||"Iemand")+" is in de winkel — nog iets nodig?", {duration:5000, onTap:function(){ var i=document.getElementById("add-name"); if(i) i.focus(); }});
       }
     });
-    // wie klaar is, mag later opnieuw gemeld worden
-    var live={}; others.forEach(function(p){ if(p && p.shopping && p.user_id) live[p.user_id]=1; });
-    Object.keys(this._shoppingSeen).forEach(function(uid2){ if(!live[uid2]) delete self._shoppingSeen[uid2]; });
+    // opruimen op leeftijd, niet op vertrek: een volgende winkelbeurt mag weer gemeld worden
+    Object.keys(this._shoppingSeen).forEach(function(uid2){ if((now-self._shoppingSeen[uid2]) >= win) delete self._shoppingSeen[uid2]; });
   },
   /* ===== Account met e-mail (Fase 3C): code per mail, link werkt ook; zelfde user_id dus alles blijft ===== */
-  authEmail:null, isAnon:true, _otpSentAt:0, _otpEmail:"", _otpMode:"", _authCheckAt:0,
+  authEmail:null, isAnon:true, _otpSentAt:0, _otpEmail:"", _otpMode:"", _authCheckAt:0, _signingOutAt:0, _authSub:null,
   _setAuthUser:function(user){ this.authEmail=(user && user.email) ? String(user.email) : null; this.isAnon=!this.authEmail; },
   hasAccount:function(){ return !!this.authEmail; },
+  /* Bij wie horen de gesynchroniseerde gegevens op dít toestel? Zonder dat merk je niet dat de
+     catalogus/geschiedenis nog van het vórige account is — die zou dan bij de eerste push in het
+     nieuwe account belanden. */
+  _stampOwner:function(){
+    if(!this.userId || typeof state==="undefined" || !state || typeof syncEnsure!=="function") return;
+    var s=syncEnsure(); if(!s || s.ownerId===this.userId) return;
+    s.ownerId=this.userId;
+    if(typeof save==="function") save();
+  },
+  /* Er logt een ánder account in op dit toestel: alles wat via user_state synct terug naar leeg, zodat
+     de privégegevens van de vorige gebruiker niet in het nieuwe account worden samengevoegd. Koppelen
+     (anoniem → account) houdt hetzelfde user_id en komt hier dus nooit langs: dat blijft samenvoegen. */
+  _resetSyncedDataForNewOwner:function(newId){
+    if(!newId || typeof state==="undefined" || !state || typeof syncEnsure!=="function") return false;
+    var s=syncEnsure();
+    if(!s || !s.ownerId || s.ownerId===newId) return false;
+    state.catalog={}; state.coBuy={}; state.meals={}; state.history=[]; state.cloudCache={};
+    state.syncQueue=[]; this._pending=[];
+    state.localLists=[{ id:"l_boodschappen", name:"Boodschappen", type:"grocery", preset:"grocery", glyph:"🧺",
+      finish:"opruimen", placeholder:null, open:null, done:null, doneTitle:null, items:[],
+      createdAt:(typeof nowISO==="function"?nowISO():new Date().toISOString()), updatedAt:null }];
+    state.activeLocalId="l_boodschappen";
+    state.list=state.localLists[0].items;
+    if(typeof _personalList!=="undefined") _personalList=null;
+    state.sync={ownerId:newId};
+    syncEnsure();
+    if(this._usPushTimer){ clearTimeout(this._usPushTimer); this._usPushTimer=null; }
+    this._usRemoteAt=null; this._usPushedHash=""; this._usLastPullAt=0;
+    if(typeof rebuildCatIndex==="function") rebuildCatIndex();
+    if(typeof syncSnapInit==="function") syncSnapInit();   // verse momentopname: geen grafstenen voor wat we net wisten
+    if(typeof save==="function") save();
+    if(typeof toast==="function") toast("Dit toestel toont nu de gegevens van je account", {duration:4000});
+    return true;
+  },
   refreshAuthUser:async function(){
     if(!this.sb) return false;
     try{
@@ -885,14 +966,32 @@ var Cloud = {
   _onAuthEvent:function(ev, session){
     if(typeof mirrorAuthSession==="function" && (ev==="SIGNED_IN" || ev==="TOKEN_REFRESHED" || ev==="USER_UPDATED")) mirrorAuthSession();
     if(ev==="USER_UPDATED") this.refreshAuthUser();
+    // Sessie weg (auto-refresh mislukt, elders ingetrokken): zonder auth faalt elke schrijfactie stil.
+    // Ons eigen uitloggen regelt zijn eigen reinit — dat venster slaan we over.
+    if(ev==="SIGNED_OUT"){
+      var justSignedOut = (Date.now() - (this._signingOutAt||0)) < 5000;
+      if(!justSignedOut && this.ready && !this._initInProgress){
+        this.authEmail=null; this.isAnon=true;
+        this.reinit();
+      }
+      return;
+    }
     // magic link in dít venster geopend voor een ander account → alles opnieuw laden onder dat account
-    if(ev==="SIGNED_IN" && session && session.user && this.userId && session.user.id!==this.userId && !this._initInProgress){ this._setAuthUser(session.user); this.reinit(); }
+    if(ev==="SIGNED_IN" && session && session.user && this.userId && session.user.id!==this.userId && !this._initInProgress){
+      this._setAuthUser(session.user);
+      this._resetSyncedDataForNewOwner(session.user.id);   // geen gegevens van het vorige account meepushen
+      this.reinit();
+    }
   },
   linkEmail:async function(email){
     email=(email||"").trim().toLowerCase(); if(!email || !this.ready || !this.sb) return {ok:false, reason:"no-cloud"};
     try{
       var r=await this.sb.auth.updateUser({email:email});
-      if(r.error) return {ok:false, reason:(/rate|too many/i.test(String(r.error.message))?"rate":"error"), message:r.error.message};
+      if(r.error){
+        var em=String(r.error.message||"");
+        var why=/already|exists|registered/i.test(em) ? "exists" : (/rate|too many/i.test(em) ? "rate" : "error");
+        return {ok:false, reason:why, message:em};
+      }
       this._otpSentAt=Date.now(); this._otpEmail=email; this._otpMode="email_change";
       return {ok:true};
     }catch(e){ return {ok:false, reason:"error", message:String((e&&e.message)||e)}; }
@@ -920,13 +1019,23 @@ var Cloud = {
       }
       this._setAuthUser(user); if(typeof mirrorAuthSession==="function") mirrorAuthSession();
       this._otpMode=""; this._otpEmail="";
+      if(user && user.id) this._resetSyncedDataForNewOwner(user.id);
       await this.reinit();
       return {ok:true, mode:"signed-in"};
     }catch(e){ return {ok:false, reason:"error", message:String((e&&e.message)||e)}; }
   },
   signOut:async function(){
     if(!this.sb) return false;
-    try{ await this.sb.auth.signOut(); }catch(e){}
+    // scope "local": de standaard ('global') trekt óók de sessie op je telefoon en iPad in, waarna die
+    // toestellen bij de volgende start een vers anoniem profiel krijgen — lijsten en vrienden kwijt.
+    // Push opzeggen zolang we nog als deze gebruiker gelden; anders blijft de rij naar het oude account wijzen
+    try{ await this.unsubscribePush(); }catch(e){}
+    var res=null;
+    this._signingOutAt=Date.now();
+    try{ res=await this.sb.auth.signOut({scope:"local"}); }
+    catch(e){ res={error:{message:String((e&&e.message)||e)}}; }
+    // Mislukt? Dan houdt de SDK de accountsessie vast; doe dan niet alsof je uitgelogd bent.
+    if(res && res.error){ if(typeof toast==="function") toast("Uitloggen lukte niet — check je verbinding"); return false; }
     this.authEmail=null; this.isAnon=true;
     try{ if(typeof idbSet==="function") idbSet("sb.auth", ""); }catch(e){}
     await this.reinit();
@@ -936,7 +1045,7 @@ var Cloud = {
   reinit:async function(){
     this.stop();
     this.ready=false; this.active=null; this.lists=[]; this.members=[]; this.friends=[]; this.profile=null;
-    this._usRemoteAt=null; this._usPushedHash=""; this._usLastPullAt=0; clearTimeout(this._usPushTimer); this._usPushTimer=null;
+    this._usRemoteAt=null; this._usNoRow=false; this._usPushedHash=""; this._usLastPullAt=0; clearTimeout(this._usPushTimer); this._usPushTimer=null;
     this._initInProgress=false;
     try{ localStorage.setItem("mandje.activeList","local"); }catch(e){}
     if(typeof _personalList!=="undefined" && Array.isArray(_personalList) && typeof state!=="undefined" && state) state.list=_personalList.slice();
@@ -951,20 +1060,23 @@ var Cloud = {
     if(!this.ready || !this.sb) return false;
     var r=await this.sb.rpc("delete_my_account");
     if(r.error){ toast(r.error.message||"Verwijderen lukte niet"); return false; }
-    try{ await this.sb.auth.signOut(); }catch(e){}
+    try{ await this.unsubscribePush(); }catch(e){}   // de rij is serverside al weg; het browser-abonnement niet
+    this._signingOutAt=Date.now();
+    try{ await this.sb.auth.signOut(); }catch(e){}   // hier wél global: het account bestaat niet meer
     return true;
   },
   /* ===== user_state: dezelfde slimme app op elk toestel (Fase 3B) ===== */
-  _usPushTimer:null, _usPushedHash:"", _usRemoteAt:null, _usPulling:false, _usPushing:false, _usLastPullAt:0, _usHasTable:undefined, _accessToken:null, _authBound:false,
+  _usPushTimer:null, _usPushedHash:"", _usRemoteAt:null, _usNoRow:false, _usPulling:false, _usPushing:false, _usLastPullAt:0, _usHasTable:undefined, _accessToken:null, _authBound:false,
   _bindAuth:function(){
     if(this._authBound || !this.sb || !this.sb.auth || typeof this.sb.auth.onAuthStateChange!=="function") return;
     this._authBound=true; var self=this;
     try{
-      this.sb.auth.onAuthStateChange(function(ev, session){
+      var sub=this.sb.auth.onAuthStateChange(function(ev, session){
         self._accessToken=(session && session.access_token)||null;
         if(typeof self._onAuthEvent==="function") self._onAuthEvent(ev, session);
       });
-    }catch(e){}
+      this._authSub=(sub && sub.data && sub.data.subscription) ? sub.data.subscription : null;
+    }catch(e){ this._authBound=false; this._authSub=null; }
   },
   scheduleUserStatePush:function(delay){
     if(!this.ready || !this.userId || !this.sb || this._usHasTable===false) return;
@@ -976,11 +1088,24 @@ var Cloud = {
     var p=buildUserStatePayload();
     return Object.assign({ user_id:this.userId, device:(typeof deviceLabel==="function"?deviceLabel():""), updated_at:new Date().toISOString() }, p);
   },
+  /* Nummer van de laatst weggeschreven lokale staat (app.js hoogt het op in syncStamp). Blijft dat gelijk,
+     dan kan de rij niet veranderd zijn — en die hash kost op een telefoon honderden ms. */
+  _usEpoch:function(){ return (typeof window!=="undefined" && typeof window.__mandjeStateEpoch==="number") ? window.__mandjeStateEpoch : -1; },
+  _usHashRow:function(row){
+    var ep=this._usEpoch();
+    if(ep!==-1 && this._usHashEpoch===ep && this._usHashVal) return this._usHashVal;
+    var h=hashStr(stableStr({catalog:row.catalog, co_buy:row.co_buy, settings:row.settings, meals:row.meals, history:row.history, local_lists:row.local_lists}));
+    this._usHashEpoch=ep; this._usHashVal=h;
+    return h;
+  },
   pushUserState:async function(force, _retry){
     if(!this.ready || !this.userId || !this.sb || this._usHasTable===false) return false;
     if(this._usPulling || this._usPushing){ this.scheduleUserStatePush(2500); return false; }
+    var ep=this._usEpoch();
+    // niets gemuteerd sinds de vorige geslaagde push → de rij hoeft niet eens gebouwd te worden
+    if(!force && ep!==-1 && ep===this._usHashEpoch && this._usHashVal && this._usHashVal===this._usPushedHash) return true;
     var row=this._userStateRow(); if(!row) return false;
-    var h=hashStr(stableStr({catalog:row.catalog, co_buy:row.co_buy, settings:row.settings, meals:row.meals, history:row.history, local_lists:row.local_lists}));
+    var h=this._usHashRow(row);
     if(!force && h===this._usPushedHash) return true;
     this._usPushing=true;
     try{
@@ -994,12 +1119,21 @@ var Cloud = {
           await this.pullUserState();
           return this.pushUserState(true, true);
         }
-      } else {
+      } else if(this._usNoRow){
         r=await this.sb.from("user_state").upsert(row, {onConflict:"user_id"}).select("updated_at");
+      } else {
+        // Nog nooit met succes opgehaald: blind upserten zou de rij van een ander toestel
+        // vervangen door wat hier toevallig staat. Eerst ophalen en samenvoegen.
+        this._usPushing=false;
+        if(_retry) return false;
+        var pulled=await this.pullUserState();
+        if(!pulled){ this.scheduleUserStatePush(30000); return false; }
+        return this.pushUserState(true, true);
       }
       if(r.error){ if(this._isMissingTable(r.error)) this._usHasTable=false; else this._warned("user_state", "user_state push faalde: "+(r.error.message||r.error.code)); return false; }
       this._usPushedHash=h;
       this._usRemoteAt=(r.data && r.data[0] && r.data[0].updated_at) || row.updated_at;
+      this._stampOwner();
       if(typeof state!=="undefined" && state){ var s=(typeof syncEnsure==="function")?syncEnsure():null; if(s){ s.lastPushAt=Date.now(); if(typeof save==="function") save(); } }
       return true;
     }catch(e){ return false; }
@@ -1013,16 +1147,23 @@ var Cloud = {
       var r=await this.sb.from("user_state").select("*").eq("user_id", this.userId).maybeSingle();
       if(r.error){ if(this._isMissingTable(r.error)) this._usHasTable=false; return false; }
       this._usLastPullAt=Date.now();
+      this._stampOwner();
       var s=(typeof syncEnsure==="function")?syncEnsure():null;
-      if(!r.data){ this._usRemoteAt=null; this._usPushedHash=""; this.scheduleUserStatePush(600); if(s){ s.lastPullAt=Date.now(); } return true; }
-      this._usRemoteAt=r.data.updated_at;
+      if(!r.data){ this._usRemoteAt=null; this._usNoRow=true; this._usPushedHash=""; this.scheduleUserStatePush(600); if(s){ s.lastPullAt=Date.now(); } return true; }
+      this._usRemoteAt=r.data.updated_at; this._usNoRow=false;
       var res=(typeof mergeUserState==="function") ? mergeUserState(r.data) : {changedLocal:false, differsFromRemote:false};
       if(s) s.lastPullAt=Date.now();
-      var row=this._userStateRow();
-      var h=row ? hashStr(stableStr({catalog:row.catalog, co_buy:row.co_buy, settings:row.settings, meals:row.meals, history:row.history, local_lists:row.local_lists})) : "";
+      // mergeUserState tekende de samengevoegde staat al op; die string hergebruiken scheelt een volle ronde
+      this._usHashEpoch=-1;   // de merge veranderde de lokale staat: de gecachete hash is ongeldig
+      var h="";
+      if(res.payloadStr){ h=hashStr(res.payloadStr); this._usHashEpoch=this._usEpoch(); this._usHashVal=h; }
+      else { var row=this._userStateRow(); if(row) h=this._usHashRow(row); }
       this._usPushedHash = res.differsFromRemote ? "" : h;
       if(typeof save==="function") save();
       if(res.changedLocal && typeof rerenderAfterSync==="function") rerenderAfterSync();
+      // Meldingsvoorkeuren synchroniseren via user_state, maar de server leest push_subscriptions.prefs:
+      // zonder deze update blijft dit toestel het oude soort meldingen krijgen terwijl de schakelaar 'uit' toont.
+      if(res.changedLocal && typeof state!=="undefined" && state && state.settings && state.settings.pushOn===true) this.updatePushPrefs();
       if(res.differsFromRemote) this.scheduleUserStatePush(1200);
       return true;
     }catch(e){ return false; }
@@ -1034,12 +1175,22 @@ var Cloud = {
     clearTimeout(this._usPushTimer); this._usPushTimer=null;
     var row=this._userStateRow(); if(!row) return;
     var body=JSON.stringify(row);
+    // fetch keepalive staat ~64 kB body toe; daarboven (of zonder token) het gewone pad
     if(!this._accessToken || body.length>60000 || typeof fetch!=="function"){ this.pushUserState(); return; }
     var self=this;
+    var hdr={ "apikey":SUPABASE_ANON_KEY, "Authorization":"Bearer "+this._accessToken, "Content-Type":"application/json", "Prefer":"return=minimal" };
+    if(this._usRemoteAt){
+      // Voorwaardelijk: raakt niets als een ander toestel intussen een nieuwere rij schreef.
+      // De staat blijft daarom "vuil" (_usPushedHash ongemoeid), zodat de volgende save 'm alsnog pusht.
+      var url=SUPABASE_URL+"/rest/v1/user_state?user_id=eq."+encodeURIComponent(this.userId)+"&updated_at=lte."+encodeURIComponent(this._usRemoteAt);
+      try{ fetch(url, { method:"PATCH", keepalive:true, body:body, headers:hdr }).then(function(){}, function(){}); }catch(e){}
+      return;
+    }
+    if(!this._usNoRow){ this.pushUserState(); return; }   // niet weten wat er staat = niet blind overschrijven
+    hdr.Prefer="resolution=merge-duplicates,return=minimal";
     try{
-      fetch(SUPABASE_URL+"/rest/v1/user_state?on_conflict=user_id", { method:"POST", keepalive:true, body:body,
-        headers:{ "apikey":SUPABASE_ANON_KEY, "Authorization":"Bearer "+this._accessToken, "Content-Type":"application/json", "Prefer":"resolution=merge-duplicates,return=minimal" } })
-        .then(function(resp){ if(resp && resp.ok){ self._usRemoteAt=row.updated_at; self._usPushedHash=hashStr(stableStr({catalog:row.catalog, co_buy:row.co_buy, settings:row.settings, meals:row.meals, history:row.history, local_lists:row.local_lists})); } }, function(){});
+      fetch(SUPABASE_URL+"/rest/v1/user_state?on_conflict=user_id", { method:"POST", keepalive:true, body:body, headers:hdr })
+        .then(function(resp){ if(resp && resp.ok){ self._usRemoteAt=row.updated_at; self._usNoRow=false; self._usPushedHash=self._usHashRow(row); } }, function(){});
     }catch(e){}
   },
   _persistQueue:function(){ try{ if(typeof state!=="undefined" && state){ state.syncQueue = this._pending.slice(); if(typeof save==="function") save(); } }catch(e){} },
@@ -1048,7 +1199,14 @@ var Cloud = {
   _queueUpdate:function(id, fields){
     if(this._isTmp(id)){
       var ins=this._pendingInsert(id);
-      if(ins){ for(var key in fields){ ins.payload[key]=fields[key]; } }   // in de insert vouwen
+      if(ins){ for(var key in fields){ ins.payload[key]=fields[key]; } return; }   // in de insert vouwen
+      // Insert is al verstuurd: er is niets om in te vouwen. De velden bewaren en ze
+      // meteen ná het echte id alsnog schrijven — anders draait de wijziging terug
+      // bij de eerstvolgende refresh.
+      if(this._inflight[id]){
+        var p=this._pendingAfterInsert[id] || (this._pendingAfterInsert[id]={});
+        for(var key2 in fields){ p[key2]=fields[key2]; }
+      }
       return;
     }
     for(var i=0;i<this._pending.length;i++){ var e=this._pending[i]; if(e.op==="update"&&e.id===id){ for(var k in fields) e.fields[k]=fields[k]; return; } }
@@ -1057,9 +1215,15 @@ var Cloud = {
     this._persistQueue();
   },
   _queueDelete:function(id){
-    var self=this;
     this._pending=this._pending.filter(function(e){ return e.id!==id && e.tmpId!==id; }); // eerdere ops vervallen
-    if(!this._isTmp(id)) this._pending.push({op:"delete", id:id});
+    if(this._isTmp(id)){
+      // Nog nooit gesynct: de wachtende insert is hierboven al vervallen. Is hij al
+      // onderweg, dan ruimen we de echte rij op zodra we haar id kennen.
+      delete this._pendingAfterInsert[id];
+      if(this._inflight[id]) this._killAfterInsert[id]=1;
+      this._persistQueue(); return;
+    }
+    this._pending.push({op:"delete", id:id});
     this._persistQueue();
   },
   _maxFlushAttempts:6,
@@ -1081,7 +1245,8 @@ var Cloud = {
       }catch(err){ requeue(); }
     });
     this._persistQueue();
-    var self2=this; setTimeout(function(){ self2._persistQueue(); }, 4000);   // na de antwoorden: overgebleven/geherqueuede items bewaren
+    var self2=this; clearTimeout(this._persistT);
+    this._persistT=setTimeout(function(){ self2._persistT=null; self2._persistQueue(); }, 4000);   // na de antwoorden: overgebleven/geherqueuede items bewaren (één timer, niet stapelen)
   },
   addItem:function(name, price, addQty, opts){
     name=(name||"").trim(); if(!name||!this.active) return;
@@ -1117,15 +1282,44 @@ var Cloud = {
     var payload={list_id:this.active, name:name, category:cat, qty:addQty, price:(price==null?null:price), added_by_name:this.myName()};
     if(opts.unit && this._hasUnit!==false) payload.unit = opts.unit;
     if(opts.flag && this._hasFlag!==false){ payload.flagged_at=new Date().toISOString(); payload.flagged_by_name=this.myName(); }
-    var fail=function(){ self._queueInsert(tmpId, payload); if(!opts.silent) toast("Offline — wordt verstuurd zodra je weer verbinding hebt"); };
-    this._writeItem("insert", payload, null, fail, function(r){ var row=r && r.data && (Array.isArray(r.data) ? r.data[0] : r.data); if(row && row.id) self._adoptId(tmpId, row.id); });
+    this._inflight[tmpId]=payload;
+    var fail=function(){
+      delete self._inflight[tmpId];
+      var extra=self._pendingAfterInsert[tmpId]; delete self._pendingAfterInsert[tmpId];
+      if(self._killAfterInsert[tmpId]){ delete self._killAfterInsert[tmpId]; return; }   // onderweg al afgerond: niets meer versturen
+      self._queueInsert(tmpId, payload);
+      if(extra) self._queueUpdate(tmpId, extra);   // alsnog in de wachtende insert vouwen
+      if(!opts.silent) toast("Offline — wordt verstuurd zodra je weer verbinding hebt");
+    };
+    this._writeItem("insert", payload, null, fail, function(r){
+      delete self._inflight[tmpId];
+      var row=r && r.data && (Array.isArray(r.data) ? r.data[0] : r.data);
+      if(row && row.id) self._adoptId(tmpId, row.id);
+      else { delete self._pendingAfterInsert[tmpId]; delete self._killAfterInsert[tmpId]; }
+    });
   },
   /* Tijdelijk id vervangen door het echte: in de lijst, de rij-cache en de wachtrij (een update op tmp_ zou anders verloren gaan) */
   _adoptId:function(tmpId, realId){
     if(!tmpId || !realId || tmpId===realId) return;
+    var self=this;
+    this._idMap[tmpId]=realId;
+    var keys=Object.keys(this._idMap); if(keys.length>200) delete this._idMap[keys[0]];   // geheugen begrensd houden
+    // Tijdens de insert al afgerond of verwijderd → de echte rij nu alsnog opruimen
+    if(this._killAfterInsert[tmpId]){
+      delete this._killAfterInsert[tmpId]; delete this._pendingAfterInsert[tmpId];
+      this._deletedIds[realId]=1; setTimeout(function(){ delete self._deletedIds[realId]; }, 1500);
+      if(!this.sb) this._pending.push({op:"delete", id:realId});
+      else this.sb.from("items").delete().eq("id",realId).then(function(r){ if(r&&r.error) self._queueDelete(realId); }, function(){ self._queueDelete(realId); });
+      this._persistQueue();
+      return;
+    }
     var it=state.list.find(function(i){ return i.id===tmpId; });
     if(it){ it.id=realId; if(typeof _rowCache!=="undefined" && _rowCache && _rowCache[tmpId]){ delete _rowCache[tmpId]; } }
     this._pending.forEach(function(e){ if(e.op==="update" && e.id===tmpId) e.id=realId; if(e.op==="delete" && e.id===tmpId) e.id=realId; });
+    if(typeof remapSheetId==="function") remapSheetId(tmpId, realId);   // een open item-blad wijst nog naar het tmp-id
+    // Bewerkingen die tijdens de insert binnenkwamen, gaan nu alsnog naar de echte rij
+    var extra=this._pendingAfterInsert[tmpId]; delete this._pendingAfterInsert[tmpId];
+    if(extra && Object.keys(extra).length) this._writeItem("update", extra, realId);
     if(it && typeof renderLijst==="function" && activeTab==="lijst") renderLijst();
     if(typeof shopIsOpen==="function" && shopIsOpen() && typeof renderShopBody==="function") renderShopBody();
   },
@@ -1150,11 +1344,14 @@ var Cloud = {
   /* Eén update-pad: zonder client (offline koude start) meteen in de wachtrij, anders schrijven en bij een fout in de wachtrij */
   _upd:function(id, fields){
     var self=this;
-    if(!this.sb){ this._queueUpdate(id, fields); return; }
+    if(!this.sb || this._isTmp(id)){ this._queueUpdate(id, fields); return; }
     this.sb.from("items").update(fields).eq("id",id).then(function(r){ if(r&&r.error) self._queueUpdate(id, fields); }, function(){ self._queueUpdate(id, fields); });
   },
   _writeItem:function(op, data, id, onFail, onOk){
     var self=this;
+    // Een update op een rij die nog geen echt id heeft, raakt in de database niets:
+    // via de wachtrij vouwt hij in de insert of wacht hij op het echte id.
+    if(op==="update" && this._isTmp(id)){ this._queueUpdate(id, data); return; }
     var run=function(d){ return op==="insert" ? self.sb.from("items").insert(d).select("id") : self.sb.from("items").update(d).eq("id", id); };
     var fail = onFail || function(){ self._queueUpdate(id, data); };
     if(!this.sb){ fail(); return; }
@@ -1176,6 +1373,7 @@ var Cloud = {
   },
   toggle:function(id, opts){
     opts=opts||{};
+    id=this._realId(id);
     var it=state.list.find(function(i){return i.id===id;}); if(!it) return;
     var nd=!it.done; it.done=nd; if(typeof flipList==="function") flipList(renderLijst); else renderLijst();
     var self=this;
@@ -1191,6 +1389,7 @@ var Cloud = {
     }
   },
   qty:function(id,delta){
+    id=this._realId(id);
     var it=state.list.find(function(i){return i.id===id;}); if(!it) return;
     it.qty=Math.max(1,it.qty+delta); renderLijst();
     var self=this, q=it.qty;
@@ -1204,11 +1403,12 @@ var Cloud = {
     }, function(){ self._upd(id, {qty:q}); });
   },
   remove:function(id){
+    id=this._realId(id);
     var it=state.list.find(function(i){return i.id===id;});
     var snap = it ? Object.assign({}, it) : null;
     state.list=state.list.filter(function(i){return i.id!==id;}); renderLijst();
     var self=this;
-    if(!this.sb){ this._queueDelete(id); }
+    if(!this.sb || this._isTmp(id)){ this._queueDelete(id); }
     else this.sb.from("items").delete().eq("id",id).then(function(r){ if(r&&r.error) self._queueDelete(id); }, function(){ self._queueDelete(id); });
     // Undo bij verwijderen — voegt 'm opnieuw toe (realtime reconcilieert)
     if(snap && typeof undoToast==="function"){
@@ -1218,6 +1418,7 @@ var Cloud = {
     }
   },
   setFields:function(id, fields){
+    id=this._realId(id);
     var it=state.list.find(function(i){return i.id===id;});
     if(it){ if("qty"in fields)it.qty=fields.qty; if("price"in fields)it.price=fields.price; if("note"in fields)it.note=fields.note; if("unit"in fields)it.unit=fields.unit; if("category"in fields)it.category=fields.category; if("assigned_to"in fields)it.assigned_to=fields.assigned_to; if("flagged_at"in fields)it.flaggedAt=fields.flagged_at||null; if("flagged_by_name"in fields)it.flaggedBy=fields.flagged_by_name||""; renderLijst(); if(typeof shopIsOpen==="function" && shopIsOpen() && typeof renderShopBody==="function") renderShopBody(); }
     if(("flagged_at" in fields || "flagged_by_name" in fields) && this._hasFlag===false){ var f3={}; for(var k3 in fields){ if(k3!=="flagged_at" && k3!=="flagged_by_name") f3[k3]=fields[k3]; } fields=f3; if(!Object.keys(fields).length) return; }
@@ -1228,6 +1429,9 @@ var Cloud = {
   finish:function(){
     var done=state.list.filter(function(i){return i.done;}); if(!done.length||!this.active) return;
     var self=this, ids=done.map(function(i){return i.id;}).filter(function(id){ return !self._isTmp(id); });
+    // Nog niet gesyncte rijen: hun wachtende (of lopende) insert intrekken. Anders
+    // duikt een offline gekocht item na het opnieuw verbinden alsnog bij iedereen op.
+    done.forEach(function(i){ if(self._isTmp(i.id)) self._queueDelete(i.id); });
     ids.forEach(function(id){ self._deletedIds[id]=1; });   // tegen her-toevoegen via realtime-refresh
     state.list=state.list.filter(function(i){return !i.done;}); renderLijst();
     var clear=function(){ setTimeout(function(){ ids.forEach(function(id){ delete self._deletedIds[id]; }); }, 1500); };
@@ -1249,6 +1453,7 @@ var Cloud = {
     if(typeof celebrate==="function") celebrate();
     var cloudUndo = soft ? function(){
       ids.forEach(function(id){ delete self._deletedIds[id]; });
+      if(!ids.length) return;   // alleen nog-niet-gesyncte rijen: in de cloud valt niets terug te zetten
       if(!self.sb){ ids.forEach(function(id){ self._queueUpdate(id, {bought_at:null}); }); return; }
       self.sb.from("items").update({bought_at:null}).in("id",ids).then(function(){ self.refreshItems(self._activeRefreshToken); }, function(){ ids.forEach(function(id){ self._queueUpdate(id, {bought_at:null}); }); });
     } : null;
@@ -1827,7 +2032,7 @@ function renderPresence(){
     var sn=shoppers.map(function(p){ return p.name||"Iemand"; });
     var st = (sn.length===1 ? sn[0]+" is" : (sn.length===2 ? sn[0]+" en "+sn[1]+" zijn" : sn.length+" mensen zijn"))+" in de winkel";
     bar.className="presence-bar shopping";
-    bar.innerHTML='<span class="pb-dot"></span><span class="pb-txt"></span><button class="pb-act" type="button">Nog iets nodig?</button>';
+    bar.innerHTML='<span class="pb-dot"></span><span class="pb-txt"></span><button class="pb-act" type="button" aria-label="Nog iets nodig? Voeg iets toe aan de lijst">Nog iets nodig?</button>';
     bar.querySelector(".pb-txt").textContent="🛒 "+st;
     bar.querySelector(".pb-act").addEventListener("click", function(){ var i=document.getElementById("add-name"); if(i){ i.focus(); try{ i.scrollIntoView({block:"nearest"}); }catch(e){} } });
     return;

@@ -205,25 +205,30 @@ const stored=(W)=>JSON.parse(W.localStorage.getItem("mandje.v2"));
             else if(o.ops[0][0]==="insert"){ const p=o.ops[0][1]; const row=Object.assign({id:"new_"+(items.length+1), created_at:new Date().toISOString(), bought_at:null, done:false, note:"", unit:"", price:null, assigned_to:null}, p); items.push(row); if(o.ops.some(x=>x[0]==="select")) data=[{id:row.id}]; }
           }
           if(table==="members") data=[{id:"m1",list_id:"c1",user_id:"u1",display_name:"Ik",color:"#24593F"}];
+          if(table==="meals" && o.ops[0][0]==="select") data=(opts.meals||[]).map(m=>JSON.parse(JSON.stringify(m)));
           if(table==="user_state"){
             const op=o.ops[0][0];
             if(op==="select"){ data = o.ops.some(x=>x[0]==="maybeSingle") ? (userState||null) : (userState?[userState]:[]); }
             else if(op==="upsert"){ userState=JSON.parse(JSON.stringify(o.ops[0][1])); data=[{updated_at:userState.updated_at}]; }
             else if(op==="update"){ const f=o.ops[0][1], lte=o.ops.find(x=>x[0]==="lte"); if(userState && (!lte || userState.updated_at<=lte[2])){ userState=JSON.parse(JSON.stringify(Object.assign({},userState,f))); data=[{updated_at:userState.updated_at}]; } else data=[]; }
           }
+          if(opts.slowInsert && table==="items" && o.ops[0][0]==="insert"){
+            return new Promise(r=>{ (sb.pendingInserts=sb.pendingInserts||[]).push(()=>r({data:data,error:error})); }).then(res,rej);
+          }
           return Promise.resolve({data:data,error:error}).then(res,rej); };
         return o; };
       let userState=opts.userState||null;
       let authUser=opts.authUser||{id:"u1", email:null, is_anonymous:true}; const authCalls=[]; let authCb=null;
       const auth={ calls:authCalls, user:()=>authUser,
-        getUser:async()=>({data:{user:authUser},error:null}), getSession:async()=>({data:{session:{access_token:"tok", user:authUser}},error:null}),
+        getUser:async()=>({data:{user:opts.noUser?null:authUser},error:null}), getSession:async()=>({data:{session:{access_token:"tok", user:authUser}},error:null}),
         onAuthStateChange:(cb)=>{ authCb=cb; return {data:{subscription:{unsubscribe(){}}}}; }, fire:(ev,session)=>authCb&&authCb(ev,session),
         updateUser:async(p)=>{ authCalls.push(["updateUser",p]); if(opts.updateFails) return {data:null,error:{message:opts.updateFails}}; authUser=Object.assign({},authUser,{new_email:p.email}); return {data:{user:authUser},error:null}; },
         signInWithOtp:async(p)=>{ authCalls.push(["signInWithOtp",p]); if(!(opts.knownEmails||[]).includes(p.email)) return {data:null,error:{message:"Signups not allowed for otp"}}; return {data:{},error:null}; },
         verifyOtp:async(p)=>{ authCalls.push(["verifyOtp",p]); if(p.token!=="12345678") return {data:null,error:{message:"Token has expired or is invalid"}}; authUser=(p.type==="email_change") ? Object.assign({},authUser,{email:p.email,is_anonymous:false,new_email:null}) : {id:"u2",email:p.email,is_anonymous:false}; return {data:{user:authUser,session:{access_token:"tok2",user:authUser}},error:null}; },
-        signOut:async()=>{ authCalls.push(["signOut"]); authUser={id:"u3",email:null,is_anonymous:true}; return {error:null}; },
+        signOut:async(o)=>{ authCalls.push(["signOut", o||null]); if(opts.signOutFails) return {error:{message:opts.signOutFails}}; authUser={id:"u3",email:null,is_anonymous:true}; return {error:null}; },
         signInAnonymously:async()=>{ authCalls.push(["signInAnonymously"]); return {data:{session:{access_token:"tok3",user:authUser}},error:null}; } };
-      const sb={ calls:calls, items:()=>items, userState:()=>userState, auth:auth, from:(t)=>q(t), removeChannel(){}, channel(){ const c={}; c.on=()=>c; c.subscribe=(fn)=>{ c._sub=fn; return c; }; c.track=(p)=>{ (sb.tracked=sb.tracked||[]).push(p); return Promise.resolve("ok"); }; c.presenceState=()=>sb.presence||{}; c.unsubscribe=()=>{}; c.on=(ev,filter,fn)=>{ if(ev==="presence"||(filter&&filter.event==="sync")) c._presence=fn; return c; }; c.fireSync=()=>c._presence&&c._presence(); sb.chan=c; return c; },
+      const sb={ calls:calls, items:()=>items, userState:()=>userState, auth:auth, from:(t)=>q(t),
+        resolveInsert(){ const l=sb.pendingInserts||[]; sb.pendingInserts=[]; l.forEach(f=>f()); }, removeChannel(){}, channel(){ const c={}; c.on=()=>c; c.subscribe=(fn)=>{ c._sub=fn; return c; }; c.track=(p)=>{ (sb.tracked=sb.tracked||[]).push(p); return Promise.resolve("ok"); }; c.presenceState=()=>sb.presence||{}; c.unsubscribe=()=>{}; c.on=(ev,filter,fn)=>{ if(ev==="presence"||(filter&&filter.event==="sync")) c._presence=fn; return c; }; c.fireSync=()=>c._presence&&c._presence(); sb.chan=c; return c; },
         rpc:(name,args)=>{ const o={table:"rpc:"+name, args:args, ops:[]}; o.then=(res,rej)=>{ calls.push(o); let r={data:null,error:null};
           if(name==="item_bump_qty" && !opts.noRpc){ const it=items.find(i=>i.id===args.p_id); if(it){ it.qty=Math.max(1,it.qty+args.p_delta); r.data=it.qty; } }
           else if(name==="member_heartbeat" && !opts.noRpc){ r.data=true; }
@@ -560,6 +565,490 @@ const stored=(W)=>JSON.parse(W.localStorage.getItem("mandje.v2"));
       badges.length=0; W.addToList("peren", null, {silent:true}); await wait(40);
       ok("F5: app-badge volgt het aantal open items van de geopende (gedeelde) lijst", badges.length>0 && badges[badges.length-1]===D.querySelectorAll("#open-list li.row").length && badges[badges.length-1]>=2);
       dP.window.close();
+    }
+    // 17. Pakket A — account & auth: uitlog-scope, ander account wist de vorige gegevens,
+    //     init zonder gebruiker, runtime SIGNED_OUT, mislukte signOut, listener na reconnect, teksten
+    {
+      const seedQ={version:3,settings:{theme:"light",showPrices:false,seenIntro:true,categoryOrder:null,minPurchases:3,cvThreshold:.6,dueWindowDays:1},
+        list:[item("a1","appels","groente-fruit")],
+        catalog:{"appels":{name:"appels",category:"groente-fruit",defaultPrice:null,purchaseDates:[],timesAdded:4,lastAddedAt:null,cadenceMode:"auto",manualIntervalDays:null}},
+        coBuy:{},meals:{},history:[{id:"h1",at:new Date().toISOString(),count:1,total:null,paid:null,list:"local",items:[]}],
+        localLists:[{id:"l_boodschappen",name:"Boodschappen",type:"grocery",preset:"grocery",glyph:"🧺",finish:"opruimen",items:[item("a1","appels","groente-fruit")]},
+                    {id:"l_prive",name:"Privé",type:"plain",preset:"todo",glyph:"🧺",finish:"opruimen",items:[item("p1","geheim","overig")]}],
+        activeLocalId:"l_boodschappen"};
+      const dQ=mk(seedQ); await wait(160); const W=dQ.window, D=W.document, C=W.Cloud;
+      const toasts=()=>D.querySelector("#toast").textContent+" | "+D.querySelector("#toast2").textContent;
+      const sb=mkStub2({knownEmails:["sanne@voorbeeld.nl"]});
+      C.sb=sb; C.enabled=true; C.ready=true; C.mode="cloud"; C.userId="u1"; C.lists=[{id:"c1",name:"Gedeeld",owner_user_id:"u1",member_count:2}];
+      C._setAuthUser(sb.auth.user());
+      C.init=async function(){ this.enabled=true; this.ready=true; this.mode="cloud"; const u=await this.sb.auth.getUser(); this.userId=(u.data&&u.data.user)?u.data.user.id:null; this._setAuthUser(u.data&&u.data.user); this._initCalls=(this._initCalls||0)+1; };
+
+      // A9 — enkelvoud: "de gedeelde lijst ... hoort" (was "de 1 gedeelde lijst ... horen")
+      W.openAccountSheet("login"); await wait(60);
+      const shQ=D.querySelector("#sheet");
+      ok("A9: inlog-blad gebruikt enkelvoud bij één gedeelde lijst", /de gedeelde lijst van dit toestel hoort/.test(shQ.querySelector("#acc-intro").textContent) && !/de 1 gedeelde lijst/.test(shQ.querySelector("#acc-intro").textContent));
+      // A7 — inloggen: de code moet hier ingevuld worden, de link opent de browser
+      shQ.querySelector("#acc-email").value="sanne@voorbeeld.nl"; shQ.querySelector("#acc-go").click(); await wait(80);
+      ok("A7: inlogstroom legt uit dat de code hier ingevuld moet worden (link opent de browser)", /link in de mail opent je browser/.test(shQ.querySelector("#acc-sent").textContent) && !/Die werkt ook/.test(shQ.querySelector("#acc-sent").textContent));
+      shQ.querySelector("#acc-cancel").click(); await wait(40);
+      W.openAccountSheet("link"); await wait(60);
+      shQ.querySelector("#acc-email").value="florian@voorbeeld.nl"; shQ.querySelector("#acc-go").click(); await wait(80);
+      ok("A7: bij koppelen blijft de tekst 'de link werkt ook'", /Die werkt ook/.test(shQ.querySelector("#acc-sent").textContent));
+      shQ.querySelector("#acc-cancel").click(); await wait(40);
+      // A8 — "already registered" wordt Nederlands en wijst naar 'Ik heb al een account'
+      const sbTaken=mkStub2({updateFails:"A user with this email address has already been registered"});
+      C.sb=sbTaken;
+      const rTaken=await C.linkEmail("sanne@voorbeeld.nl");
+      ok("A8: linkEmail vertaalt 'already registered' naar reason 'exists'", rTaken.ok===false && rTaken.reason==="exists");
+      W.openAccountSheet("link"); await wait(60);
+      shQ.querySelector("#acc-email").value="sanne@voorbeeld.nl"; shQ.querySelector("#acc-go").click(); await wait(80);
+      ok("A8: het blad toont Nederlandse uitleg i.p.v. de Engelse foutmelding", /hoort al bij een account/.test(shQ.querySelector("#acc-warn").textContent) && !/registered/.test(shQ.querySelector("#acc-warn").textContent));
+      shQ.querySelector("#acc-cancel").click(); await wait(40);
+      C.sb=sb;
+
+      // A2 — eigenaar van de gesynchroniseerde gegevens vastleggen
+      await C.pullUserState(); await wait(40);
+      ok("A2: pullUserState legt vast bij welk account de lokale sync-gegevens horen", stored(W).sync.ownerId==="u1");
+
+      // A5 — mislukte signOut mag je niet 'uitgelogd' achterlaten
+      C._setAuthUser({id:"u1", email:"florian@voorbeeld.nl"});
+      const sbFail=mkStub2({signOutFails:"Failed to fetch"});
+      C.sb=sbFail;
+      const outFail=await C.signOut(); await wait(40);
+      ok("A5: mislukte signOut geeft false terug en houdt het account ingelogd", outFail===false && C.hasAccount()===true && C.authEmail==="florian@voorbeeld.nl");
+      ok("A5: mislukte signOut meldt dat in het Nederlands", /Uitloggen lukte niet/.test(toasts()));
+
+      // A1 — uitloggen alleen op dit toestel
+      C.sb=sb; sb.auth.calls.length=0;
+      const outOk=await C.signOut(); await wait(120);
+      const soCall=sb.auth.calls.filter(c=>c[0]==="signOut").pop();
+      ok("A1: signOut logt alleen dít toestel uit (scope 'local')", outOk===true && !!soCall && !!soCall[1] && soCall[1].scope==="local" && C.hasAccount()===false);
+
+      // A2 — inloggen als een ánder account wist eerst de gegevens van het vorige account
+      C.userId="u1"; C._setAuthUser({id:"u1", email:"florian@voorbeeld.nl"});
+      await C.sendLoginCode("sanne@voorbeeld.nl"); await wait(20);
+      const rIn=await C.verifyCode("12345678"); await wait(120);
+      let stQ=stored(W);
+      ok("A2: ander user_id → catalogus, geschiedenis en privélijst van het vorige account gewist", rIn.ok===true && C.userId==="u2" && Object.keys(stQ.catalog).length===0 && stQ.history.length===0 && stQ.localLists.length===1 && stQ.localLists[0].id==="l_boodschappen" && stQ.localLists[0].items.length===0);
+      ok("A2: nieuwe eigenaar vastgelegd en in het Nederlands uitgelegd", stQ.sync.ownerId==="u2" && /gegevens van je account/.test(toasts()));
+      W.addToList("kaas", null, {silent:true}); await wait(40);
+      ok("A2: hetzelfde user_id wist niets (koppelen blijft samenvoegen)", C._resetSyncedDataForNewOwner("u2")===false && !!stored(W).catalog["kaas"]);
+
+      // A4 — runtime SIGNED_OUT (auto-refresh mislukt) → verse sessie i.p.v. 'ready' zonder auth
+      C.ready=true; C._initInProgress=false; C._signingOutAt=0;
+      const initsB=C._initCalls||0;
+      C._onAuthEvent("SIGNED_OUT", null); await wait(80);
+      ok("A4: SIGNED_OUT tijdens de sessie start opnieuw op (reinit)", (C._initCalls||0)===initsB+1);
+
+      // A6 — offline gaan zegt de auth-listener op zodat een nieuwe client er weer een kan binden
+      C.sb=sb; C.ready=true; C._authBound=false; C._authSub=null; C._bindAuth();
+      ok("A6: _bindAuth bewaart de opzegbare subscription", C._authBound===true && !!C._authSub);
+      C._setOfflineMode("test"); await wait(40);
+      ok("A6: _setOfflineMode zegt de listener op en zet _authBound terug", C._authBound===false && C._authSub===null && C._accessToken===null);
+      dQ.window.close();
+
+      // A3 — init zonder gebruiker: eerst opnieuw anoniem aanmelden, anders eerlijk lokaal verder
+      {
+        const sbI=mkStub2({noUser:true});
+        const dI=new JSDOM(html,{url:"https://example.com/",runScripts:"dangerously",resources:"usable",pretendToBeVisual:true,beforeParse(w){
+          w.localStorage.setItem("mandje.v2", JSON.stringify(seedQ));
+          w.fetch=()=>Promise.resolve({ok:true,status:200,json:()=>Promise.resolve({}),text:()=>Promise.resolve("")});
+          w.supabase={ createClient:()=>sbI };
+        }});
+        await wait(260); const WI=dI.window, CI=WI.Cloud;
+        CI.sb=null; CI.ready=false; CI._initInProgress=false; CI._authBound=false; CI._authSub=null;
+        sbI.auth.calls.length=0;
+        await CI.init(); await wait(120);
+        ok("A3: geen gebruiker na getUser → één nieuwe anonieme aanmelding", sbI.auth.calls.filter(c=>c[0]==="signInAnonymously").length===1);
+        ok("A3: blijft dat leeg, dan lokale modus met uitleg i.p.v. 'ready' zonder auth", CI.ready===false && CI.mode==="local" && /Niet ingelogd/.test(CI.initError||""));
+        dI.window.close();
+      }
+    }
+    // 17. Pakket B — sync-correctheid: prototype-sleutels, redding bij samenvoegen, stempels, quota, keepalive, bundels, instellingen
+    {
+      const iso=(ms)=>new Date(ms).toISOString();
+      const sig=(o)=>{ const c={}; Object.keys(o).filter(k=>k!=="u").sort().forEach(k=>{ c[k]=o[k]; }); return JSON.stringify(c); };
+      const T=Date.now();
+      const L=(id,name,at)=>({id:id,name:name,category:"overig",qty:1,unit:"",done:false,note:"",price:null,assigned_to:null,added_by_name:"",addedAt:at});
+      const seedB={version:3,settings:{theme:"light",showPrices:false,seenIntro:true,categoryOrder:null,minPurchases:3,cvThreshold:.6,dueWindowDays:3},
+        list:[L("x1","x-oud",iso(T-7200000))],catalog:{},coBuy:{},meals:{},history:[],
+        sync:{settingsAt:{}, tomb:{}, listSeen:{l_boodschappen:iso(T-120000)}},
+        localLists:[{id:"l_boodschappen",name:"Boodschappen",type:"grocery",preset:"grocery",glyph:"x",finish:"opruimen",
+          items:[L("x1","x-oud",iso(T-7200000))],createdAt:iso(T-7200000),updatedAt:iso(T-60000)}],activeLocalId:"l_boodschappen"};
+      const dB=mk(seedB); await wait(160); const W=dB.window, D=dB.window.document;
+
+      // B1 — een item dat letterlijk "__proto__" heet vervuilt Object.prototype niet
+      const polluted=W.mergePurchaseDate("__proto__","overig",new Date().toISOString());
+      W.mergePurchaseDate("constructor","overig",new Date().toISOString());
+      W.addToList("__proto__", null, {silent:true}); await wait(30);
+      W.saveNow(); let st=stored(W);
+      ok("B1: '__proto__' uit de huishoud-geschiedenis vervuilt Object.prototype niet",
+        polluted===false && W.eval("({}).purchaseDates")===undefined && W.eval("({}).timesAdded")===undefined
+        && !Object.prototype.hasOwnProperty.call(st.catalog,"__proto__") && !Object.prototype.hasOwnProperty.call(st.catalog,"constructor"));
+      ok("B1: het item staat gewoon op de lijst, alleen zonder cataloguspost", st.list.some(i=>i.name==="__proto__"));
+
+      // B2/B3 — remote item van vlak vóór de laatste lokale bewerking overleeft de fusie
+      const rowB={ user_id:"u1", device:"iPad", updated_at:iso(T-30000), catalog:{}, co_buy:{}, meals:{}, history:[],
+        settings:{ _sync:{ settingsAt:{}, tomb:{catalog:{"nooit-gezien":T-1000}, lists:{}, meals:{}, history:{}} } },
+        local_lists:[{id:"l_boodschappen",name:"Boodschappen",type:"grocery",preset:"grocery",glyph:"x",finish:"opruimen",
+          items:[L("x1","x-oud",iso(T-7200000)), L("x2","melk",iso(T-90000)), L("x3","weggegooid",iso(T-7200000))],
+          createdAt:iso(T-7200000), updatedAt:iso(T-90000)}] };
+      const resB=W.mergeUserState(rowB); await wait(30); W.saveNow(); st=stored(W);
+      const namesB=st.list.map(i=>i.name);
+      ok("B2: item dat het andere toestel ná het ijkpunt toevoegde overleeft de fusie", namesB.indexOf("melk")!==-1);
+      ok("B2: wat de winnaar vóór het ijkpunt wegdeed blijft weg", namesB.indexOf("weggegooid")===-1);
+      ok("B3: de fusie kreeg er items bij → verse stempel die beide kanten overtreft",
+        new Date(st.localLists[0].updatedAt).getTime() > T-60000);
+      ok("B10: grafsteen uit de cloud voor een sleutel die nergens leeft wordt overgenomen", st.sync.tomb.catalog["nooit-gezien"]===T-1000);
+      ok("B11: eigen, van de standaard afwijkende instelling wordt niet door de cloud-standaard overschreven", st.settings.dueWindowDays===3 && !!resB);
+
+      // B11 — winkels van twee toestellen worden verenigd i.p.v. vervangen
+      W.__state().settings.stores=[{id:"st_a",name:"Albert",order:[]}]; W.saveNow(); await wait(20);
+      W.mergeUserState({ user_id:"u1", updated_at:iso(T), catalog:{}, co_buy:{}, meals:{}, history:[], local_lists:[],
+        settings:{ stores:[{id:"st_b",name:"Jumbo",order:[]}], _sync:{settingsAt:{}, tomb:{}} } });
+      await wait(20); W.saveNow(); st=stored(W);
+      ok("B11: winkels van beide toestellen blijven bestaan (vereniging op id)",
+        st.settings.stores.length===2 && st.settings.stores.map(s=>s.id).sort().join()==="st_a,st_b");
+
+      // B4 — twee ongestempelde posten leveren aan beide kanten hetzelfde op
+      const A4={name:"kaas",category:"kaas-vleeswaren",defaultPrice:2.5,purchaseDates:["2026-01-01"],timesAdded:2,lastAddedAt:null,cadenceMode:"auto",manualIntervalDays:null};
+      const B4={name:"kaas",category:"zuivel-eieren",defaultPrice:null,purchaseDates:["2026-01-02","2026-01-03"],timesAdded:1,lastAddedAt:null,cadenceMode:"manual",manualIntervalDays:7};
+      const m1=W._mergeCatalogEntry(A4,B4), m2=W._mergeCatalogEntry(B4,A4);
+      ok("B4: ongestempelde posten convergeren aan beide kanten naar dezelfde waarde, met een verse stempel",
+        sig(m1)===sig(m2) && typeof m1.u==="number" && typeof m2.u==="number" && m1.purchaseDates.length===3);
+
+      // B5 — alleen iets toevoegen stempelt de voorkeuren niet opnieuw
+      W.addToList("kaas", null, {silent:true}); await wait(30); W.saveNow();
+      const uKaas=stored(W).catalog["kaas"].u;
+      await wait(30);
+      W.addToList("kaas", null, {silent:true}); await wait(30); W.saveNow();
+      ok("B5: nog eens toevoegen verhoogt de teller maar herstempelt de post niet",
+        stored(W).catalog["kaas"].u===uKaas && stored(W).catalog["kaas"].timesAdded>=2);
+      // via het echte pad: item-blad openen, ritme op 'wekelijks' zetten en opslaan (saveSheet meldt de wijziging)
+      const kaasRow=[...D.querySelectorAll("#open-list li.row")].find(li=>/kaas/i.test(li.textContent));
+      kaasRow.querySelector(".card").click(); await wait(60);
+      D.querySelector('#sheet #s-cad .cadchip[data-v="m7"]').click();
+      D.querySelector("#sheet #s-save").click(); await wait(60); W.saveNow(); await wait(20);
+      ok("B5: een echte voorkeurwijziging (ritme) stempelt wél",
+        stored(W).catalog["kaas"].cadenceMode==="manual" && stored(W).catalog["kaas"].u>uKaas);
+
+      // B6 — noodgedwongen inkorten bij een volle opslag maakt geen grafstenen
+      const hist=[]; for(let i=0;i<60;i++) hist.push({id:"h"+i, at:iso(T-i*3600000), count:1, total:null, paid:null, list:"local", items:[]});
+      W.__state().history=hist; W.saveNow(); await wait(20);
+      const origSet=W.Storage.prototype.setItem; let threw=0;
+      W.Storage.prototype.setItem=function(k,v){ if(k==="mandje.v2" && threw<2){ threw++; const e=new Error("quota"); e.name="QuotaExceededError"; throw e; } return origSet.call(this,k,v); };
+      W.addToList("quotaperen", null, {silent:true}); await wait(40);
+      W.Storage.prototype.setItem=origSet;
+      W.addToList("naquota", null, {silent:true}); await wait(40); W.saveNow(); st=stored(W);
+      ok("B6: quota-noodrem kort de geschiedenis in zonder grafstenen te maken",
+        threw===2 && st.history.length===50 && Object.keys(st.sync.tomb.history||{}).length===0);
+
+      // B12 — na een sync die naar een andere lijstsoort schakelt klopt de chrome weer
+      const plainB=W.createLocalList({name:"Paklijst B", preset:"pack"}); W.switchLocalList(plainB.id); await wait(60);
+      D.body.classList.remove("list-plain");
+      W.rerenderAfterSync(); await wait(20);
+      ok("B12: rerenderAfterSync zet het lijsttype terug (plain blijft plain)", D.body.classList.contains("list-plain"));
+      W.switchLocalList("l_boodschappen"); await wait(40);
+
+      // B8 — keepalive bij het sluiten schrijft voorwaardelijk (PATCH + updated_at=lte)
+      const C=W.Cloud; const fetches=[];
+      W.fetch=function(url, opts){ fetches.push([url, opts]); return Promise.resolve({ok:true}); };
+      C.sb=mkStub2(); C.enabled=true; C.ready=true; C.mode="cloud"; C.userId="u1"; C._usHasTable=undefined;
+      C._accessToken="tok"; C._usRemoteAt=iso(T-1000); C._usNoRow=false;
+      C.scheduleUserStatePush(60000);
+      W.onAppHide ? W.onAppHide() : C.flushUserStateNow();
+      C.flushUserStateNow(); await wait(30);
+      const pat=fetches.find(f=>f[1] && f[1].method==="PATCH");
+      ok("B8: flushUserStateNow schrijft voorwaardelijk (PATCH met updated_at=lte), niet blind upserten",
+        !!pat && /user_id=eq\./.test(pat[0]) && pat[0].indexOf("updated_at=lte."+encodeURIComponent(iso(T-1000)))!==-1
+        && !fetches.some(f=>f[1] && f[1].method==="POST"));
+      // zonder kennis van de cloud-rij: helemaal geen keepalive-schrijfactie
+      fetches.length=0; C._usRemoteAt=null; C._usNoRow=false; C.scheduleUserStatePush(60000);
+      C.flushUserStateNow(); await wait(30);
+      ok("B7: zonder bekende cloud-rij geen blinde upsert vanuit de keepalive", fetches.length===0);
+
+      // B9 — een hier verwijderde bundel komt niet terug uit de meals-tabel
+      W.__state().meals={ meal_y:{id:"meal_y", name:"Lokaal", emoji:"x", items:[], updatedAt:iso(T-1000)} };
+      W.__state().sync.tomb.meals={ meal_x:T };
+      W.saveNow(); await wait(20);
+      C.sb=mkStub2({meals:[{id:"meal_x",name:"Verwijderd",emoji:"x",items:[],updated_at:iso(T-60000)},
+                           {id:"meal_y",name:"Oud",emoji:"x",items:[],updated_at:iso(T-60000)}]});
+      await C.loadMeals(); await wait(40); W.saveNow(); st=stored(W);
+      ok("B9: loadMeals laat een verwijderde bundel niet herrijzen en overschrijft geen nieuwere lokale versie",
+        !st.meals.meal_x && !!st.meals.meal_y && st.meals.meal_y.name==="Lokaal");
+      dB.window.close();
+    }
+    // 17. Pakket C — gedeelde items: wachtrij bij afronden, tmp→echt id, bewerkingen tijdens de insert, vlag-/winkel-toasts
+    {
+      const seedX={version:3,settings:{theme:"light",showPrices:false,seenIntro:true,categoryOrder:null,minPurchases:3,cvThreshold:.6,dueWindowDays:1,onboardDismissed:true},list:[item("a1","appels","groente-fruit")],catalog:{},coBuy:{},meals:{},history:[],
+        localLists:[{id:"l_boodschappen",name:"Boodschappen",type:"grocery",preset:"grocery",glyph:"🧺",finish:"opruimen",items:[item("a1","appels","groente-fruit")]}],activeLocalId:"l_boodschappen"};
+      const dX=mk(seedX); await wait(160); const W=dX.window, D=W.document, C=W.Cloud;
+      const clearToasts=()=>{ ["#toast","#toast2"].forEach(s=>{ const t=D.querySelector(s); if(t) t.textContent=""; }); };
+      const toastTxt=()=>D.querySelector("#toast").textContent+" | "+D.querySelector("#toast2").textContent;
+      const sb=mkStub2(); C.sb=sb; C.enabled=true; C.ready=true; C.mode="cloud"; C.userId="u1"; C.me={display_name:"Ik",color:"#24593F"};
+      C.lists=[{id:"c1",name:"Gedeeld",owner_user_id:"u1",member_count:2}];
+      await C.open("c1").catch(()=>{}); await wait(80);
+      C.toggle("c1",{quiet:true}); await wait(40);            // de vooraf afgevinkte cloudrij uitvinken
+
+      // C1 — offline toevoegen, afvinken, afronden: de wachtende insert mag niet blijven staan
+      C.sb=null; C._pending.length=0;
+      C.addItem("brood", null, 1, {silent:true}); await wait(40);
+      const rowB=[...D.querySelectorAll("#open-list li.row")].find(li=>/brood/.test(li.textContent));
+      const tmpB=rowB && rowB.dataset.id;
+      ok("C1: offline toevoegen zet een insert met tmp_-id in de wachtrij", /^tmp_/.test(tmpB||"") && C._pending.length===1 && C._pending[0].op==="insert");
+      C.toggle(tmpB,{quiet:true}); await wait(40);
+      ok("C1: afvinken vouwt in de wachtende insert (done:true)", C._pending.length===1 && C._pending[0].payload.done===true);
+      C.finish(); await wait(80);
+      D.querySelector("#scrim").click(); await wait(40);
+      ok("C1: afronden trekt de wachtende insert in", C._pending.length===0);
+      C.sb=sb; sb.calls.length=0;
+      C.flushPending(); await wait(60);
+      ok("C1: flushPending maakt het afgeronde item niet alsnog aan", !sb.calls.some(c=>c.table==="items" && c.ops[0][0]==="insert") && !sb.items().some(i=>i.name==="brood"));
+
+      // C2 — acties met het oude tmp-id komen op het echte id uit
+      sb.calls.length=0;
+      C.addItem("koekjes", null, 1, {silent:true}); await wait(60);
+      const realK=(sb.items().find(i=>i.name==="koekjes")||{}).id;
+      const tmpK=Object.keys(C._idMap).find(k=>C._idMap[k]===realK);
+      ok("C2: na de insert onthoudt _idMap tmp→echt id", !!realK && !!tmpK && /^tmp_/.test(tmpK));
+      sb.calls.length=0;
+      C.setFields(tmpK, {note:"met chocola"}); await wait(60);
+      ok("C2: setFields met het oude tmp-id landt op het echte id", sb.calls.some(c=>c.table==="items" && c.ops[0][0]==="update" && c.ops.some(x=>x[0]==="eq" && x[2]===realK)) && (sb.items().find(i=>i.id===realK)||{}).note==="met chocola");
+      sb.calls.length=0;
+      C.remove(tmpK); await wait(60);
+      ok("C2: verwijderen met het oude tmp-id verwijdert de echte rij", !sb.items().some(i=>i.id===realK) && sb.calls.some(c=>c.table==="items" && c.ops[0][0]==="delete"));
+
+      // C3 — bewerkingen tijdens een lopende insert komen alsnog op het echte id
+      const sbS=mkStub2({slowInsert:true}); C.sb=sbS; C._pending.length=0;
+      C.addItem("yoghurt", null, 1, {silent:true}); await wait(40);
+      const rowY=[...D.querySelectorAll("#open-list li.row")].find(li=>/yoghurt/.test(li.textContent));
+      const tmpY=rowY && rowY.dataset.id;
+      ok("C3: insert onderweg → tmp_-id in de lijst, niets in de wachtrij", /^tmp_/.test(tmpY||"") && C._pending.length===0 && !!C._inflight[tmpY]);
+      rowY.querySelector(".card .meta").click(); await wait(60);       // item-blad open op het tmp-id
+      C.qty(tmpY, 1); await wait(30);
+      W.flagItemOp(tmpY, true, {silent:true}); await wait(30);
+      ok("C3: tijdens de insert wordt niets naar een tmp_-id geschreven; de velden wachten", !sbS.calls.some(c=>c.table==="items" && c.ops[0][0]==="update" && c.ops.some(x=>x[0]==="eq" && String(x[2]).indexOf("tmp_")===0)) && !!C._pendingAfterInsert[tmpY] && C._pendingAfterInsert[tmpY].qty===2);
+      sbS.resolveInsert(); await wait(140);
+      const realY=(sbS.items().find(i=>i.name==="yoghurt")||{}).id;
+      const rowDb=sbS.items().find(i=>i.id===realY)||{};
+      ok("C3: na de insert gaan aantal en vlag alsnog naar het echte id", !!realY && rowDb.qty===2 && !!rowDb.flagged_at && !C._pendingAfterInsert[tmpY]);
+      ok("C2: het open item-blad verhuist mee naar het echte id", !!W.__sheetCtx() && W.__sheetCtx().id===realY);
+      D.querySelector("#scrim").click(); await wait(40);
+
+      // C4 — een bij het laden al gevlagde én afgevinkte rij mag na het uitvinken niet alsnog toasten
+      const sb4=mkStub2(); C.sb=sb4; C._pending.length=0;
+      const it4=sb4.items().find(i=>i.id==="c1");
+      it4.flagged_at=new Date().toISOString(); it4.flagged_by_name="Sanne"; it4.done=true;
+      C._seenFlags={}; C._flagsPrimedFor=null;                 // koude start met de vlag er al
+      await C.open("c1").catch(()=>{}); await wait(120);
+      clearToasts();
+      it4.done=false;                                          // huisgenoot vinkt 'm weer uit
+      await C.refreshItems(C._activeRefreshToken); await wait(80);
+      ok("C4: al bekende vlag op een afgevinkte rij toast niet na het uitvinken", !/is op/.test(toastTxt()) && C._seenFlags["c1|"+it4.flagged_at]===1);
+
+      // C5 — winkel-toast niet herhalen als de presence even wegvalt (telefoon op slot)
+      C._shoppingSeen={}; clearToasts();
+      const walker={user_id:"u9", name:"Florian", color:"#2F5FA8", emoji:"", shopping:true};
+      sb4.presence={u9:[walker]}; sb4.chan.fireSync(); await wait(60);
+      const eerste=toastTxt(); clearToasts();
+      sb4.presence={}; sb4.chan.fireSync(); await wait(40);            // presence valt weg
+      sb4.presence={u9:[walker]}; sb4.chan.fireSync(); await wait(60); // en komt terug
+      ok("C5: winkelen-toast komt één keer; terugkerende presence herhaalt 'm niet", /in de winkel/.test(eerste) && !/in de winkel/.test(toastTxt()) && !!C._shoppingSeen.u9);
+
+      // C6 — het OP-label verjaart mee: de rij-cache mag "net" niet bevriezen
+      const vers6={id:"x6",name:"melk",qty:1,unit:"",note:"",price:null,done:false,category:"zuivel-eieren",assigned_to:null,added_by_name:"",flaggedAt:new Date().toISOString(),flaggedBy:"Sanne"};
+      const oud6=Object.assign({}, vers6, {flaggedAt:new Date(Date.now()-3*3600000).toISOString()});
+      const min70=Object.assign({}, vers6, {flaggedAt:new Date(Date.now()-70*60000).toISOString()});
+      const min130=Object.assign({}, vers6, {flaggedAt:new Date(Date.now()-130*60000).toISOString()});
+      ok("C6: de tijd-emmer verandert mee met het OP-label", W.opTimeBucket(vers6)!==W.opTimeBucket(oud6) && W.opTimeBucket(min70)!==W.opTimeBucket(min130) && W.opTimeBucket({flaggedAt:null})==="");
+      ok("C6: rowSig bevat de tijd-emmer, dus de rij-cache verloopt met het label", W.rowSig(oud6).split(String.fromCharCode(1)).indexOf(W.opTimeBucket(oud6))!==-1);
+      dX.window.close();
+    }
+    // 17. Package D — meldingen: abonnement volgt de gebruiker, opzeggen vóór een identiteitswissel, prefs uit de sync
+    {
+      const seedD={version:3,settings:{theme:"light",showPrices:false,seenIntro:true,categoryOrder:null,minPurchases:3,cvThreshold:.6,dueWindowDays:1,onboardDismissed:true,pushOn:true},list:[item("a1","appels","groente-fruit")],catalog:{},coBuy:{},meals:{},history:[],
+        localLists:[{id:"l_boodschappen",name:"Boodschappen",type:"grocery",preset:"grocery",glyph:"🧺",finish:"opruimen",items:[item("a1","appels","groente-fruit")]}],activeLocalId:"l_boodschappen"};
+      let unsubbed=false;
+      const sub={endpoint:"https://push.example/dev-1", toJSON:()=>({keys:{p256dh:"k",auth:"a"}}), unsubscribe:async()=>{ unsubbed=true; return true; }};
+      const reg={pushManager:{getSubscription:async()=>sub, subscribe:async()=>sub}};
+      const swMsg=[];
+      const dD=new JSDOM(html,{url:"https://example.com/",runScripts:"dangerously",resources:"usable",pretendToBeVisual:true,beforeParse(w){
+        w.localStorage.setItem("mandje.v2", JSON.stringify(seedD));
+        w.PushManager=function(){}; w.Notification={permission:"granted", requestPermission:(cb)=>{ if(cb) cb("granted"); return Promise.resolve("granted"); }};
+        Object.defineProperty(w.navigator,"serviceWorker",{value:{ready:Promise.resolve(reg), register:()=>Promise.resolve(reg), addEventListener(t,fn){ if(t==="message") swMsg.push(fn); }, controller:null}});
+      }});
+      await wait(200); const W=dD.window, D=W.document, C=W.Cloud;
+      const sb=mkStub2(); C.sb=sb; C.enabled=true; C.ready=true; C.mode="cloud"; C.userId="u9"; C.lists=[{id:"c1",name:"Gedeeld",owner_user_id:"u9",member_count:2}];
+
+      // D1a: het browser-abonnement bestaat al → de rij toch opnieuw op naam van de HUIDIGE gebruiker zetten
+      sb.calls.length=0;
+      await C.checkPushSubscription(); await wait(60);
+      const up=sb.calls.find(c=>c.table==="push_subscriptions" && c.ops[0][0]==="upsert");
+      ok("D1a: checkPushSubscription her-upsert de rij voor de huidige gebruiker (onConflict endpoint, met prefs)",
+         !!up && up.ops[0][1].user_id==="u9" && up.ops[0][1].endpoint===sub.endpoint && !!up.ops[0][1].prefs && !!up.ops[0][2] && up.ops[0][2].onConflict==="endpoint");
+
+      // D2: voorkeuren die van een ander toestel binnenkomen moeten ook naar push_subscriptions.prefs
+      let prefCalls=0; const realPrefs=C.updatePushPrefs;
+      C.updatePushPrefs=function(){ prefCalls++; return Promise.resolve(true); };
+      const sbUS=mkStub2({userState:{user_id:"u9", updated_at:new Date().toISOString(), catalog:{}, co_buy:{}, meals:{}, history:[], local_lists:[], settings:{push:{op:false,shopping:true}, _sync:{settingsAt:{},tomb:{}}}}});
+      C.sb=sbUS; C._usHasTable=undefined; C._usRemoteAt=null; C._usPulling=false;
+      await C.pullUserState(); await wait(60);
+      ok("D2: samengevoegde voorkeuren uit user_state werken het abonnement op dit toestel bij",
+         stored(W).settings.push && stored(W).settings.push.op===false && prefCalls>=1);
+      C.updatePushPrefs=realPrefs; C.sb=sb;
+
+      // D1b: uitloggen zegt het abonnement op vóór auth.signOut (daarna mag RLS de rij niet meer aanraken)
+      const order=[]; const realUnsub=C.unsubscribePush, realReinit=C.reinit, realAuthOut=sb.auth.signOut;
+      C.unsubscribePush=function(){ order.push("unsub"); return Promise.resolve(true); };
+      C.reinit=function(){ order.push("reinit"); return Promise.resolve(); };
+      sb.auth.signOut=function(){ order.push("auth"); return realAuthOut.apply(sb.auth, arguments); };
+      await C.signOut(); await wait(30);
+      ok("D1b: signOut zegt push op vóór auth.signOut en pas daarna reinit", order.join()==="unsub,auth,reinit");
+      sb.auth.signOut=realAuthOut; C.unsubscribePush=realUnsub; C.reinit=realReinit;
+
+      // D1b: unsubscribePush wist de rij op endpoint zolang we nog ingelogd zijn
+      C.ready=true; C.sb=sb; sb.calls.length=0; unsubbed=false;
+      await C.unsubscribePush(); await wait(30);
+      const del=sb.calls.find(c=>c.table==="push_subscriptions" && c.ops[0][0]==="delete");
+      ok("D1b: unsubscribePush wist de rij op endpoint en zegt het browser-abonnement op",
+         !!del && del.ops.some(x=>x[0]==="eq" && x[1]==="endpoint" && x[2]===sub.endpoint) && unsubbed===true && stored(W).settings.pushOn===false);
+
+      // D8: de service worker stuurt de melding door als het venster zichtbaar is → in-app toast
+      ok("D8: de pagina luistert naar berichten van de service worker", swMsg.length>=1);
+      swMsg.forEach(fn=>fn({data:{type:"PUSH_IN_APP", title:"Gedeeld", body:"Sanne: melk is op"}}));
+      await wait(40);
+      ok("D8: PUSH_IN_APP toont een in-app toast i.p.v. een OS-melding",
+         /Sanne: melk is op/.test(D.querySelector("#toast").textContent + D.querySelector("#toast2").textContent));
+
+      // D1b: toestel wissen doet hetzelfde (het abonnement overleeft een wis en zou anders meelopen)
+      const wOrder=[];
+      C.unsubscribePush=function(){ wOrder.push("unsub"); return Promise.resolve(true); };
+      sb.auth.signOut=function(){ wOrder.push("auth"); return Promise.resolve({error:null}); };
+      W.wipeDevice(); await wait(80);
+      ok("D1b: wipeDevice zegt push op vóór auth.signOut", wOrder.join()==="unsub,auth");
+      dD.window.close();   // vóór de herlaad-timer van wipeDevice (200 ms)
+    }
+    // 17. Pakket E — prestaties: stempelen alleen waar iets veranderde, lichtere user_state-push, snellere scanlus
+    {
+      const seedE={version:3,settings:{theme:"light",showPrices:true,seenIntro:true,categoryOrder:null,minPurchases:3,cvThreshold:.6,dueWindowDays:1},
+        list:[item("a1","appels","groente-fruit")],
+        catalog:{ "melk":{name:"melk",category:"zuivel-eieren",defaultPrice:1.2,purchaseDates:[],timesAdded:3,lastAddedAt:null,cadenceMode:"auto",manualIntervalDays:null},
+                  "kaas":{name:"kaas",category:"kaas-vleeswaren",defaultPrice:2.5,purchaseDates:[],timesAdded:2,lastAddedAt:null,cadenceMode:"auto",manualIntervalDays:null} },
+        coBuy:{},meals:{},history:[],
+        localLists:[{id:"l_boodschappen",name:"Boodschappen",type:"grocery",preset:"grocery",glyph:"🧺",finish:"opruimen",items:[item("a1","appels","groente-fruit")]}],activeLocalId:"l_boodschappen"};
+      const dE=mk(seedE); await wait(160); const W=dE.window, D=W.document, C=W.Cloud;
+      // E1: een bestaand catalogusproduct dat wordt aangeraakt, krijgt nog steeds een stempel
+      W.addToList("melk", null, {silent:true}); await wait(40);
+      let st=stored(W);
+      const uMelk=st.catalog["melk"].u;
+      ok("E1: toevoegen telt door en stempelt de lijst, maar herstempelt de cataloguspost niet (voorkeuren ongemoeid)",
+        uMelk===undefined && st.catalog["melk"].timesAdded===4 && !!st.localLists[0].updatedAt);
+      ok("E1: een product dat niet meedeed, blijft ongestempeld", st.catalog["kaas"].u===undefined);
+      // wél stempelen zodra een voorkeur verandert — en alleen bij dat ene product
+      const melkRow=[...D.querySelectorAll("#open-list li.row")].find(li=>/melk/i.test(li.textContent));
+      melkRow.querySelector(".card").click(); await wait(60);
+      D.querySelector('#sheet #s-cad .cadchip[data-v="m14"]').click();
+      D.querySelector("#sheet #s-save").click(); await wait(60); W.saveNow(); await wait(20);
+      st=stored(W);
+      ok("E1: een voorkeurwijziging stempelt het aangeraakte product wél", typeof st.catalog["melk"].u==="number" && st.catalog["kaas"].u===undefined);
+      const uMelk2=st.catalog["melk"].u;
+      // E1: een in-place wijziging via een andere schrijver stempelt ook
+      W.snoozeDue("kaas", 7); await wait(40); st=stored(W);
+      ok("E1: uitstellen stempelt het uitgestelde product en laat de rest met rust", typeof st.catalog["kaas"].u==="number" && !!st.catalog["kaas"].snoozeUntil && st.catalog["melk"].u===uMelk2);
+      // E1: verdwenen sleutels krijgen nog steeds een grafsteen
+      W.renameCatalogEntry("melk", "karnemelk"); await wait(40); st=stored(W);
+      ok("E1: verwijderde sleutel houdt een grafsteen, de nieuwe sleutel krijgt een stempel", !st.catalog["melk"] && !!st.sync.tomb.catalog["melk"] && typeof st.catalog["karnemelk"].u==="number");
+      // E2: de geschiedenis gaat uitgekleed de lucht in, lokaal blijft de rit compleet
+      W.recordTrip([{name:"karnemelk",qty:2,unit:"",price:1.5,category:"zuivel-eieren"}]); W.saveNow(); await wait(20);
+      const trip=W.buildUserStatePayload().history[0];
+      ok("E2: rit in de payload houdt id/at/count/total/paid/list maar draagt geen items-array mee",
+        !!trip && !("items" in trip) && !!trip.id && !!trip.at && trip.count===1 && trip.total===3 && trip.paid===null && trip.list==="local");
+      ok("E2: lokaal blijft de rit compleet (bron voor 'Herhaal vorige lijst')", (stored(W).history[0].items||[]).length===1);
+      const sbE=mkStub2(); C.sb=sbE; C.enabled=true; C.ready=true; C.mode="cloud"; C.userId="u1"; C.lists=[];
+      sbE.calls.length=0;
+      const okPushE=await C.pushUserState(true); await wait(30);
+      const upE=sbE.calls.find(c=>c.table==="user_state" && (c.ops[0][0]==="update" || c.ops[0][0]==="upsert"));
+      ok("E2: ook de gepushte rij bevat de geschiedenis zonder items", okPushE===true && !!upE && upE.ops[0][1].history.length===1 && upE.ops[0][1].history.every(h=>!("items" in h)));
+      // E3: scanronden — standaard alleen 1D zonder TRY_HARDER
+      ok("E3: standaardronde zoekt 1D zonder grondige (trage) pass", W.bcScanPass(1,0,"").hard===false && W.bcScanPass(1,0,"").qr===false && W.bcScanPass(3,9000,"").hard===false);
+      ok("E3: QR alleen elk 4e beeld", W.bcScanPass(4,0,"").qr===true && W.bcScanPass(5,0,"").qr===false);
+      ok("E3: grondige ronde pas na 3 s zonder treffer, en dan om de 5 beelden", W.bcScanPass(5,1000,"").hard===false && W.bcScanPass(5,4000,"").hard===true && W.bcScanPass(6,4000,"").hard===false && W.bcScanPass(5,4000,"8712345678901").hard===false);
+      ok("E3: het kader wordt naar 800 px geschaald, niet meer naar 1600", html.indexOf("800/Math.max(1,r.w)")!==-1 && html.indexOf("1600/Math.max(1,r.w)")===-1);
+      dE.window.close();
+    }
+    // 17. Verificatie-sweep (Fase 3-5): kale omgeving, Meer-tab, account-bladen, kaarten die niet mogen verschijnen
+    {
+      const jsdomLib=require("jsdom");
+      const seedV={version:3,settings:{theme:"light",showPrices:false,seenIntro:true,categoryOrder:null,minPurchases:3,cvThreshold:.6,dueWindowDays:1,onboardDismissed:true},list:[item("a1","appels","groente-fruit"),item("m1","melk","zuivel-eieren")],catalog:{},coBuy:{},meals:{},history:[],
+        localLists:[{id:"l_boodschappen",name:"Boodschappen",type:"grocery",preset:"grocery",glyph:"🧺",finish:"opruimen",items:[item("a1","appels","groente-fruit"),item("m1","melk","zuivel-eieren")]}],activeLocalId:"l_boodschappen"};
+      // a) kale jsdom: geen Notification, PushManager, setAppBadge of serviceWorker — de app hoort gewoon te starten
+      const errs=[]; const vc=new jsdomLib.VirtualConsole();
+      vc.on("error",()=>{}); vc.on("warn",()=>{});
+      vc.on("jsdomError", e=>{ const m=String((e&&e.message)||e); if(/not a function|not defined|Cannot read|undefined is not/i.test(m)) errs.push(m); });
+      const dV=new JSDOM(html,{url:"https://example.com/",runScripts:"dangerously",resources:"usable",pretendToBeVisual:true,virtualConsole:vc,beforeParse(w){ w.localStorage.setItem("mandje.v2", JSON.stringify(seedV)); }});
+      await wait(240); const W=dV.window, D=W.document, C=W.Cloud;
+      ok("F: kale omgeving zonder Notification/PushManager/setAppBadge/serviceWorker", typeof W.Notification==="undefined" && typeof W.PushManager==="undefined" && typeof W.navigator.setAppBadge!=="function" && !("serviceWorker" in W.navigator));
+      ok("F: app start en rendert de lijst zonder scriptfout", errs.length===0 && D.querySelectorAll("#open-list li.row").length===2 && D.querySelector("#title").textContent==="Boodschappen");
+      W.syncBadge(); W.addToList("kaas", null, {silent:true}); await wait(40);
+      ok("F: opslaan werkt zonder app-badge-API; pushPrefs standaard aan/aan", stored(W).list.some(i=>i.name==="kaas") && errs.length===0 && W.pushPrefs().op===true && W.pushPrefs().shopping===true);
+      // b) Meer-tab: elke sectie rendert; zonder push-ondersteuning geen Meldingen-blok
+      D.querySelector("#gear-btn").click(); await wait(80);
+      const secs=[...D.querySelectorAll("#meer-content .section span")].map(s=>s.textContent.trim());
+      const btn=(t)=>[...D.querySelectorAll("#meer-content button")].find(b=>b.textContent.trim()===t);
+      ok("F: Meer-tab rendert alle secties zonder fout ("+secs.length+")", errs.length===0 && secs.length>=5 && ["Account","Back-up & privacy","Diagnose"].every(s=>secs.indexOf(s)!==-1) && secs.indexOf("Meldingen")===-1);
+      ok("F: zonder cloudverbinding staan de account-knoppen uit, met uitleg", !!btn("Account maken met e-mail") && btn("Account maken met e-mail").disabled===true && !!btn("Ik heb al een account") && /Zodra er verbinding met de cloud is/.test(D.querySelector("#meer-content").textContent));
+      // c) account-blad: gelabelde velden, verborgen codestap, werkende annuleren
+      W.openAccountSheet("link"); await wait(60);
+      const sh=D.querySelector("#sheet");
+      ok("F: account-blad heeft gelabelde velden en een verborgen codestap", sh.classList.contains("show") && sh.querySelector("#acc-email").getAttribute("aria-label")==="E-mailadres" && sh.querySelector("#acc-code").getAttribute("aria-label")==="Code uit de mail" && sh.querySelector("#acc-step2").hidden===true && sh.querySelector("#acc-warn").hidden===true);
+      sh.querySelector("#acc-cancel").click(); await wait(100);
+      ok("F: Annuleren sluit het account-blad", !sh.classList.contains("show"));
+      C.lists=[{id:"c1",name:"Gedeeld",member_count:2}];
+      W.openAccountSheet("login"); await wait(60);
+      const introOne=sh.querySelector("#acc-intro").textContent;
+      sh.querySelector("#acc-cancel").click(); await wait(100);
+      C.lists=[{id:"c1",name:"Gedeeld"},{id:"c2",name:"Ook gedeeld"}];
+      W.openAccountSheet("login"); await wait(60);
+      const introTwo=sh.querySelector("#acc-intro").textContent;
+      sh.querySelector("#acc-cancel").click(); await wait(100); C.lists=[];
+      ok("F: inlog-uitleg klopt in enkelvoud én meervoud", /de gedeelde lijst van dit toestel hoort bij/.test(introOne) && !/1 gedeelde/.test(introOne) && /de 2 gedeelde lijsten van dit toestel horen bij/.test(introTwo));
+      // d) verwijder-blad: gelabeld bevestigingsveld, knop pas actief na VERWIJDER, annuleren wist niets
+      C.ready=true; C.authEmail="florian@voorbeeld.nl";
+      D.querySelector("#gear-btn").click(); await wait(30); D.querySelector("#gear-btn").click(); await wait(80);
+      ok("F: Meer toont het gekoppelde account met verwijder-knop", /Ingelogd als/.test(D.querySelector("#meer-content").textContent) && !!btn("Verwijder mijn account en cloudgegevens"));
+      btn("Verwijder mijn account en cloudgegevens").click(); await wait(60);
+      const dInp=sh.querySelector("#del-acc-input"), dGo=sh.querySelector("#del-acc-go");
+      ok("F: verwijder-blad heeft een gelabeld bevestigingsveld en een knop die uit staat", sh.classList.contains("show") && dInp.getAttribute("aria-label")==="Typ VERWIJDER om te bevestigen" && dGo.disabled===true);
+      dInp.value="verwijder"; dInp.dispatchEvent(new W.Event("input",{bubbles:true})); await wait(20);
+      ok("F: 'verwijder' bevestigt ook in kleine letters", dGo.disabled===false);
+      sh.querySelector("#del-acc-cancel").click(); await wait(100);
+      ok("F: Annuleren sluit het verwijder-blad en laat de opslag intact", !sh.classList.contains("show") && !!W.localStorage.getItem("mandje.v2") && errs.length===0);
+      ok("F: copy: overal 'Meldingen', nergens nog 'Herinneringen'", !/Herinneringen/.test(html));
+      dV.window.close();
+
+      // e) koude start zonder cloud: cache-balk zonder "NaN"; meldingen-kaart alleen op een gedeelde lijst mét huisgenoten
+      const seedQ=Object.assign({}, seedV, {cloudCache:{c1:{name:"Gedeeld", at:"kapot", items:[{id:"c1",name:"Cloudkaas",category:"kaas-vleeswaren",qty:1,unit:"",note:"",done:false,added_by_name:"Sanne"}]}}});
+      const subQ={endpoint:"https://push.example/q", toJSON:()=>({keys:{p256dh:"k",auth:"a"}}), unsubscribe:async()=>true};
+      const regQ={pushManager:{getSubscription:async()=>subQ, subscribe:async()=>subQ}};
+      const dQ=new JSDOM(html,{url:"https://example.com/",runScripts:"dangerously",resources:"usable",pretendToBeVisual:true,beforeParse(w){
+        w.localStorage.setItem("mandje.v2", JSON.stringify(seedQ)); w.localStorage.setItem("mandje.activeList","c1");
+        w.PushManager=function(){}; w.Notification={permission:"default", requestPermission:()=>Promise.resolve("default")};
+        Object.defineProperty(w.navigator,"serviceWorker",{value:{ready:Promise.resolve(regQ), register:()=>Promise.resolve(regQ), addEventListener(){}, controller:null}});
+      }});
+      await wait(700); const WQ=dQ.window, DQ=WQ.document, CQ=WQ.Cloud;
+      const bar=DQ.querySelector("#cloud-cache-bar .cache-bar");
+      ok("F: cache-balk toont nooit 'NaN' bij een onbruikbare tijdstempel", !!bar && !/NaN/.test(bar.textContent) && /1 te halen/.test(bar.textContent));
+      CQ.enabled=true; CQ.ready=true; CQ.mode="cloud"; CQ.userId="u1"; CQ.active=null; CQ.members=[]; CQ.lists=[{id:"c1",name:"Gedeeld",member_count:2}];
+      const toLijst=()=>{ DQ.querySelector('[data-tab="vaste"]').click(); DQ.querySelector('[data-tab="lijst"]').click(); };
+      toLijst(); await wait(60);
+      ok("F: geen meldingen-kaart op een persoonlijke lijst", CQ.pushEnabled()===true && !DQ.querySelector("#push-nudge .ritual.push"));
+      CQ.active="c1"; CQ.lists=[{id:"c1",name:"Solo",member_count:1}]; CQ.members=[{user_id:"u1",display_name:"Ik"}];
+      toLijst(); await wait(60);
+      ok("F: geen meldingen-kaart op een gedeelde lijst zonder huisgenoten", !DQ.querySelector("#push-nudge .ritual.push"));
+      CQ.lists=[{id:"c1",name:"Samen",member_count:2}];
+      toLijst(); await wait(60);
+      ok("F: wél een meldingen-kaart zodra er een huisgenoot is", !!DQ.querySelector("#push-nudge .ritual.push"));
+      dQ.window.close();
     }
   }
 
