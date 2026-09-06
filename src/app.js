@@ -154,6 +154,7 @@ var DEFAULTS = {
   version: CURRENT_STATE_VERSION,
   settings:{ theme:"auto", textScale:1, shopHideDone:false, haptics:true, showPrices:false, seenIntro:false, categoryOrder:CATS.map(function(c){return c.id;}), minPurchases:3, cvThreshold:0.6, dueWindowDays:1, customCategories:[], customCatEmoji:{}, collapsedCats:{}, seenQtyHint:false, seenBulkHint:false, seenPriceNudge:false, pushOn:null },
   history:[],
+  cloudCache:{},
   syncQueue:[],
   lastSyncState:{ mode:"local", status:"not_started", ready:false, pendingMutations:0, offline:false, reason:null, lastError:null, lastUpdated:0 },
   offlinePendingFlags:{},
@@ -196,7 +197,8 @@ function normalizeState(raw){
     catalog: isPlainObject(inState.catalog) ? inState.catalog : {},
     coBuy: isPlainObject(inState.coBuy) ? inState.coBuy : {},
     meals: isPlainObject(inState.meals) ? inState.meals : {},
-    history: Array.isArray(inState.history) ? inState.history.filter(isPlainObject).slice(0, 200) : []
+    history: Array.isArray(inState.history) ? inState.history.filter(isPlainObject).slice(0, 200) : [],
+    cloudCache: isPlainObject(inState.cloudCache) ? inState.cloudCache : {}
   });
   out.localMutationEpoch = Number(inState.localMutationEpoch) || 0;
   out._cloudOpenEpoch = Number(inState._cloudOpenEpoch) || 0;
@@ -416,6 +418,19 @@ function touchCatalog(name, price){
   return e;
 }
 
+/* Koopdatum uit de huishoud-geschiedenis (gedeelde lijst) toevoegen zonder timesAdded te verhogen; true als er iets nieuws bij kwam */
+function mergePurchaseDate(name, category, iso){
+  var k=norm(name); if(!k || !iso) return false;
+  var d=new Date(iso); if(isNaN(d.getTime())) return false;
+  var day=d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());
+  var e=state.catalog[k];
+  if(!e){ e={ name:String(name).trim(), category:(category && CAT_BY_ID[category]) ? category : classify(name), defaultPrice:null, purchaseDates:[], timesAdded:0, lastAddedAt:null, cadenceMode:"auto", manualIntervalDays:null }; state.catalog[k]=e; }
+  e.purchaseDates=e.purchaseDates||[];
+  if(e.purchaseDates.indexOf(day)!==-1) return false;
+  e.purchaseDates.push(day); e.purchaseDates.sort();
+  if(e.purchaseDates.length>120) e.purchaseDates.splice(0, e.purchaseDates.length-120);
+  return true;
+}
 function recordPurchase(name, price){
   var k = norm(name); var e = state.catalog[k];
   if(!e){ e = touchCatalog(name, price); }
@@ -1077,9 +1092,21 @@ function afterFinish(entry, undoFn, n){
   openFinishSheet(entry, undoFn);
 }
 /* Cloud.finish roept dit aan i.p.v. zelf te toasten (undo op cloud-lijsten komt in Fase 3 met soft-delete) */
-function finishAfterCloud(done){
+function finishAfterCloud(done, cloudUndo){
+  var today=todayStr();
+  var marks=done.map(function(it){ var k=norm(it.name), e=state.catalog[k]; return {k:k, had:!!(e && (e.purchaseDates||[]).indexOf(today)!==-1)}; });
+  done.forEach(function(it){ recordPurchase(it.name, it.price); });
+  var coKeys=[]; done.forEach(function(it){ var ck=norm(it.name); if(ck && coKeys.indexOf(ck)===-1) coKeys.push(ck); });
+  recordCoBuy(done.map(function(it){return it.name;}));
   var entry=recordTrip(done); save();
-  afterFinish(entry, null, done.length);
+  var undo = cloudUndo ? function(){
+    marks.forEach(function(m){ var e=state.catalog[m.k]; if(e && !m.had){ var idx=(e.purchaseDates||[]).indexOf(today); if(idx!==-1) e.purchaseDates.splice(idx,1); } });
+    if(state.coBuy && coKeys.length>1){ coKeys.forEach(function(a){ coKeys.forEach(function(b){ if(a===b || !state.coBuy[a]) return; if(state.coBuy[a][b]!=null){ state.coBuy[a][b]-=1; if(state.coBuy[a][b]<=0) delete state.coBuy[a][b]; } }); }); }
+    state.history=(state.history||[]).filter(function(h){ return h.id!==entry.id; });
+    save(); cloudUndo(); renderVaste();
+    toast("Teruggezet op de lijst");
+  } : null;
+  afterFinish(entry, undo, done.length);
 }
 /* Geschiedenis: laatste 200 afrondingen (datum, aantal, totaal, items) — bron voor "Herhaal vorige lijst" en uitgaven-inzicht */
 function recordTrip(done){
@@ -1904,8 +1931,35 @@ function renderOnboardCard(){
   c.querySelector(".r-x").addEventListener("click",function(){ state.settings.onboardDismissed=true; save(); wrap.innerHTML=""; });
   wrap.appendChild(c);
 }
+/* Offline gestart terwijl er een gedeelde lijst open stond: laat zien wat we het laatst zagen (alleen-lezen) */
+function renderCloudCacheBar(){
+  var wrap=$("#cloud-cache-bar"); if(!wrap) return; wrap.innerHTML="";
+  if(activeTab!=="lijst" || typeof Cloud==="undefined" || !Cloud || Cloud.active) return;
+  if(!(Cloud.mode==="local" && !Cloud.ready && Cloud.initError)) return;
+  var id=null; try{ id=localStorage.getItem("mandje.activeList"); }catch(e){}
+  if(!id || id==="local") return;
+  var c=state.cloudCache && state.cloudCache[id]; if(!c || !c.items) return;
+  var when=""; try{ var d=new Date(c.at); when=pad(d.getHours())+":"+pad(d.getMinutes()); }catch(e){}
+  var open=c.items.filter(function(i){ return !i.done; }).length;
+  var bar=el("div","ritual cache-bar");
+  bar.innerHTML='<h4></h4><p>Gedeelde lijst niet bereikbaar — dit is de stand van '+escapeHtml(when)+' ('+open+' te halen).</p><div class="chips"><button class="chip" type="button" id="cc-open"><span>Bekijk de lijst</span><span class="plus">→</span></button></div>';
+  bar.querySelector("h4").textContent=c.name||"Gedeelde lijst";
+  bar.querySelector("#cc-open").addEventListener("click", function(){ openCloudCacheSheet(id); });
+  wrap.appendChild(bar);
+}
+function openCloudCacheSheet(id){
+  var c=state.cloudCache && state.cloudCache[id]; var sh=$("#sheet"); if(!c || !sh) return;
+  var byCat={}; c.items.forEach(function(i){ if(i.done) return; var cid=CAT_BY_ID[i.category]?i.category:"overig"; (byCat[cid]=byCat[cid]||[]).push(i); });
+  var html='<div class="grip"></div><h3></h3><div class="hint" style="margin:0 6px 12px">Alleen-lezen: zodra je weer verbinding hebt, laadt de echte lijst.</div>';
+  catBuckets(byCat).forEach(function(cid){ var cat=CAT_BY_ID[cid]||CAT_BY_ID["overig"]; html+='<div class="section">'+shelfIcon(cat)+'<span>'+escapeHtml(cat.label)+'</span><span class="count">'+byCat[cid].length+'</span></div><ul class="list">'+byCat[cid].map(function(i){ return '<li class="row"><div class="card"><span class="check" aria-hidden="true"></span><div class="meta"><div class="nm">'+escapeHtml(i.name)+'</div>'+(i.note||i.added_by_name?'<div class="sub2">'+escapeHtml([i.note, i.added_by_name?("+ "+i.added_by_name):""].filter(Boolean).join(" · "))+'</div>':'')+'</div>'+(i.qty>1?'<span class="shop-qty">'+i.qty+'</span>':'')+'</div></li>'; }).join("")+'</ul>'; });
+  html+='<div class="sheet-actions"><button class="save" id="cc-close" type="button">Sluiten</button></div>';
+  sh.innerHTML=html; sh.querySelector("h3").textContent=c.name||"Gedeelde lijst";
+  sh.querySelector("#cc-close").addEventListener("click", closeSheet);
+  openSheetUI();
+}
 function renderDueBanner(){
   var wrap=$("#due-banner"); wrap.innerHTML="";
+  renderCloudCacheBar();
   renderOnboardCard();
   if(!T().cadence){ var wr=$("#week-ritual"); if(wr) wr.innerHTML=""; return; }
   renderWeekRitual();
@@ -2100,6 +2154,17 @@ function renderShopBody(){
 }
 function renderShoppingMode(){ renderShopBody(); }
 document.addEventListener("visibilitychange", function(){ if(document.visibilityState==="visible" && shopIsOpen()) requestWakeLock(); });
+var _lastResumeDay=null;
+function onAppResume(){
+  try{
+    if(typeof Cloud!=="undefined" && Cloud && typeof Cloud.onResume==="function") Cloud.onResume();
+    var day=todayStr();
+    if(_lastResumeDay && _lastResumeDay!==day && activeTab==="lijst"){ try{ runAutoAddDueItems(); }catch(e){} renderDueBanner(); }
+    _lastResumeDay=day;
+  }catch(e){}
+}
+document.addEventListener("visibilitychange", function(){ if(document.visibilityState==="visible") onAppResume(); });
+window.addEventListener("pageshow", function(){ onAppResume(); });
 
 /* ============================================================
    RENDER — Vaste-tab
@@ -3450,7 +3515,7 @@ function refreshTopShareBtn(){
 }
 
 /* ============================================================
-   BARCODE-SCANNEN — camera (html5-qrcode, ingebakken) + Open Food Facts
+   BARCODE-SCANNEN — camera (BarcodeDetector, anders ZXing op volle resolutie) + Open Food Facts
    Lage NL-dekking → handmatig typen blijft de hoofdweg; scannen is een versneller.
    ============================================================ */
 var OFF_CAT_MAP = {
@@ -3496,7 +3561,7 @@ function lookupBarcode(ean){
   }).catch(function(){ return {ean:ean, found:false, error:true}; });
 }
 
-var _bcScanner=null, _bcRunning=false, _bcLastEan="", _bcLastAt=0, _bcSession=0;
+var _bcRunning=false, _bcLastEan="", _bcLastAt=0, _bcSession=0;
 var _bcStatusLast="", _bcStatusAt=0;
 function bcStatus(msg){
   var s=$("#bc-status"); if(!s) return;
@@ -3531,30 +3596,75 @@ function openBarcodeScanScreen(){
   if(mi) mi.addEventListener("keydown", function(e){ if(e.key==="Enter") manualAdd(); });
   startBarcodeScanner();
 }
-/* Decoder lazy van CDN (met fallback). Niet ingebakken: scannen heeft tóch internet
-   nodig voor de Open Food Facts-lookup, dus offline cachen heeft geen nut. */
+/* Decoder (ZXing) lazy van CDN, met fallback. Niet ingebakken: scannen heeft tóch internet
+   nodig voor de Open Food Facts-lookup, dus offline cachen heeft geen nut.
+   Waarom ZXing zelf en niet html5-qrcode: die decodeert op de CSS-grootte van het beeld (±340 px op een telefoon),
+   waardoor een kleine streepjescode nooit scherp genoeg is. Hier decoderen we het camerabeeld op volle resolutie. */
 var _bcLibPromise=null;
+function hasZxing(){ return !!(window.ZXing && window.ZXing.MultiFormatReader && window.ZXing.HTMLCanvasElementLuminanceSource); }
 function loadBarcodeDecoder(){
-  if(window.Html5Qrcode) return Promise.resolve(true);
+  if(hasZxing()) return Promise.resolve(true);
   if(_bcLibPromise) return _bcLibPromise;
   var urls=[
-    "https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js",
-    "https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"
+    "https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js",
+    "https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js"
   ];
   _bcLibPromise = new Promise(function(resolve){
     var i=0;
     (function tryNext(){
-      if(window.Html5Qrcode){ resolve(true); return; }
-      if(i>=urls.length){ resolve(false); return; }
+      if(hasZxing()){ resolve(true); return; }
+      if(i>=urls.length){ _bcLibPromise=null; resolve(false); return; }
       var s=document.createElement("script"); s.src=urls[i++]; s.async=true;
-      s.onload=function(){ resolve(!!window.Html5Qrcode); };
+      s.onload=function(){ if(hasZxing()) resolve(true); else tryNext(); };
       s.onerror=tryNext;
       document.head.appendChild(s);
     })();
   });
   return _bcLibPromise;
 }
-var _bcStream=null, _bcTick=null;
+var _bcStream=null, _bcTick=null, _bcZoom=1;
+/* Camera openen: achterkant, 1080p (Safari geeft anders 640×480), continu scherpstellen. Eén pad voor beide decoders. */
+function openBarcodeCamera(mySession, video, onReady){
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){ bcStatus("Geen camera beschikbaar — typ de naam"); return; }
+  var constraints={ video:{ facingMode:{ideal:"environment"}, width:{ideal:1920}, height:{ideal:1080}, advanced:[{focusMode:"continuous"}] }, audio:false };
+  var got=function(stream){
+    if(mySession!==_bcSession){ stream.getTracks().forEach(function(t){ t.stop(); }); return; }
+    _bcStream=stream; video.srcObject=stream;
+    try{ video.play().catch(function(){}); }catch(e){}
+    setupBarcodeZoom(stream.getVideoTracks()[0]);
+    _bcRunning=true; bcStatus("");
+    onReady(stream);
+  };
+  var fail=function(){ bcStatus("Kan de camera niet openen — typ de naam"); };
+  navigator.mediaDevices.getUserMedia(constraints).then(got, function(){
+    // strengere wensen afgewezen (oude toestellen): nog één keer zonder resolutie-wens
+    navigator.mediaDevices.getUserMedia({ video:{ facingMode:{ideal:"environment"} }, audio:false }).then(got, fail);
+  });
+}
+/* Zoom: een streepjescode op een flesje is klein; 2× (waar de camera dat kan) maakt hem leesbaar. Chip wisselt 1× · 2× · 3×. */
+function setupBarcodeZoom(track){
+  var reader=$("#bc-reader"); if(!reader || !track) return;
+  var caps=null; try{ caps=track.getCapabilities ? track.getCapabilities() : null; }catch(e){}
+  var z=caps && caps.zoom; if(!z || !(z.max>=2)) return;
+  var steps=[1,2,3].filter(function(v){ return v>=(z.min||1) && v<=z.max; });
+  var applyZoom=function(v){ _bcZoom=v; try{ track.applyConstraints({advanced:[{zoom:v}]}).catch(function(){}); }catch(e){} var c=$("#bc-zoom"); if(c) c.textContent=v+"×"; };
+  var chip=document.createElement("button"); chip.type="button"; chip.id="bc-zoom"; chip.className="bc-zoom"; chip.setAttribute("aria-label","Zoom wisselen");
+  chip.addEventListener("click", function(){ var i=steps.indexOf(_bcZoom); applyZoom(steps[(i+1)%steps.length]); });
+  reader.appendChild(chip);
+  applyZoom(steps.indexOf(2)!==-1 ? 2 : steps[0]);
+}
+function newBarcodeVideo(){
+  var reader=$("#bc-reader"); if(!reader) return null;
+  var video=document.createElement("video"); video.setAttribute("playsinline",""); video.muted=true; video.autoplay=true;
+  reader.innerHTML=""; reader.appendChild(video);
+  return video;
+}
+/* Het stuk van het camerabeeld dat achter het witte kader zit (object-fit:cover + inzet 4%/18%), in camerapixels */
+function barcodeCropRect(video, reader){
+  var vw=video.videoWidth, vh=video.videoHeight, cw=reader.clientWidth||1, ch=reader.clientHeight||1;
+  var scale=Math.max(cw/vw, ch/vh), visW=cw/scale, visH=ch/scale, vx=(vw-visW)/2, vy=(vh-visH)/2;
+  return { x:Math.round(vx+visW*0.04), y:Math.round(vy+visH*0.18), w:Math.round(visW*0.92), h:Math.round(visH*0.64) };
+}
 function nativeDetectorFormats(){
   if(!window.BarcodeDetector) return Promise.resolve(null);
   try{
@@ -3565,16 +3675,10 @@ function nativeDetectorFormats(){
   }catch(e){ return Promise.resolve(null); }
 }
 function startNativeScanner(mySession, formats){
-  var reader=$("#bc-reader"); if(!reader) return false;
   var det; try{ det=new window.BarcodeDetector({formats:formats}); }catch(e){ return false; }
-  var video=document.createElement("video"); video.setAttribute("playsinline",""); video.muted=true; video.autoplay=true;
-  reader.innerHTML=""; reader.appendChild(video);
+  var video=newBarcodeVideo(); if(!video) return false;
   bcStatus("Camera starten…");
-  navigator.mediaDevices.getUserMedia({ video:{ facingMode:{ideal:"environment"}, width:{ideal:1280}, height:{ideal:720} }, audio:false }).then(function(stream){
-    if(mySession!==_bcSession){ stream.getTracks().forEach(function(t){ t.stop(); }); return; }
-    _bcStream=stream; video.srcObject=stream;
-    try{ video.play().catch(function(){}); }catch(e){}
-    _bcRunning=true; bcStatus("");
+  openBarcodeCamera(mySession, video, function(){
     var busy=false;
     var tick=function(){
       if(mySession!==_bcSession || !_bcRunning) return;
@@ -3585,7 +3689,7 @@ function startNativeScanner(mySession, formats){
       _bcTick=setTimeout(tick, 160);
     };
     tick();
-  }, function(){ bcStatus("Kan de camera niet openen — typ de naam"); });
+  });
   return true;
 }
 function startBarcodeScanner(){
@@ -3594,36 +3698,49 @@ function startBarcodeScanner(){
   nativeDetectorFormats().then(function(formats){
     if(mySession!==_bcSession) return;
     if(formats && startNativeScanner(mySession, formats)) return;
-    startHtml5Scanner(mySession);
+    startZxingScanner(mySession);
   });
 }
-function startHtml5Scanner(mySession){
+/* ZXing-lus: elk ±90 ms het kadergebied op volle resolutie (max 1600 px breed) naar een canvas en decoderen.
+   TRY_HARDER: ook gekantelde/zwakke codes. Alleen EAN/UPC + QR (uitnodig-link van een huisgenoot). */
+function startZxingScanner(mySession){
   loadBarcodeDecoder().then(function(ok){
     if(mySession!==_bcSession) return;   // scherm intussen gesloten of heropend → deze start is verouderd
-    if(!ok || !window.Html5Qrcode){ bcStatus("Scanner niet beschikbaar — typ de naam"); return; }
-    if(!$("#barcode-screen").classList.contains("show")) return; // gebruiker sloot al
+    if(!ok || !hasZxing()){ bcStatus("Scanner niet beschikbaar — typ de naam"); return; }
+    var scr=$("#barcode-screen"); if(!scr || !scr.classList.contains("show")) return; // gebruiker sloot al
+    var video=newBarcodeVideo(); if(!video) return;
     bcStatus("Camera starten…");
+    var Z=window.ZXing, reader=null;
     try{
-      _bcScanner = new window.Html5Qrcode("bc-reader", { verbose:false });
-      var inst=_bcScanner;
-      var F = window.Html5QrcodeSupportedFormats;
-      // Scanvlak = bijna het hele beeld: een streepjescode onderin beeld werd anders nooit gelezen
-      var config = { fps:12, qrbox:function(w,h){ return { width:Math.round(w*0.94), height:Math.round(h*0.7) }; }, experimentalFeatures:{ useBarCodeDetectorIfSupported:true } };
-      if(F) config.formatsToSupport = [F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E, F.QR_CODE];   // QR = uitnodig-link van een huisgenoot
-      _bcScanner.start({facingMode:"environment"}, config, onBarcodeDecoded, function(){})
-        .then(function(){
-          if(mySession!==_bcSession){ // scherm is intussen gesloten → camera direct weer uit
-            try{ inst.stop().then(function(){ try{ inst.clear(); }catch(x){} }, function(){}); }catch(e){}
-            return;
-          }
-          _bcRunning=true; bcStatus("");
-        })
-        .catch(function(){ bcStatus("Kan de camera niet openen — typ de naam"); });
-    }catch(e){ bcStatus("Scanner niet beschikbaar — typ de naam"); }
+      var hints=new Map();
+      hints.set(Z.DecodeHintType.POSSIBLE_FORMATS, [Z.BarcodeFormat.EAN_13, Z.BarcodeFormat.EAN_8, Z.BarcodeFormat.UPC_A, Z.BarcodeFormat.UPC_E, Z.BarcodeFormat.QR_CODE]);
+      hints.set(Z.DecodeHintType.TRY_HARDER, true);
+      reader=new Z.MultiFormatReader(); reader.setHints(hints);
+    }catch(e){ bcStatus("Scanner niet beschikbaar — typ de naam"); return; }
+    var canvas=document.createElement("canvas"), ctx=canvas.getContext("2d", {willReadFrequently:true});
+    openBarcodeCamera(mySession, video, function(){
+      var box=$("#bc-reader");
+      var tick=function(){
+        if(mySession!==_bcSession || !_bcRunning) return;
+        if(video.readyState>=2 && video.videoWidth && box){
+          try{
+            var r=barcodeCropRect(video, box);
+            var k=Math.min(1, 1600/Math.max(1,r.w));
+            var cw=Math.max(1,Math.round(r.w*k)), ch=Math.max(1,Math.round(r.h*k));
+            if(canvas.width!==cw) canvas.width=cw; if(canvas.height!==ch) canvas.height=ch;
+            ctx.drawImage(video, r.x, r.y, r.w, r.h, 0, 0, cw, ch);
+            var bmp=new Z.BinaryBitmap(new Z.HybridBinarizer(new Z.HTMLCanvasElementLuminanceSource(canvas)));
+            var res=reader.decodeWithState(bmp);
+            if(res && res.getText()) onBarcodeDecoded(res.getText());
+          }catch(e){ /* NotFound/Checksum/Format: volgend beeld */ }
+        }
+        _bcTick=setTimeout(tick, 90);
+      };
+      tick();
+    });
   });
 }
 function stopBarcodeScanner(){
-  if(_bcScanner && _bcRunning){ try{ _bcScanner.stop().then(function(){ try{ _bcScanner.clear(); }catch(x){} }, function(){}); }catch(e){} }
   if(_bcTick){ clearTimeout(_bcTick); _bcTick=null; }
   if(_bcStream){ try{ _bcStream.getTracks().forEach(function(t){ t.stop(); }); }catch(e){} _bcStream=null; }
   _bcRunning=false;
@@ -4050,6 +4167,9 @@ if(typeof window!=="undefined"){
   window.addStore = addStore;
   window.createLocalList = createLocalList;
   window.listAsText = listAsText;
+  window.mergePurchaseDate = mergePurchaseDate;
+  window.onAppResume = onAppResume;
+  window.finishAfterCloud = finishAfterCloud;
   window.parseRecipeText = parseRecipeText;
   window.renderAssignFilter = renderAssignFilter;
   window.onboardSteps = onboardSteps;

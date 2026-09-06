@@ -69,7 +69,7 @@ ok("manifest: shortcuts (≥2) en share_target (GET)", !!mf && Array.isArray(mf.
 ok("index.html: <link rel=\"manifest\" href=\"./manifest.webmanifest\"> (geen data-URI)", html.indexOf('<link rel="manifest" href="./manifest.webmanifest">')!==-1 && html.indexOf("data:application/manifest+json")===-1);
 ok("index.html: geen base64-iconen meer vóór <body", html.slice(0, Math.max(bodyIdx,0)).indexOf("data:image/png;base64")===-1);
 const sdkPath = path.join(root, "supabase.js");
-ok("supabase.js: los root-bestand (≥ 100 KB), niet meer inline in index.html", fs.existsSync(sdkPath) && fs.statSync(sdkPath).size > 100*1024 && htmlBuf.length < 520*1024);
+ok("supabase.js: los root-bestand (≥ 100 KB), niet meer inline in index.html", fs.existsSync(sdkPath) && fs.statSync(sdkPath).size > 100*1024 && htmlBuf.length < 600*1024);   // SDK (200 KB) inline zou de bundel ver over de 600 KB duwen
 
 // 5b. design-systeem: geen losse pixelmaten/legacy-tokens meer in de CSS (tokens zijn de enige bron)
 {

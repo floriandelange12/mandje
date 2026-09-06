@@ -416,6 +416,7 @@ var Cloud = {
         if(!sdk || typeof sdk.createClient !== "function"){ throw new Error("Supabase SDK niet beschikbaar"); }
         this.sb=sdk.createClient(SUPABASE_URL, SUPABASE_ANON_KEY,
           {auth:{persistSession:true, autoRefreshToken:true, storageKey:"mandje.sb.auth"}});
+        this._restoreQueue();   // offline-wijzigingen van een vorige sessie
 
         if(!guard(true)){
           return;
@@ -505,8 +506,18 @@ var Cloud = {
       }
       if(self._isCurrentInit(initToken)){
         renderListSwitch(); renderMembersRow(); renderShortcutsRow();
+        if(this.ready && this._pending.length) this.flushPending();
       }
     },
+  /* App komt terug in beeld (tab/venster/telefoon): lijst en leden verversen, wachtrij versturen — hooguit 1× per 3 s */
+  onResume:function(){
+    var now=Date.now ? Date.now() : 0;
+    if(now - (this._resumeAt||0) < 3000) return;
+    this._resumeAt=now;
+    if(!this.ready || !this.sb) return;
+    if(this.active){ this.refreshItems(this._activeRefreshToken); this.refreshMembers(this._activeRefreshToken); }
+    this.flushPending();
+  },
 
   loadLists:async function(){
     var r=await this.sb.from("lists").select("*").order("created_at",{ascending:true});
@@ -547,6 +558,7 @@ var Cloud = {
       this.active=listId; try{ localStorage.setItem("mandje.activeList", listId); }catch(e){}
       await this.refreshItems(refreshToken); await this.refreshMembers(refreshToken);
       this.subscribe(listId); this.startPresence();
+      this.loadHouseholdHistory(listId);
       if(typeof applyListType==="function") applyListType();
       applyListHeader(); renderListSwitch(); renderMembersRow();
     },
@@ -579,8 +591,16 @@ var Cloud = {
       if(!token) return;
       var listId = this.active;
       if(!listId || !this._isCurrentRefresh(token)) return;
+      if(this._refreshing){ this._refreshAgain=true; return; }   // al bezig: daarna nog één keer
+      this._refreshing=true;
       try{
-        var r=await this.sb.from("items").select("*").eq("list_id",listId).order("created_at",{ascending:false});
+        var r;
+        if(this._hasBoughtAt!==false){
+          r=await this.sb.from("items").select("*").eq("list_id",listId).is("bought_at", null).order("created_at",{ascending:false});
+          if(r.error && this._isMissingCol(r.error, "bought_at")){ this._hasBoughtAt=false; r=null; }
+          else if(!r.error && this._hasBoughtAt===undefined){ this._hasBoughtAt=true; }
+        }
+        if(!r) r=await this.sb.from("items").select("*").eq("list_id",listId).order("created_at",{ascending:false});
         if(!this._isCurrentRefresh(token) || this.active!==listId) return;
         var now = Date.now ? Date.now() : 0;
         var localEpoch = (typeof window !== "undefined" && typeof window.__mandjeLocalMutationEpoch === "number") ? window.__mandjeLocalMutationEpoch : 0;
@@ -632,6 +652,7 @@ var Cloud = {
           });
         }
         state.list = mapped;
+        this._cacheList(listId, mapped);
         if(activeTab==="lijst"){ renderLijst(); renderDueBanner(); }
         if(typeof renderShoppingMode==="function") renderShoppingMode();
       }catch(e){
@@ -640,7 +661,35 @@ var Cloud = {
         state.list=[];
         if(activeTab==="lijst"){ renderLijst(); renderDueBanner(); }
         toast("Items willen niet laden — probeer 't straks");
+      }finally{
+        this._refreshing=false;
+        if(this._refreshAgain){ this._refreshAgain=false; var self3=this; setTimeout(function(){ self3.refreshItems(self3._activeRefreshToken); }, 50); }
       }
+    },
+    /* Laatst gezien items per gedeelde lijst — voor een koude start zonder verbinding (Fase 3) */
+    _cacheList:function(listId, items){
+      try{
+        if(typeof state==="undefined" || !state) return;
+        state.cloudCache = state.cloudCache || {};
+        var l=this.listById(listId);
+        state.cloudCache[listId] = { name:(l && l.name) || "Gedeelde lijst", at:new Date().toISOString(),
+          items:(items||[]).slice(0,300).map(function(i){ return { id:i.id, name:i.name, category:i.category, qty:i.qty, unit:i.unit||"", note:i.note||"", done:!!i.done, added_by_name:i.added_by_name||"", flagged_at:i.flagged_at||null, flagged_by_name:i.flagged_by_name||"" }; }) };
+        // hooguit 6 lijsten bewaren
+        var keys=Object.keys(state.cloudCache); if(keys.length>6){ keys.sort(function(a,b){ return String(state.cloudCache[a].at).localeCompare(String(state.cloudCache[b].at)); }); delete state.cloudCache[keys[0]]; }
+        if(typeof save==="function") save();
+      }catch(e){}
+    },
+    /* Huishoud-koopgeschiedenis: wat huisgenoten de laatste 180 dagen kochten telt mee in het ritme ("bijna op", Vaste) */
+    loadHouseholdHistory:async function(listId){
+      if(!this.sb || this._hasBoughtAt===false || !listId) return;
+      try{
+        var since=new Date(Date.now()-180*86400000).toISOString();
+        var r=await this.sb.from("items").select("name,category,bought_at").eq("list_id",listId).not("bought_at","is",null).gte("bought_at",since).order("bought_at",{ascending:false}).limit(600);
+        if(r.error){ if(this._isMissingCol(r.error,"bought_at")) this._hasBoughtAt=false; return; }
+        if(this.active!==listId || typeof mergePurchaseDate!=="function") return;
+        var n=0; (r.data||[]).forEach(function(row){ if(mergePurchaseDate(row.name, row.category, row.bought_at)) n++; });
+        if(n){ if(typeof save==="function") save(); if(typeof renderDueBanner==="function" && activeTab==="lijst") renderDueBanner(); if(activeTab==="vaste" && typeof renderVaste==="function") renderVaste(); }
+      }catch(e){}
     },
     refreshMembers:async function(token){
       token = token || this._activeRefreshToken;
@@ -670,7 +719,7 @@ var Cloud = {
     this.present=[];
     var self=this;
       this.channel=this.sb.channel("list-"+listId, { config:{ presence:{ key: self.userId || ("u"+Math.random()) } } })
-        .on("postgres_changes",{event:"*",schema:"public",table:"items",filter:"list_id=eq."+listId}, function(){ self.refreshItems(self._activeRefreshToken); })
+        .on("postgres_changes",{event:"*",schema:"public",table:"items",filter:"list_id=eq."+listId}, function(){ clearTimeout(self._rtT); self._rtT=setTimeout(function(){ self.refreshItems(self._activeRefreshToken); }, 220); })
         .on("postgres_changes",{event:"*",schema:"public",table:"members",filter:"list_id=eq."+listId}, function(){
           self.refreshMembers(self._activeRefreshToken).then(function(){
           // Als jouw eigen member-rij weg is (gekickt of lijst gedeleted door owner met FK-cascade),
@@ -698,7 +747,8 @@ var Cloud = {
       })
       .subscribe(function(status){
         if(status === "SUBSCRIBED"){
-          try{ self.channel.track({ user_id:self.userId, name:self.myName(), color:(self.me&&self.me.color)||"#2F7A4F", emoji:self.myEmoji() }); }catch(e){}
+          try{ self.channel.track({ user_id:self.userId, name:self.myName(), color:(self.me&&self.me.color)||"#24593F", emoji:self.myEmoji() }); }catch(e){}
+          self.flushPending();
         } else if(status === "CHANNEL_ERROR" || status === "TIMED_OUT"){
           console.warn("Cloud realtime channel:", status);
         }
@@ -708,19 +758,25 @@ var Cloud = {
     var self=this;
     // De heartbeat dient óók als vangnet: een verwijderde lijst ruimt via FK-cascade
     // de ledenrij op zónder realtime-event. De update raakt dan 0 rijen → we vallen terug.
-    var beat=function(){
-      if(!self.active || !self.userId) return;
-      var listId=self.active;
+    var gone=function(listId){ if(self.active!==listId) return; toast("Deze lijst is niet meer beschikbaar"); self.openLocal(); self.loadLists(); };
+    var beatUpdate=function(listId){
       self.sb.from("members").update({last_seen:new Date().toISOString()})
         .eq("list_id",listId).eq("user_id",self.userId).select()
         .then(function(r){
           if(!r || r.error) return; // netwerk-/permissie-ruis → niet terugvallen (herstel volgt bij herladen)
-          if(self.active===listId && Array.isArray(r.data) && r.data.length===0){
-            toast("Deze lijst is niet meer beschikbaar");
-            self.openLocal();
-            self.loadLists();
-          }
+          if(Array.isArray(r.data) && r.data.length===0) gone(listId);
         }, function(){ /* netwerkfout → niets doen */ });
+    };
+    var beat=function(){
+      if(!self.active || !self.userId || !self.sb) return;
+      if(typeof document!=="undefined" && document.hidden) return;   // verborgen tab/app: geen hartslag
+      var listId=self.active;
+      if(self._hasHeartbeatRpc===false){ beatUpdate(listId); return; }
+      self.sb.rpc("member_heartbeat",{p_list_id:listId}).then(function(r){
+        if(r && r.error){ if(self._isMissingFn(r.error)){ self._hasHeartbeatRpc=false; beatUpdate(listId); } return; }
+        self._hasHeartbeatRpc=true;
+        if(r && r.data===false) gone(listId);
+      }, function(){});
     };
     beat(); if(this.presenceTimer) clearInterval(this.presenceTimer);
     this.presenceTimer=setInterval(beat,60000);
@@ -738,7 +794,9 @@ var Cloud = {
     for(var i=0;i<this._pending.length;i++){ var e=this._pending[i]; if(e.op==="insert"&&e.tmpId===tmpId) return e; }
     return null;
   },
-  _queueInsert:function(tmpId, payload){ this._pending.push({op:"insert", tmpId:tmpId, payload:payload}); },
+  _persistQueue:function(){ try{ if(typeof state!=="undefined" && state){ state.syncQueue = this._pending.slice(); if(typeof save==="function") save(); } }catch(e){} },
+  _restoreQueue:function(){ try{ if(typeof state!=="undefined" && state && Array.isArray(state.syncQueue) && state.syncQueue.length && !this._pending.length){ this._pending = state.syncQueue.filter(function(e){ return e && e.op; }); } }catch(e){} },
+  _queueInsert:function(tmpId, payload){ this._pending.push({op:"insert", tmpId:tmpId, payload:payload}); this._persistQueue(); },
   _queueUpdate:function(id, fields){
     if(this._isTmp(id)){
       var ins=this._pendingInsert(id);
@@ -748,11 +806,13 @@ var Cloud = {
     for(var i=0;i<this._pending.length;i++){ var e=this._pending[i]; if(e.op==="update"&&e.id===id){ for(var k in fields) e.fields[k]=fields[k]; return; } }
     var f={}; for(var k2 in fields) f[k2]=fields[k2];
     this._pending.push({op:"update", id:id, fields:f});
+    this._persistQueue();
   },
   _queueDelete:function(id){
     var self=this;
     this._pending=this._pending.filter(function(e){ return e.id!==id && e.tmpId!==id; }); // eerdere ops vervallen
     if(!this._isTmp(id)) this._pending.push({op:"delete", id:id});
+    this._persistQueue();
   },
   _maxFlushAttempts:6,
   flushPending:function(){
@@ -766,11 +826,14 @@ var Cloud = {
       var requeue=function(){ e.attempts=(e.attempts||0)+1; if(e.attempts < self._maxFlushAttempts) self._pending.push(e); };
       var done=function(r){ if(r&&r.error) requeue(); else note(); };
       try{
-        if(e.op==="insert"){ if(e.payload.list_id!==self.active){ return; } self.sb.from("items").insert(e.payload).then(done, requeue); }
+        if(e.op==="insert"){ if(e.payload.list_id!==self.active){ self._pending.push(e); return; }   // andere lijst: bewaren, niet droppen
+          self.sb.from("items").insert(e.payload).then(done, requeue); }
         else if(e.op==="update"){ self.sb.from("items").update(e.fields).eq("id", e.id).then(done, requeue); }
         else if(e.op==="delete"){ self.sb.from("items").delete().eq("id", e.id).then(done, requeue); }
       }catch(err){ requeue(); }
     });
+    this._persistQueue();
+    var self2=this; setTimeout(function(){ self2._persistQueue(); }, 4000);   // na de antwoorden: overgebleven/geherqueuede items bewaren
   },
   addItem:function(name, price, addQty, opts){
     name=(name||"").trim(); if(!name||!this.active) return;
@@ -805,16 +868,26 @@ var Cloud = {
   /* Schrijft een item weg en valt terug zonder 'unit' als de kolom (migratie M0) nog ontbreekt —
      zo blijft de app werken vóór én na het draaien van de migratie. */
   _hasUnit:undefined,
-  _isMissingUnit:function(err){
-    if(!err || this._hasUnit===false) return false;
+  _isMissingUnit:function(err){ return this._hasUnit!==false && this._isMissingCol(err, "unit"); },
+  /* Ontbrekende kolom (migratie nog niet gedraaid): Postgres 42703, PostgREST PGRST204 "Could not find the 'x' column …" */
+  _isMissingCol:function(err, col){
+    if(!err) return false;
     var m=String(err.message||"")+" "+String(err.details||"")+" "+String(err.hint||"");
-    // Postgres: 42703 (undefined column); PostgREST: PGRST204 "Could not find the 'unit' column of 'items' in the schema cache"
-    return err.code==="42703" || err.code==="PGRST204" || (/unit/i.test(m) && /(column|schema cache)/i.test(m));
+    return (err.code==="42703" || err.code==="PGRST204" || /(column|schema cache)/i.test(m)) && new RegExp(col,"i").test(m);
+  },
+  _isMissingFn:function(err){ return !!(err && (err.code==="PGRST202" || /could not find the function/i.test(String(err.message||"")))); },
+  _hasBoughtAt:undefined,
+  /* Eén update-pad: zonder client (offline koude start) meteen in de wachtrij, anders schrijven en bij een fout in de wachtrij */
+  _upd:function(id, fields){
+    var self=this;
+    if(!this.sb){ this._queueUpdate(id, fields); return; }
+    this.sb.from("items").update(fields).eq("id",id).then(function(r){ if(r&&r.error) self._queueUpdate(id, fields); }, function(){ self._queueUpdate(id, fields); });
   },
   _writeItem:function(op, data, id, onFail){
     var self=this;
     var run=function(d){ return op==="insert" ? self.sb.from("items").insert(d) : self.sb.from("items").update(d).eq("id", id); };
     var fail = onFail || function(){ self._queueUpdate(id, data); };
+    if(!this.sb){ fail(); return; }
     run(data).then(function(r){
       if(r && r.error){
         if("unit" in data && self._isMissingUnit(r.error)){
@@ -832,14 +905,13 @@ var Cloud = {
     var nd=!it.done; it.done=nd; if(typeof flipList==="function") flipList(renderLijst); else renderLijst();
     var self=this;
     var fields={done:nd, done_by_name:(nd?this.myName():null)};
-    this.sb.from("items").update(fields).eq("id",id).then(function(r){ if(r&&r.error) self._queueUpdate(id, fields); }, function(){ self._queueUpdate(id, fields); });
+    this._upd(id, fields);
     // Undo bij afvinken — gelijk aan de lokale lijst
     if(nd && !opts.quiet && typeof undoToast==="function"){
       undoToast(it.name+" afgevinkt", function(){
         var i2=state.list.find(function(x){return x.id===id;});
         if(i2){ i2.done=false; if(typeof flipList==="function") flipList(renderLijst); else renderLijst(); }
-        var uf={done:false, done_by_name:null};
-        self.sb.from("items").update(uf).eq("id",id).then(function(r){ if(r&&r.error) self._queueUpdate(id, uf); }, function(){ self._queueUpdate(id, uf); });
+        self._upd(id, {done:false, done_by_name:null});
       });
     }
   },
@@ -847,14 +919,22 @@ var Cloud = {
     var it=state.list.find(function(i){return i.id===id;}); if(!it) return;
     it.qty=Math.max(1,it.qty+delta); renderLijst();
     var self=this, q=it.qty;
-    this.sb.from("items").update({qty:q}).eq("id",id).then(function(r){ if(r&&r.error) self._queueUpdate(id, {qty:q}); }, function(){ self._queueUpdate(id, {qty:q}); });
+    if(!this.sb || this._isTmp(id) || this._hasBumpRpc===false){ this._upd(id, {qty:q}); return; }
+    // RPC telt op i.p.v. te overschrijven: twee telefoons die tegelijk +1 doen, komen op +2 uit
+    this.sb.rpc("item_bump_qty",{p_id:id, p_delta:delta}).then(function(r){
+      if(r && r.error){ if(self._isMissingFn(r.error)) self._hasBumpRpc=false; self._upd(id, {qty:q}); return; }
+      self._hasBumpRpc=true;
+      var it2=state.list.find(function(i){return i.id===id;});
+      if(it2 && typeof r.data==="number" && r.data!==it2.qty){ it2.qty=r.data; renderLijst(); }
+    }, function(){ self._upd(id, {qty:q}); });
   },
   remove:function(id){
     var it=state.list.find(function(i){return i.id===id;});
     var snap = it ? Object.assign({}, it) : null;
     state.list=state.list.filter(function(i){return i.id!==id;}); renderLijst();
     var self=this;
-    this.sb.from("items").delete().eq("id",id).then(function(r){ if(r&&r.error) self._queueDelete(id); }, function(){ self._queueDelete(id); });
+    if(!this.sb){ this._queueDelete(id); }
+    else this.sb.from("items").delete().eq("id",id).then(function(r){ if(r&&r.error) self._queueDelete(id); }, function(){ self._queueDelete(id); });
     // Undo bij verwijderen — voegt 'm opnieuw toe (realtime reconcilieert)
     if(snap && typeof undoToast==="function"){
       undoToast(snap.name+" verwijderd", function(){
@@ -868,20 +948,35 @@ var Cloud = {
     if("unit" in fields && this._hasUnit===false){ var f2={}; for(var k in fields){ if(k!=="unit") f2[k]=fields[k]; } fields=f2; }
     this._writeItem("update", fields, id);
   },
+  /* Afronden = soft-delete (bought_at): omkeerbaar, en de bron van de huishoud-koopgeschiedenis. Zonder de M3-kolom: gewoon verwijderen. */
   finish:function(){
     var done=state.list.filter(function(i){return i.done;}); if(!done.length||!this.active) return;
-    var self=this, ids=done.map(function(i){return i.id;});
-    done.forEach(function(it){ recordPurchase(it.name, it.price); });
-    if(typeof recordCoBuy==="function") recordCoBuy(done.map(function(it){return it.name;}));
-    save();
+    var self=this, ids=done.map(function(i){return i.id;}).filter(function(id){ return !self._isTmp(id); });
     ids.forEach(function(id){ self._deletedIds[id]=1; });   // tegen her-toevoegen via realtime-refresh
     state.list=state.list.filter(function(i){return !i.done;}); renderLijst();
     var clear=function(){ setTimeout(function(){ ids.forEach(function(id){ delete self._deletedIds[id]; }); }, 1500); };
-    var queueAll=function(){ ids.forEach(function(id){ self._queueDelete(id); }); };
-    this.sb.from("items").delete().in("id",ids).then(function(r){ if(r&&r.error) queueAll(); clear(); }, function(){ queueAll(); clear(); });
+    var now=new Date().toISOString();
+    var soft=(this._hasBoughtAt!==false);
+    var queueSoft=function(){ ids.forEach(function(id){ self._queueUpdate(id, {bought_at:now, done:true}); }); };
+    var queueHard=function(){ ids.forEach(function(id){ self._queueDelete(id); }); };
+    var hard=function(){ if(!self.sb){ queueHard(); clear(); return; } self.sb.from("items").delete().in("id",ids).then(function(r){ if(r&&r.error) queueHard(); clear(); }, function(){ queueHard(); clear(); }); };
+    if(!ids.length){ /* alleen nog-niet-gesyncte items: hun inserts vervallen via de wachtrij */ }
+    else if(!this.sb){ if(soft) queueSoft(); else queueHard(); clear(); }
+    else if(soft){
+      this.sb.from("items").update({bought_at:now, done:true}).in("id",ids).then(function(r){
+        if(r && r.error){ if(self._isMissingCol(r.error,"bought_at")){ self._hasBoughtAt=false; soft=false; hard(); return; } queueSoft(); }
+        else self._hasBoughtAt=true;
+        clear();
+      }, function(){ queueSoft(); clear(); });
+    } else hard();
     vibrate(12); renderVaste();
     if(typeof celebrate==="function") celebrate();
-    if(typeof finishAfterCloud==="function") finishAfterCloud(done);
+    var cloudUndo = soft ? function(){
+      ids.forEach(function(id){ delete self._deletedIds[id]; });
+      if(!self.sb){ ids.forEach(function(id){ self._queueUpdate(id, {bought_at:null}); }); return; }
+      self.sb.from("items").update({bought_at:null}).in("id",ids).then(function(){ self.refreshItems(self._activeRefreshToken); }, function(){ ids.forEach(function(id){ self._queueUpdate(id, {bought_at:null}); }); });
+    } : null;
+    if(typeof finishAfterCloud==="function") finishAfterCloud(done, cloudUndo);
     else toast(done.length+(done.length===1?" boodschap gekocht":" boodschappen gekocht"));
   },
 

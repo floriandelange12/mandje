@@ -124,7 +124,7 @@ const stored=(W)=>JSON.parse(W.localStorage.getItem("mandje.v2"));
   {
     // Supabase-stub: één cloud-item, één lid; genoeg voor Cloud.open() via het echte pad
     const mkStub=()=>{
-      const q=(table)=>{ const o={}; ["select","eq","in","order","single","limit","update","insert","delete","upsert"].forEach(m=>{ o[m]=function(){ return o; }; });
+      const q=(table)=>{ const o={}; ["select","eq","neq","in","is","not","gte","lte","order","single","maybeSingle","limit","update","insert","delete","upsert"].forEach(m=>{ o[m]=function(){ return o; }; });
         o.then=(res)=>{ let data=[]; if(table==="items") data=[{id:"c1",list_id:"c1",name:"Cloudkaas",category:"kaas-vleeswaren",qty:1,price:null,note:"",unit:"",done:false,assigned_to:null,added_by_name:"Sanne",created_at:new Date().toISOString()}]; if(table==="members") data=[{id:"m1",list_id:"c1",user_id:"u1",display_name:"Ik",color:"#24593F"}]; return Promise.resolve({data:data,error:null}).then(res); };
         return o; };
       return { from:(t)=>q(t), rpc:()=>q("rpc"), removeChannel(){}, channel(){ const c={}; c.on=()=>c; c.subscribe=()=>c; c.track=()=>{}; c.presenceState=()=>({}); c.unsubscribe=()=>{}; return c; } };
@@ -185,6 +185,118 @@ const stored=(W)=>JSON.parse(W.localStorage.getItem("mandje.v2"));
     card.querySelector("button.meta").click(); await wait(40);
     ok("Review: naam-knop opent het item-sheet", D.querySelector("#sheet").classList.contains("show") && !!D.querySelector("#s-cats"));
     dR.window.close();
+  }
+
+  // 12. Fase 3A — sync: afronden = soft-delete met undo, huishoud-geschiedenis, wachtrij die een herstart overleeft, cache, RPC-fallbacks
+  {
+    // Stub met call-log: elke keten eindigt in .then; rpc('item_bump_qty') telt op, rpc(onbekend) → PGRST202
+    const mkStub2=(opts)=>{
+      opts=opts||{}; const calls=[]; let items=[
+        {id:"c1",list_id:"c1",name:"Cloudkaas",category:"kaas-vleeswaren",qty:1,price:null,note:"",unit:"",done:true,assigned_to:null,added_by_name:"Sanne",created_at:new Date().toISOString(),bought_at:null},
+        {id:"c2",list_id:"c1",name:"Cloudmelk",category:"zuivel-eieren",qty:2,price:null,note:"",unit:"",done:false,assigned_to:null,added_by_name:"Ik",created_at:new Date().toISOString(),bought_at:null}];
+      const q=(table)=>{ const o={table:table, ops:[]}; ["select","eq","neq","in","is","not","gte","lte","order","single","maybeSingle","limit","update","insert","delete","upsert"].forEach(m=>{ o[m]=function(){ o.ops.push([m].concat([].slice.call(arguments))); return o; }; });
+        o.then=(res,rej)=>{ calls.push(o); let data=[], error=null;
+          if(table==="items"){
+            const isNull=o.ops.some(x=>x[0]==="is"&&x[1]==="bought_at");
+            if(opts.noBoughtAt && isNull){ error={code:"42703", message:"column items.bought_at does not exist"}; }
+            else if(o.ops[0][0]==="select"){ data=items.filter(i=>!isNull || i.bought_at==null); if(o.ops.some(x=>x[0]==="not")) data=items.filter(i=>i.bought_at); }
+            else if(o.ops[0][0]==="update"){ const f=o.ops[0][1]; if(opts.noBoughtAt && "bought_at" in f){ error={code:"PGRST204", message:"Could not find the 'bought_at' column of 'items' in the schema cache"}; } else { const ids=(o.ops.find(x=>x[0]==="in")||[])[2]||[]; const id=(o.ops.find(x=>x[0]==="eq")||[])[2]; items.forEach(i=>{ if(ids.indexOf(i.id)!==-1 || i.id===id) Object.assign(i,f); }); } }
+            else if(o.ops[0][0]==="delete"){ const ids=(o.ops.find(x=>x[0]==="in")||[])[2]||[]; const id=(o.ops.find(x=>x[0]==="eq")||[])[2]; items=items.filter(i=>ids.indexOf(i.id)===-1 && i.id!==id); }
+          }
+          if(table==="members") data=[{id:"m1",list_id:"c1",user_id:"u1",display_name:"Ik",color:"#24593F"}];
+          return Promise.resolve({data:data,error:error}).then(res,rej); };
+        return o; };
+      const sb={ calls:calls, items:()=>items, from:(t)=>q(t), removeChannel(){}, channel(){ const c={}; c.on=()=>c; c.subscribe=()=>c; c.track=()=>{}; c.presenceState=()=>({}); c.unsubscribe=()=>{}; return c; },
+        rpc:(name,args)=>{ const o={table:"rpc:"+name, args:args, ops:[]}; o.then=(res,rej)=>{ calls.push(o); let r={data:null,error:null};
+          if(name==="item_bump_qty" && !opts.noRpc){ const it=items.find(i=>i.id===args.p_id); if(it){ it.qty=Math.max(1,it.qty+args.p_delta); r.data=it.qty; } }
+          else if(name==="member_heartbeat" && !opts.noRpc){ r.data=true; }
+          else r.error={code:"PGRST202", message:"Could not find the function public."+name};
+          return Promise.resolve(r).then(res,rej); }; return o; } };
+      return sb;
+    };
+    const seedS={version:3,settings:{theme:"light",showPrices:false,seenIntro:true,categoryOrder:null,minPurchases:3,cvThreshold:.6,dueWindowDays:1},list:[item("a1","appels","groente-fruit")],catalog:{},coBuy:{},meals:{},history:[],
+      localLists:[{id:"l_boodschappen",name:"Boodschappen",type:"grocery",preset:"grocery",glyph:"🧺",finish:"opruimen",items:[item("a1","appels","groente-fruit")]}],activeLocalId:"l_boodschappen"};
+    const dS=mk(seedS); await wait(160); const W=dS.window, D=W.document, C=W.Cloud;
+    const sb=mkStub2(); C.sb=sb; C.enabled=true; C.ready=true; C.mode="cloud"; C.userId="u1"; C.lists=[{id:"c1",name:"Gedeeld",owner_user_id:"u1",member_count:2}];
+    await C.open("c1").catch(()=>{}); await wait(80);
+    const sel=sb.calls.filter(c=>c.table==="items" && c.ops[0][0]==="select");
+    ok("3A: refreshItems filtert op bought_at is null en onthoudt dat de kolom bestaat", C.active==="c1" && sel.some(c=>c.ops.some(x=>x[0]==="is"&&x[1]==="bought_at"&&x[2]===null)) && C._hasBoughtAt===true);
+    ok("3A: cloud-cache gevuld na een geslaagde refresh (naam, tijd, items)", !!stored(W).cloudCache && !!stored(W).cloudCache.c1 && stored(W).cloudCache.c1.items.length===2 && stored(W).cloudCache.c1.name==="Gedeeld");
+    ok("3A: huishoud-geschiedenis opgevraagd (bought_at not null, laatste 180 dagen)", sel.some(c=>c.ops.some(x=>x[0]==="not"&&x[1]==="bought_at") && c.ops.some(x=>x[0]==="gte"&&x[1]==="bought_at")));
+
+    // afronden: soft-delete + undo via 'Terug op de lijst'
+    const before=sb.calls.length;
+    C.finish(); await wait(60);
+    const upd=sb.calls.slice(before).find(c=>c.table==="items" && c.ops[0][0]==="update");
+    ok("3A: afronden = update({bought_at, done:true}).in('id',[…]) — geen delete", !!upd && !!upd.ops[0][1].bought_at && upd.ops[0][1].done===true && upd.ops.some(x=>x[0]==="in"&&x[2].join()==="c1") && !sb.calls.slice(before).some(c=>c.table==="items"&&c.ops[0][0]==="delete"));
+    ok("3A: afgerond item weg uit de lijst, nog wel in de cloud (soft)", !/Cloudkaas/.test(D.querySelector("#open-list").textContent) && sb.items().some(i=>i.id==="c1" && i.bought_at));
+    let st=stored(W);
+    ok("3A: lokale boekhouding via finishAfterCloud: geschiedenis + koopdatum in de catalogus", st.history.length===1 && st.history[0].count===1 && st.history[0].list==="c1" && !!st.catalog["cloudkaas"] && st.catalog["cloudkaas"].purchaseDates.length===1);
+    const undoBtn=D.querySelector("#sheet #fin-undo");
+    ok("3A: Klaar-blad heeft 'Terug op de lijst' (undo) op een cloud-lijst", !!undoBtn);
+    if(undoBtn){ undoBtn.click(); await wait(120); }
+    st=stored(W);
+    const undoUpd=sb.calls.find(c=>c.table==="items" && c.ops[0][0]==="update" && c.ops[0][1].bought_at===null);
+    ok("3A: undo zet bought_at terug op null, haalt de rit uit de geschiedenis en de koopdatum uit de catalogus", !!undoUpd && st.history.length===0 && (!st.catalog["cloudkaas"] || st.catalog["cloudkaas"].purchaseDates.length===0) && sb.items().find(i=>i.id==="c1").bought_at===null);
+    await wait(120);
+    ok("3A: na undo staat het item weer in de lijst (met vinkje, zoals lokaal)", /Cloudkaas/.test(D.querySelector("#open-list").textContent + D.querySelector("#done-list").textContent));
+
+    // aantal via RPC (telt op) en fallback zonder RPC
+    const nBefore=sb.calls.length;
+    C.qty("c2", 1); await wait(40);
+    const rpcCall=sb.calls.slice(nBefore).find(c=>c.table==="rpc:item_bump_qty");
+    ok("3A: aantal via item_bump_qty (p_id, p_delta) i.p.v. overschrijven", !!rpcCall && rpcCall.args.p_id==="c2" && rpcCall.args.p_delta===1 && sb.items().find(i=>i.id==="c2").qty===3);
+    C._hasBumpRpc=undefined; sb.calls.length=0;
+    const sbNo=mkStub2({noRpc:true}); C.sb=sbNo;
+    C.qty("c2", 1); await wait(40);
+    ok("3A: zonder RPC (PGRST202) valt aantal terug op update({qty}) en onthoudt dat", C._hasBumpRpc===false && sbNo.calls.some(c=>c.table==="items" && c.ops[0][0]==="update" && c.ops[0][1].qty===4));
+    C.sb=sb;
+
+    // wachtrij: zonder client direct in de wachtrij, en persistent
+    C.sb=null; C._pending.length=0;
+    C.toggle("c2", {quiet:true}); await wait(40);
+    st=stored(W);
+    ok("3A: mutatie zonder client gaat in de wachtrij én in localStorage (syncQueue)", C._pending.length===1 && C._pending[0].op==="update" && Array.isArray(st.syncQueue) && st.syncQueue.length===1 && st.syncQueue[0].id==="c2");
+    C._pending.length=0; C._restoreQueue();
+    ok("3A: _restoreQueue haalt de wachtrij terug uit de opgeslagen staat", C._pending.length===1 && C._pending[0].id==="c2");
+    C.sb=sb; sb.calls.length=0;
+    C._pending.push({op:"insert", tmpId:"tmp_x", payload:{list_id:"andere-lijst", name:"x"}});
+    C.flushPending(); await wait(60);
+    ok("3A: flushPending verstuurt de update en bewaart de insert voor een andere lijst (niet droppen)", sb.calls.some(c=>c.table==="items"&&c.ops[0][0]==="update") && C._pending.some(e=>e.op==="insert" && e.payload.list_id==="andere-lijst") && !C._pending.some(e=>e.op==="update"));
+    C._pending.length=0; C._persistQueue(); await wait(30);
+    ok("3A: lege wachtrij → syncQueue leeg", stored(W).syncQueue.length===0);
+
+    // hervatten: hooguit 1× per 3 s verversen
+    sb.calls.length=0; C._resumeAt=0;
+    W.onAppResume(); W.onAppResume(); await wait(60);
+    const selN=sb.calls.filter(c=>c.table==="items" && c.ops[0][0]==="select" && c.ops.some(x=>x[0]==="is")).length;
+    ok("3A: onAppResume ververst de lijst één keer (throttle 3 s)", selN===1);
+
+    // mergePurchaseDate: datum erbij zonder timesAdded te verhogen; dubbel = false
+    const isoD=new Date(Date.now()-3*86400000).toISOString();
+    const m1=W.mergePurchaseDate("Halfvolle melk","zuivel-eieren",isoD), m2=W.mergePurchaseDate("Halfvolle melk","zuivel-eieren",isoD);
+    W.saveNow(); st=stored(W);
+    ok("3A: mergePurchaseDate maakt/vult de cataloguspost (timesAdded 0) en negeert een dubbele datum", m1===true && m2===false && !!st.catalog["halfvolle melk"] && st.catalog["halfvolle melk"].purchaseDates.length===1 && st.catalog["halfvolle melk"].timesAdded===0);
+
+    // zonder bought_at-kolom: afronden valt terug op delete
+    const sbOld=mkStub2({noBoughtAt:true}); C.sb=sbOld; C._hasBoughtAt=undefined;
+    await C.refreshItems(C._activeRefreshToken); await wait(40);
+    ok("3A: zonder kolom bought_at → tweede select zonder filter, _hasBoughtAt=false", C._hasBoughtAt===false && sbOld.calls.filter(c=>c.table==="items"&&c.ops[0][0]==="select").length>=2);
+    C.finish(); await wait(60);
+    ok("3A: zonder kolom → afronden verwijdert hard (delete().in)", sbOld.calls.some(c=>c.table==="items"&&c.ops[0][0]==="delete"&&c.ops.some(x=>x[0]==="in")) && !D.querySelector("#sheet #fin-undo"));
+    dS.window.close();
+
+    // cache-balk: koude start zonder cloud terwijl er een gedeelde lijst open stond
+    const seedC=Object.assign({}, seedS, {cloudCache:{c1:{name:"Gedeeld", at:new Date().toISOString(), items:[{id:"c1",name:"Cloudkaas",category:"kaas-vleeswaren",qty:1,unit:"",note:"",done:false,added_by_name:"Sanne"},{id:"c2",name:"Cloudmelk",category:"zuivel-eieren",qty:2,unit:"",note:"",done:false,added_by_name:""}]}}});
+    const dC=new JSDOM(html,{url:"https://example.com/",runScripts:"dangerously",resources:"usable",pretendToBeVisual:true,beforeParse(w){ w.localStorage.setItem("mandje.v2", JSON.stringify(seedC)); w.localStorage.setItem("mandje.activeList","c1"); }});
+    await wait(700); const WC=dC.window, DC=WC.document, CC=WC.Cloud;
+    // cloud-init faalt in jsdom (geen SDK) → offline-modus; balk hoort er dan te staan
+    const bar=DC.querySelector("#cloud-cache-bar .cache-bar");
+    ok("3A: cache-balk bij koude start zonder cloud ("+(CC.mode)+"/"+(CC.ready?"ready":"not-ready")+")", CC.mode==="local" && !CC.active && !!bar && /Gedeeld/.test(bar.textContent) && /2 te halen/.test(bar.textContent));
+    if(bar){ bar.querySelector("#cc-open").click(); await wait(60); }
+    const sh=DC.querySelector("#sheet");
+    ok("3A: 'Bekijk de lijst' opent een alleen-lezen blad met de gecachte items per schap", !!bar && sh.classList.contains("show") && /Cloudkaas/.test(sh.textContent) && /Cloudmelk/.test(sh.textContent) && /Alleen-lezen/.test(sh.textContent));
+    dC.window.close();
   }
 
   console.log("\nt5: "+pass+" geslaagd, "+fail+" gefaald");

@@ -79,7 +79,7 @@ const supabaseSdk = fs.existsSync(supabaseSdkPath) ? read("assets/supabase.js") 
 const sdkScript = "";
 if (!supabaseSdk) console.warn("! assets/supabase.js niet gevonden — Cloud valt terug op runtime CDN-fetch");
 
-// Barcode-decoder (html5-qrcode) wordt lazy van CDN geladen bij de eerste scan
+// Barcode-decoder (ZXing, @zxing/library UMD) wordt lazy van CDN geladen bij de eerste scan
 // (zie loadBarcodeDecoder in app.js) — niet ingebakken: de Open Food Facts-lookup
 // vereist tóch internet, dus offline cachen van de decoder heeft geen nut.
 

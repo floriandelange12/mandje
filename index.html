@@ -600,7 +600,7 @@
   .list-switch{ display:inline-flex; align-items:center; gap:7px; margin-top:8px; background:var(--surface-3); border:0; border-radius:var(--r-pill); padding:6px 12px 6px 13px; box-shadow:none; font-size:var(--fs-md); font-weight:var(--fw-medium); max-width:100%; }
   .list-switch .ls-ico{ font-size:var(--fs-md); }
   .list-switch .ls-ico-dot{ width:11px; height:11px; border-radius:50%; flex:0 0 auto; }
-  .list-switch .ls-name{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .list-switch .ls-name{ white-space:normal; overflow-wrap:anywhere; text-align:left; line-height:1.2; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }   /* nooit afkorten: op smalle schermen twee regels */
   .list-switch .ls-pill-sub{ font-size:var(--fs-xs); font-weight:var(--fw-bold); color:var(--ink-faint); flex:0 0 auto; padding:1px 7px; background:var(--surface-3); border-radius:var(--r-pill); }
   .list-switch .ls-chev{ width:16px; height:16px; color:var(--ink-faint); flex:0 0 auto; }
   .members-row{ display:flex; align-items:center; gap:8px; margin:6px 4px 6px; min-height:0; }
@@ -725,7 +725,7 @@
   /* Barcode-scanner camera-container (html5-qrcode rendert hierin) */
   #bc-reader{ width:100%; max-width:360px; aspect-ratio:3/4; margin:6px auto 0; border-radius:var(--r-lg); overflow:hidden; background:#000; position:relative; }
   #bc-reader video{ width:100%!important; height:100%!important; object-fit:cover; display:block; }
-  #bc-reader img{ display:none; } /* html5-qrcode info-icoon verbergen */
+  .bc-zoom{ position:absolute; right:10px; bottom:10px; z-index:2; border:0; border-radius:var(--r-pill); padding:0 14px; min-height:var(--tap-size-sm); background:rgba(0,0,0,.55); color:#fff; font-weight:var(--fw-bold); font-size:var(--fs-sm); font-variant-numeric:tabular-nums; backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px); }
   .bc-status{ text-align:center; color:var(--ink-soft); font-size:var(--fs-md); margin:14px 0 2px; min-height:18px; }
   /* barcode: bevestigingschip */
   .bc-hit{ display:none; margin:10px auto 0; max-width:360px; background:var(--surface-1); border-radius:var(--r-lg); box-shadow:var(--el-2); padding:12px 14px; text-align:left; }
@@ -747,6 +747,8 @@
   .asg-av.mini{ width:18px; height:18px; font-size:calc(var(--fs-xs) * .85); }
   /* Aan de slag */
   .ritual.onboard{ background:var(--surface-1); box-shadow:var(--el-1); }
+  .ritual.cache-bar{ background:var(--accent-2); padding-right:16px; }
+  .ritual.cache-bar h4{ color:var(--accent); }
   .ritual.onboard h4{ color:var(--ink); }
   .ob-steps{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:4px; }
   .ob-btn{ display:flex; align-items:center; gap:10px; width:100%; border:0; background:transparent; padding:8px 4px; text-align:left; font-size:var(--fs-md); color:var(--ink); border-radius:var(--r-sm); min-height:var(--tap-size-sm); }
@@ -1226,7 +1228,7 @@
   window.MANDJE_CONFIG = {
     SUPABASE_URL:      "https://yctcpxgjpmhyohbsrygy.supabase.co",   /* ingevuld ✓ */
     SUPABASE_ANON_KEY: "sb_publishable_lT77Nkcrl6VsBIx-PFuMtw_mdJ6fyNj",   /* ingevuld ✓ (publishable key) */
-    BUILD:             "45072bc5", /* wordt door build.js vervangen door datum + inhoudshash (nooit handmatig ophogen) */
+    BUILD:             "02d97d16", /* wordt door build.js vervangen door datum + inhoudshash (nooit handmatig ophogen) */
     EMAIL_AUTH:        false, /* zet op true zodra e-mail magic-link aan staat in Supabase → toont "Beveilig je account" */
     VAPID_PUBLIC_KEY:  "BIkVm3JYB2t37GOXQlMTwSRipLcEvjrDY8Kb2mmNOIIrRY4zmR57RznHTJ2NQ5Z9h1fkp3if2OkDGmcmItLjy54"  /* public key (veilig in frontend). Privésleutel staat alleen als Supabase-secret. */
   };
@@ -1274,6 +1276,7 @@
       <div class="members-row empty" id="members-row"></div>
       <div class="assign-filter empty" id="assign-filter"></div>
       <div class="presence-bar empty" id="presence-bar"></div>
+      <div id="cloud-cache-bar"></div>
       <div id="onboard-card"></div>
       <div id="week-ritual"></div>
       <div id="due-banner"></div>
@@ -2100,6 +2103,7 @@ var DEFAULTS = {
   version: CURRENT_STATE_VERSION,
   settings:{ theme:"auto", textScale:1, shopHideDone:false, haptics:true, showPrices:false, seenIntro:false, categoryOrder:CATS.map(function(c){return c.id;}), minPurchases:3, cvThreshold:0.6, dueWindowDays:1, customCategories:[], customCatEmoji:{}, collapsedCats:{}, seenQtyHint:false, seenBulkHint:false, seenPriceNudge:false, pushOn:null },
   history:[],
+  cloudCache:{},
   syncQueue:[],
   lastSyncState:{ mode:"local", status:"not_started", ready:false, pendingMutations:0, offline:false, reason:null, lastError:null, lastUpdated:0 },
   offlinePendingFlags:{},
@@ -2142,7 +2146,8 @@ function normalizeState(raw){
     catalog: isPlainObject(inState.catalog) ? inState.catalog : {},
     coBuy: isPlainObject(inState.coBuy) ? inState.coBuy : {},
     meals: isPlainObject(inState.meals) ? inState.meals : {},
-    history: Array.isArray(inState.history) ? inState.history.filter(isPlainObject).slice(0, 200) : []
+    history: Array.isArray(inState.history) ? inState.history.filter(isPlainObject).slice(0, 200) : [],
+    cloudCache: isPlainObject(inState.cloudCache) ? inState.cloudCache : {}
   });
   out.localMutationEpoch = Number(inState.localMutationEpoch) || 0;
   out._cloudOpenEpoch = Number(inState._cloudOpenEpoch) || 0;
@@ -2362,6 +2367,19 @@ function touchCatalog(name, price){
   return e;
 }
 
+/* Koopdatum uit de huishoud-geschiedenis (gedeelde lijst) toevoegen zonder timesAdded te verhogen; true als er iets nieuws bij kwam */
+function mergePurchaseDate(name, category, iso){
+  var k=norm(name); if(!k || !iso) return false;
+  var d=new Date(iso); if(isNaN(d.getTime())) return false;
+  var day=d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());
+  var e=state.catalog[k];
+  if(!e){ e={ name:String(name).trim(), category:(category && CAT_BY_ID[category]) ? category : classify(name), defaultPrice:null, purchaseDates:[], timesAdded:0, lastAddedAt:null, cadenceMode:"auto", manualIntervalDays:null }; state.catalog[k]=e; }
+  e.purchaseDates=e.purchaseDates||[];
+  if(e.purchaseDates.indexOf(day)!==-1) return false;
+  e.purchaseDates.push(day); e.purchaseDates.sort();
+  if(e.purchaseDates.length>120) e.purchaseDates.splice(0, e.purchaseDates.length-120);
+  return true;
+}
 function recordPurchase(name, price){
   var k = norm(name); var e = state.catalog[k];
   if(!e){ e = touchCatalog(name, price); }
@@ -3023,9 +3041,21 @@ function afterFinish(entry, undoFn, n){
   openFinishSheet(entry, undoFn);
 }
 /* Cloud.finish roept dit aan i.p.v. zelf te toasten (undo op cloud-lijsten komt in Fase 3 met soft-delete) */
-function finishAfterCloud(done){
+function finishAfterCloud(done, cloudUndo){
+  var today=todayStr();
+  var marks=done.map(function(it){ var k=norm(it.name), e=state.catalog[k]; return {k:k, had:!!(e && (e.purchaseDates||[]).indexOf(today)!==-1)}; });
+  done.forEach(function(it){ recordPurchase(it.name, it.price); });
+  var coKeys=[]; done.forEach(function(it){ var ck=norm(it.name); if(ck && coKeys.indexOf(ck)===-1) coKeys.push(ck); });
+  recordCoBuy(done.map(function(it){return it.name;}));
   var entry=recordTrip(done); save();
-  afterFinish(entry, null, done.length);
+  var undo = cloudUndo ? function(){
+    marks.forEach(function(m){ var e=state.catalog[m.k]; if(e && !m.had){ var idx=(e.purchaseDates||[]).indexOf(today); if(idx!==-1) e.purchaseDates.splice(idx,1); } });
+    if(state.coBuy && coKeys.length>1){ coKeys.forEach(function(a){ coKeys.forEach(function(b){ if(a===b || !state.coBuy[a]) return; if(state.coBuy[a][b]!=null){ state.coBuy[a][b]-=1; if(state.coBuy[a][b]<=0) delete state.coBuy[a][b]; } }); }); }
+    state.history=(state.history||[]).filter(function(h){ return h.id!==entry.id; });
+    save(); cloudUndo(); renderVaste();
+    toast("Teruggezet op de lijst");
+  } : null;
+  afterFinish(entry, undo, done.length);
 }
 /* Geschiedenis: laatste 200 afrondingen (datum, aantal, totaal, items) — bron voor "Herhaal vorige lijst" en uitgaven-inzicht */
 function recordTrip(done){
@@ -3850,8 +3880,35 @@ function renderOnboardCard(){
   c.querySelector(".r-x").addEventListener("click",function(){ state.settings.onboardDismissed=true; save(); wrap.innerHTML=""; });
   wrap.appendChild(c);
 }
+/* Offline gestart terwijl er een gedeelde lijst open stond: laat zien wat we het laatst zagen (alleen-lezen) */
+function renderCloudCacheBar(){
+  var wrap=$("#cloud-cache-bar"); if(!wrap) return; wrap.innerHTML="";
+  if(activeTab!=="lijst" || typeof Cloud==="undefined" || !Cloud || Cloud.active) return;
+  if(!(Cloud.mode==="local" && !Cloud.ready && Cloud.initError)) return;
+  var id=null; try{ id=localStorage.getItem("mandje.activeList"); }catch(e){}
+  if(!id || id==="local") return;
+  var c=state.cloudCache && state.cloudCache[id]; if(!c || !c.items) return;
+  var when=""; try{ var d=new Date(c.at); when=pad(d.getHours())+":"+pad(d.getMinutes()); }catch(e){}
+  var open=c.items.filter(function(i){ return !i.done; }).length;
+  var bar=el("div","ritual cache-bar");
+  bar.innerHTML='<h4></h4><p>Gedeelde lijst niet bereikbaar — dit is de stand van '+escapeHtml(when)+' ('+open+' te halen).</p><div class="chips"><button class="chip" type="button" id="cc-open"><span>Bekijk de lijst</span><span class="plus">→</span></button></div>';
+  bar.querySelector("h4").textContent=c.name||"Gedeelde lijst";
+  bar.querySelector("#cc-open").addEventListener("click", function(){ openCloudCacheSheet(id); });
+  wrap.appendChild(bar);
+}
+function openCloudCacheSheet(id){
+  var c=state.cloudCache && state.cloudCache[id]; var sh=$("#sheet"); if(!c || !sh) return;
+  var byCat={}; c.items.forEach(function(i){ if(i.done) return; var cid=CAT_BY_ID[i.category]?i.category:"overig"; (byCat[cid]=byCat[cid]||[]).push(i); });
+  var html='<div class="grip"></div><h3></h3><div class="hint" style="margin:0 6px 12px">Alleen-lezen: zodra je weer verbinding hebt, laadt de echte lijst.</div>';
+  catBuckets(byCat).forEach(function(cid){ var cat=CAT_BY_ID[cid]||CAT_BY_ID["overig"]; html+='<div class="section">'+shelfIcon(cat)+'<span>'+escapeHtml(cat.label)+'</span><span class="count">'+byCat[cid].length+'</span></div><ul class="list">'+byCat[cid].map(function(i){ return '<li class="row"><div class="card"><span class="check" aria-hidden="true"></span><div class="meta"><div class="nm">'+escapeHtml(i.name)+'</div>'+(i.note||i.added_by_name?'<div class="sub2">'+escapeHtml([i.note, i.added_by_name?("+ "+i.added_by_name):""].filter(Boolean).join(" · "))+'</div>':'')+'</div>'+(i.qty>1?'<span class="shop-qty">'+i.qty+'</span>':'')+'</div></li>'; }).join("")+'</ul>'; });
+  html+='<div class="sheet-actions"><button class="save" id="cc-close" type="button">Sluiten</button></div>';
+  sh.innerHTML=html; sh.querySelector("h3").textContent=c.name||"Gedeelde lijst";
+  sh.querySelector("#cc-close").addEventListener("click", closeSheet);
+  openSheetUI();
+}
 function renderDueBanner(){
   var wrap=$("#due-banner"); wrap.innerHTML="";
+  renderCloudCacheBar();
   renderOnboardCard();
   if(!T().cadence){ var wr=$("#week-ritual"); if(wr) wr.innerHTML=""; return; }
   renderWeekRitual();
@@ -4046,6 +4103,17 @@ function renderShopBody(){
 }
 function renderShoppingMode(){ renderShopBody(); }
 document.addEventListener("visibilitychange", function(){ if(document.visibilityState==="visible" && shopIsOpen()) requestWakeLock(); });
+var _lastResumeDay=null;
+function onAppResume(){
+  try{
+    if(typeof Cloud!=="undefined" && Cloud && typeof Cloud.onResume==="function") Cloud.onResume();
+    var day=todayStr();
+    if(_lastResumeDay && _lastResumeDay!==day && activeTab==="lijst"){ try{ runAutoAddDueItems(); }catch(e){} renderDueBanner(); }
+    _lastResumeDay=day;
+  }catch(e){}
+}
+document.addEventListener("visibilitychange", function(){ if(document.visibilityState==="visible") onAppResume(); });
+window.addEventListener("pageshow", function(){ onAppResume(); });
 
 /* ============================================================
    RENDER — Vaste-tab
@@ -5396,7 +5464,7 @@ function refreshTopShareBtn(){
 }
 
 /* ============================================================
-   BARCODE-SCANNEN — camera (html5-qrcode, ingebakken) + Open Food Facts
+   BARCODE-SCANNEN — camera (BarcodeDetector, anders ZXing op volle resolutie) + Open Food Facts
    Lage NL-dekking → handmatig typen blijft de hoofdweg; scannen is een versneller.
    ============================================================ */
 var OFF_CAT_MAP = {
@@ -5442,7 +5510,7 @@ function lookupBarcode(ean){
   }).catch(function(){ return {ean:ean, found:false, error:true}; });
 }
 
-var _bcScanner=null, _bcRunning=false, _bcLastEan="", _bcLastAt=0, _bcSession=0;
+var _bcRunning=false, _bcLastEan="", _bcLastAt=0, _bcSession=0;
 var _bcStatusLast="", _bcStatusAt=0;
 function bcStatus(msg){
   var s=$("#bc-status"); if(!s) return;
@@ -5477,30 +5545,75 @@ function openBarcodeScanScreen(){
   if(mi) mi.addEventListener("keydown", function(e){ if(e.key==="Enter") manualAdd(); });
   startBarcodeScanner();
 }
-/* Decoder lazy van CDN (met fallback). Niet ingebakken: scannen heeft tóch internet
-   nodig voor de Open Food Facts-lookup, dus offline cachen heeft geen nut. */
+/* Decoder (ZXing) lazy van CDN, met fallback. Niet ingebakken: scannen heeft tóch internet
+   nodig voor de Open Food Facts-lookup, dus offline cachen heeft geen nut.
+   Waarom ZXing zelf en niet html5-qrcode: die decodeert op de CSS-grootte van het beeld (±340 px op een telefoon),
+   waardoor een kleine streepjescode nooit scherp genoeg is. Hier decoderen we het camerabeeld op volle resolutie. */
 var _bcLibPromise=null;
+function hasZxing(){ return !!(window.ZXing && window.ZXing.MultiFormatReader && window.ZXing.HTMLCanvasElementLuminanceSource); }
 function loadBarcodeDecoder(){
-  if(window.Html5Qrcode) return Promise.resolve(true);
+  if(hasZxing()) return Promise.resolve(true);
   if(_bcLibPromise) return _bcLibPromise;
   var urls=[
-    "https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js",
-    "https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"
+    "https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js",
+    "https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js"
   ];
   _bcLibPromise = new Promise(function(resolve){
     var i=0;
     (function tryNext(){
-      if(window.Html5Qrcode){ resolve(true); return; }
-      if(i>=urls.length){ resolve(false); return; }
+      if(hasZxing()){ resolve(true); return; }
+      if(i>=urls.length){ _bcLibPromise=null; resolve(false); return; }
       var s=document.createElement("script"); s.src=urls[i++]; s.async=true;
-      s.onload=function(){ resolve(!!window.Html5Qrcode); };
+      s.onload=function(){ if(hasZxing()) resolve(true); else tryNext(); };
       s.onerror=tryNext;
       document.head.appendChild(s);
     })();
   });
   return _bcLibPromise;
 }
-var _bcStream=null, _bcTick=null;
+var _bcStream=null, _bcTick=null, _bcZoom=1;
+/* Camera openen: achterkant, 1080p (Safari geeft anders 640×480), continu scherpstellen. Eén pad voor beide decoders. */
+function openBarcodeCamera(mySession, video, onReady){
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){ bcStatus("Geen camera beschikbaar — typ de naam"); return; }
+  var constraints={ video:{ facingMode:{ideal:"environment"}, width:{ideal:1920}, height:{ideal:1080}, advanced:[{focusMode:"continuous"}] }, audio:false };
+  var got=function(stream){
+    if(mySession!==_bcSession){ stream.getTracks().forEach(function(t){ t.stop(); }); return; }
+    _bcStream=stream; video.srcObject=stream;
+    try{ video.play().catch(function(){}); }catch(e){}
+    setupBarcodeZoom(stream.getVideoTracks()[0]);
+    _bcRunning=true; bcStatus("");
+    onReady(stream);
+  };
+  var fail=function(){ bcStatus("Kan de camera niet openen — typ de naam"); };
+  navigator.mediaDevices.getUserMedia(constraints).then(got, function(){
+    // strengere wensen afgewezen (oude toestellen): nog één keer zonder resolutie-wens
+    navigator.mediaDevices.getUserMedia({ video:{ facingMode:{ideal:"environment"} }, audio:false }).then(got, fail);
+  });
+}
+/* Zoom: een streepjescode op een flesje is klein; 2× (waar de camera dat kan) maakt hem leesbaar. Chip wisselt 1× · 2× · 3×. */
+function setupBarcodeZoom(track){
+  var reader=$("#bc-reader"); if(!reader || !track) return;
+  var caps=null; try{ caps=track.getCapabilities ? track.getCapabilities() : null; }catch(e){}
+  var z=caps && caps.zoom; if(!z || !(z.max>=2)) return;
+  var steps=[1,2,3].filter(function(v){ return v>=(z.min||1) && v<=z.max; });
+  var applyZoom=function(v){ _bcZoom=v; try{ track.applyConstraints({advanced:[{zoom:v}]}).catch(function(){}); }catch(e){} var c=$("#bc-zoom"); if(c) c.textContent=v+"×"; };
+  var chip=document.createElement("button"); chip.type="button"; chip.id="bc-zoom"; chip.className="bc-zoom"; chip.setAttribute("aria-label","Zoom wisselen");
+  chip.addEventListener("click", function(){ var i=steps.indexOf(_bcZoom); applyZoom(steps[(i+1)%steps.length]); });
+  reader.appendChild(chip);
+  applyZoom(steps.indexOf(2)!==-1 ? 2 : steps[0]);
+}
+function newBarcodeVideo(){
+  var reader=$("#bc-reader"); if(!reader) return null;
+  var video=document.createElement("video"); video.setAttribute("playsinline",""); video.muted=true; video.autoplay=true;
+  reader.innerHTML=""; reader.appendChild(video);
+  return video;
+}
+/* Het stuk van het camerabeeld dat achter het witte kader zit (object-fit:cover + inzet 4%/18%), in camerapixels */
+function barcodeCropRect(video, reader){
+  var vw=video.videoWidth, vh=video.videoHeight, cw=reader.clientWidth||1, ch=reader.clientHeight||1;
+  var scale=Math.max(cw/vw, ch/vh), visW=cw/scale, visH=ch/scale, vx=(vw-visW)/2, vy=(vh-visH)/2;
+  return { x:Math.round(vx+visW*0.04), y:Math.round(vy+visH*0.18), w:Math.round(visW*0.92), h:Math.round(visH*0.64) };
+}
 function nativeDetectorFormats(){
   if(!window.BarcodeDetector) return Promise.resolve(null);
   try{
@@ -5511,16 +5624,10 @@ function nativeDetectorFormats(){
   }catch(e){ return Promise.resolve(null); }
 }
 function startNativeScanner(mySession, formats){
-  var reader=$("#bc-reader"); if(!reader) return false;
   var det; try{ det=new window.BarcodeDetector({formats:formats}); }catch(e){ return false; }
-  var video=document.createElement("video"); video.setAttribute("playsinline",""); video.muted=true; video.autoplay=true;
-  reader.innerHTML=""; reader.appendChild(video);
+  var video=newBarcodeVideo(); if(!video) return false;
   bcStatus("Camera starten…");
-  navigator.mediaDevices.getUserMedia({ video:{ facingMode:{ideal:"environment"}, width:{ideal:1280}, height:{ideal:720} }, audio:false }).then(function(stream){
-    if(mySession!==_bcSession){ stream.getTracks().forEach(function(t){ t.stop(); }); return; }
-    _bcStream=stream; video.srcObject=stream;
-    try{ video.play().catch(function(){}); }catch(e){}
-    _bcRunning=true; bcStatus("");
+  openBarcodeCamera(mySession, video, function(){
     var busy=false;
     var tick=function(){
       if(mySession!==_bcSession || !_bcRunning) return;
@@ -5531,7 +5638,7 @@ function startNativeScanner(mySession, formats){
       _bcTick=setTimeout(tick, 160);
     };
     tick();
-  }, function(){ bcStatus("Kan de camera niet openen — typ de naam"); });
+  });
   return true;
 }
 function startBarcodeScanner(){
@@ -5540,36 +5647,49 @@ function startBarcodeScanner(){
   nativeDetectorFormats().then(function(formats){
     if(mySession!==_bcSession) return;
     if(formats && startNativeScanner(mySession, formats)) return;
-    startHtml5Scanner(mySession);
+    startZxingScanner(mySession);
   });
 }
-function startHtml5Scanner(mySession){
+/* ZXing-lus: elk ±90 ms het kadergebied op volle resolutie (max 1600 px breed) naar een canvas en decoderen.
+   TRY_HARDER: ook gekantelde/zwakke codes. Alleen EAN/UPC + QR (uitnodig-link van een huisgenoot). */
+function startZxingScanner(mySession){
   loadBarcodeDecoder().then(function(ok){
     if(mySession!==_bcSession) return;   // scherm intussen gesloten of heropend → deze start is verouderd
-    if(!ok || !window.Html5Qrcode){ bcStatus("Scanner niet beschikbaar — typ de naam"); return; }
-    if(!$("#barcode-screen").classList.contains("show")) return; // gebruiker sloot al
+    if(!ok || !hasZxing()){ bcStatus("Scanner niet beschikbaar — typ de naam"); return; }
+    var scr=$("#barcode-screen"); if(!scr || !scr.classList.contains("show")) return; // gebruiker sloot al
+    var video=newBarcodeVideo(); if(!video) return;
     bcStatus("Camera starten…");
+    var Z=window.ZXing, reader=null;
     try{
-      _bcScanner = new window.Html5Qrcode("bc-reader", { verbose:false });
-      var inst=_bcScanner;
-      var F = window.Html5QrcodeSupportedFormats;
-      // Scanvlak = bijna het hele beeld: een streepjescode onderin beeld werd anders nooit gelezen
-      var config = { fps:12, qrbox:function(w,h){ return { width:Math.round(w*0.94), height:Math.round(h*0.7) }; }, experimentalFeatures:{ useBarCodeDetectorIfSupported:true } };
-      if(F) config.formatsToSupport = [F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E, F.QR_CODE];   // QR = uitnodig-link van een huisgenoot
-      _bcScanner.start({facingMode:"environment"}, config, onBarcodeDecoded, function(){})
-        .then(function(){
-          if(mySession!==_bcSession){ // scherm is intussen gesloten → camera direct weer uit
-            try{ inst.stop().then(function(){ try{ inst.clear(); }catch(x){} }, function(){}); }catch(e){}
-            return;
-          }
-          _bcRunning=true; bcStatus("");
-        })
-        .catch(function(){ bcStatus("Kan de camera niet openen — typ de naam"); });
-    }catch(e){ bcStatus("Scanner niet beschikbaar — typ de naam"); }
+      var hints=new Map();
+      hints.set(Z.DecodeHintType.POSSIBLE_FORMATS, [Z.BarcodeFormat.EAN_13, Z.BarcodeFormat.EAN_8, Z.BarcodeFormat.UPC_A, Z.BarcodeFormat.UPC_E, Z.BarcodeFormat.QR_CODE]);
+      hints.set(Z.DecodeHintType.TRY_HARDER, true);
+      reader=new Z.MultiFormatReader(); reader.setHints(hints);
+    }catch(e){ bcStatus("Scanner niet beschikbaar — typ de naam"); return; }
+    var canvas=document.createElement("canvas"), ctx=canvas.getContext("2d", {willReadFrequently:true});
+    openBarcodeCamera(mySession, video, function(){
+      var box=$("#bc-reader");
+      var tick=function(){
+        if(mySession!==_bcSession || !_bcRunning) return;
+        if(video.readyState>=2 && video.videoWidth && box){
+          try{
+            var r=barcodeCropRect(video, box);
+            var k=Math.min(1, 1600/Math.max(1,r.w));
+            var cw=Math.max(1,Math.round(r.w*k)), ch=Math.max(1,Math.round(r.h*k));
+            if(canvas.width!==cw) canvas.width=cw; if(canvas.height!==ch) canvas.height=ch;
+            ctx.drawImage(video, r.x, r.y, r.w, r.h, 0, 0, cw, ch);
+            var bmp=new Z.BinaryBitmap(new Z.HybridBinarizer(new Z.HTMLCanvasElementLuminanceSource(canvas)));
+            var res=reader.decodeWithState(bmp);
+            if(res && res.getText()) onBarcodeDecoded(res.getText());
+          }catch(e){ /* NotFound/Checksum/Format: volgend beeld */ }
+        }
+        _bcTick=setTimeout(tick, 90);
+      };
+      tick();
+    });
   });
 }
 function stopBarcodeScanner(){
-  if(_bcScanner && _bcRunning){ try{ _bcScanner.stop().then(function(){ try{ _bcScanner.clear(); }catch(x){} }, function(){}); }catch(e){} }
   if(_bcTick){ clearTimeout(_bcTick); _bcTick=null; }
   if(_bcStream){ try{ _bcStream.getTracks().forEach(function(t){ t.stop(); }); }catch(e){} _bcStream=null; }
   _bcRunning=false;
@@ -5996,6 +6116,9 @@ if(typeof window!=="undefined"){
   window.addStore = addStore;
   window.createLocalList = createLocalList;
   window.listAsText = listAsText;
+  window.mergePurchaseDate = mergePurchaseDate;
+  window.onAppResume = onAppResume;
+  window.finishAfterCloud = finishAfterCloud;
   window.parseRecipeText = parseRecipeText;
   window.renderAssignFilter = renderAssignFilter;
   window.onboardSteps = onboardSteps;
@@ -6457,6 +6580,7 @@ var Cloud = {
         if(!sdk || typeof sdk.createClient !== "function"){ throw new Error("Supabase SDK niet beschikbaar"); }
         this.sb=sdk.createClient(SUPABASE_URL, SUPABASE_ANON_KEY,
           {auth:{persistSession:true, autoRefreshToken:true, storageKey:"mandje.sb.auth"}});
+        this._restoreQueue();   // offline-wijzigingen van een vorige sessie
 
         if(!guard(true)){
           return;
@@ -6546,8 +6670,18 @@ var Cloud = {
       }
       if(self._isCurrentInit(initToken)){
         renderListSwitch(); renderMembersRow(); renderShortcutsRow();
+        if(this.ready && this._pending.length) this.flushPending();
       }
     },
+  /* App komt terug in beeld (tab/venster/telefoon): lijst en leden verversen, wachtrij versturen — hooguit 1× per 3 s */
+  onResume:function(){
+    var now=Date.now ? Date.now() : 0;
+    if(now - (this._resumeAt||0) < 3000) return;
+    this._resumeAt=now;
+    if(!this.ready || !this.sb) return;
+    if(this.active){ this.refreshItems(this._activeRefreshToken); this.refreshMembers(this._activeRefreshToken); }
+    this.flushPending();
+  },
 
   loadLists:async function(){
     var r=await this.sb.from("lists").select("*").order("created_at",{ascending:true});
@@ -6588,6 +6722,7 @@ var Cloud = {
       this.active=listId; try{ localStorage.setItem("mandje.activeList", listId); }catch(e){}
       await this.refreshItems(refreshToken); await this.refreshMembers(refreshToken);
       this.subscribe(listId); this.startPresence();
+      this.loadHouseholdHistory(listId);
       if(typeof applyListType==="function") applyListType();
       applyListHeader(); renderListSwitch(); renderMembersRow();
     },
@@ -6620,8 +6755,16 @@ var Cloud = {
       if(!token) return;
       var listId = this.active;
       if(!listId || !this._isCurrentRefresh(token)) return;
+      if(this._refreshing){ this._refreshAgain=true; return; }   // al bezig: daarna nog één keer
+      this._refreshing=true;
       try{
-        var r=await this.sb.from("items").select("*").eq("list_id",listId).order("created_at",{ascending:false});
+        var r;
+        if(this._hasBoughtAt!==false){
+          r=await this.sb.from("items").select("*").eq("list_id",listId).is("bought_at", null).order("created_at",{ascending:false});
+          if(r.error && this._isMissingCol(r.error, "bought_at")){ this._hasBoughtAt=false; r=null; }
+          else if(!r.error && this._hasBoughtAt===undefined){ this._hasBoughtAt=true; }
+        }
+        if(!r) r=await this.sb.from("items").select("*").eq("list_id",listId).order("created_at",{ascending:false});
         if(!this._isCurrentRefresh(token) || this.active!==listId) return;
         var now = Date.now ? Date.now() : 0;
         var localEpoch = (typeof window !== "undefined" && typeof window.__mandjeLocalMutationEpoch === "number") ? window.__mandjeLocalMutationEpoch : 0;
@@ -6673,6 +6816,7 @@ var Cloud = {
           });
         }
         state.list = mapped;
+        this._cacheList(listId, mapped);
         if(activeTab==="lijst"){ renderLijst(); renderDueBanner(); }
         if(typeof renderShoppingMode==="function") renderShoppingMode();
       }catch(e){
@@ -6681,7 +6825,35 @@ var Cloud = {
         state.list=[];
         if(activeTab==="lijst"){ renderLijst(); renderDueBanner(); }
         toast("Items willen niet laden — probeer 't straks");
+      }finally{
+        this._refreshing=false;
+        if(this._refreshAgain){ this._refreshAgain=false; var self3=this; setTimeout(function(){ self3.refreshItems(self3._activeRefreshToken); }, 50); }
       }
+    },
+    /* Laatst gezien items per gedeelde lijst — voor een koude start zonder verbinding (Fase 3) */
+    _cacheList:function(listId, items){
+      try{
+        if(typeof state==="undefined" || !state) return;
+        state.cloudCache = state.cloudCache || {};
+        var l=this.listById(listId);
+        state.cloudCache[listId] = { name:(l && l.name) || "Gedeelde lijst", at:new Date().toISOString(),
+          items:(items||[]).slice(0,300).map(function(i){ return { id:i.id, name:i.name, category:i.category, qty:i.qty, unit:i.unit||"", note:i.note||"", done:!!i.done, added_by_name:i.added_by_name||"", flagged_at:i.flagged_at||null, flagged_by_name:i.flagged_by_name||"" }; }) };
+        // hooguit 6 lijsten bewaren
+        var keys=Object.keys(state.cloudCache); if(keys.length>6){ keys.sort(function(a,b){ return String(state.cloudCache[a].at).localeCompare(String(state.cloudCache[b].at)); }); delete state.cloudCache[keys[0]]; }
+        if(typeof save==="function") save();
+      }catch(e){}
+    },
+    /* Huishoud-koopgeschiedenis: wat huisgenoten de laatste 180 dagen kochten telt mee in het ritme ("bijna op", Vaste) */
+    loadHouseholdHistory:async function(listId){
+      if(!this.sb || this._hasBoughtAt===false || !listId) return;
+      try{
+        var since=new Date(Date.now()-180*86400000).toISOString();
+        var r=await this.sb.from("items").select("name,category,bought_at").eq("list_id",listId).not("bought_at","is",null).gte("bought_at",since).order("bought_at",{ascending:false}).limit(600);
+        if(r.error){ if(this._isMissingCol(r.error,"bought_at")) this._hasBoughtAt=false; return; }
+        if(this.active!==listId || typeof mergePurchaseDate!=="function") return;
+        var n=0; (r.data||[]).forEach(function(row){ if(mergePurchaseDate(row.name, row.category, row.bought_at)) n++; });
+        if(n){ if(typeof save==="function") save(); if(typeof renderDueBanner==="function" && activeTab==="lijst") renderDueBanner(); if(activeTab==="vaste" && typeof renderVaste==="function") renderVaste(); }
+      }catch(e){}
     },
     refreshMembers:async function(token){
       token = token || this._activeRefreshToken;
@@ -6711,7 +6883,7 @@ var Cloud = {
     this.present=[];
     var self=this;
       this.channel=this.sb.channel("list-"+listId, { config:{ presence:{ key: self.userId || ("u"+Math.random()) } } })
-        .on("postgres_changes",{event:"*",schema:"public",table:"items",filter:"list_id=eq."+listId}, function(){ self.refreshItems(self._activeRefreshToken); })
+        .on("postgres_changes",{event:"*",schema:"public",table:"items",filter:"list_id=eq."+listId}, function(){ clearTimeout(self._rtT); self._rtT=setTimeout(function(){ self.refreshItems(self._activeRefreshToken); }, 220); })
         .on("postgres_changes",{event:"*",schema:"public",table:"members",filter:"list_id=eq."+listId}, function(){
           self.refreshMembers(self._activeRefreshToken).then(function(){
           // Als jouw eigen member-rij weg is (gekickt of lijst gedeleted door owner met FK-cascade),
@@ -6739,7 +6911,8 @@ var Cloud = {
       })
       .subscribe(function(status){
         if(status === "SUBSCRIBED"){
-          try{ self.channel.track({ user_id:self.userId, name:self.myName(), color:(self.me&&self.me.color)||"#2F7A4F", emoji:self.myEmoji() }); }catch(e){}
+          try{ self.channel.track({ user_id:self.userId, name:self.myName(), color:(self.me&&self.me.color)||"#24593F", emoji:self.myEmoji() }); }catch(e){}
+          self.flushPending();
         } else if(status === "CHANNEL_ERROR" || status === "TIMED_OUT"){
           console.warn("Cloud realtime channel:", status);
         }
@@ -6749,19 +6922,25 @@ var Cloud = {
     var self=this;
     // De heartbeat dient óók als vangnet: een verwijderde lijst ruimt via FK-cascade
     // de ledenrij op zónder realtime-event. De update raakt dan 0 rijen → we vallen terug.
-    var beat=function(){
-      if(!self.active || !self.userId) return;
-      var listId=self.active;
+    var gone=function(listId){ if(self.active!==listId) return; toast("Deze lijst is niet meer beschikbaar"); self.openLocal(); self.loadLists(); };
+    var beatUpdate=function(listId){
       self.sb.from("members").update({last_seen:new Date().toISOString()})
         .eq("list_id",listId).eq("user_id",self.userId).select()
         .then(function(r){
           if(!r || r.error) return; // netwerk-/permissie-ruis → niet terugvallen (herstel volgt bij herladen)
-          if(self.active===listId && Array.isArray(r.data) && r.data.length===0){
-            toast("Deze lijst is niet meer beschikbaar");
-            self.openLocal();
-            self.loadLists();
-          }
+          if(Array.isArray(r.data) && r.data.length===0) gone(listId);
         }, function(){ /* netwerkfout → niets doen */ });
+    };
+    var beat=function(){
+      if(!self.active || !self.userId || !self.sb) return;
+      if(typeof document!=="undefined" && document.hidden) return;   // verborgen tab/app: geen hartslag
+      var listId=self.active;
+      if(self._hasHeartbeatRpc===false){ beatUpdate(listId); return; }
+      self.sb.rpc("member_heartbeat",{p_list_id:listId}).then(function(r){
+        if(r && r.error){ if(self._isMissingFn(r.error)){ self._hasHeartbeatRpc=false; beatUpdate(listId); } return; }
+        self._hasHeartbeatRpc=true;
+        if(r && r.data===false) gone(listId);
+      }, function(){});
     };
     beat(); if(this.presenceTimer) clearInterval(this.presenceTimer);
     this.presenceTimer=setInterval(beat,60000);
@@ -6779,7 +6958,9 @@ var Cloud = {
     for(var i=0;i<this._pending.length;i++){ var e=this._pending[i]; if(e.op==="insert"&&e.tmpId===tmpId) return e; }
     return null;
   },
-  _queueInsert:function(tmpId, payload){ this._pending.push({op:"insert", tmpId:tmpId, payload:payload}); },
+  _persistQueue:function(){ try{ if(typeof state!=="undefined" && state){ state.syncQueue = this._pending.slice(); if(typeof save==="function") save(); } }catch(e){} },
+  _restoreQueue:function(){ try{ if(typeof state!=="undefined" && state && Array.isArray(state.syncQueue) && state.syncQueue.length && !this._pending.length){ this._pending = state.syncQueue.filter(function(e){ return e && e.op; }); } }catch(e){} },
+  _queueInsert:function(tmpId, payload){ this._pending.push({op:"insert", tmpId:tmpId, payload:payload}); this._persistQueue(); },
   _queueUpdate:function(id, fields){
     if(this._isTmp(id)){
       var ins=this._pendingInsert(id);
@@ -6789,11 +6970,13 @@ var Cloud = {
     for(var i=0;i<this._pending.length;i++){ var e=this._pending[i]; if(e.op==="update"&&e.id===id){ for(var k in fields) e.fields[k]=fields[k]; return; } }
     var f={}; for(var k2 in fields) f[k2]=fields[k2];
     this._pending.push({op:"update", id:id, fields:f});
+    this._persistQueue();
   },
   _queueDelete:function(id){
     var self=this;
     this._pending=this._pending.filter(function(e){ return e.id!==id && e.tmpId!==id; }); // eerdere ops vervallen
     if(!this._isTmp(id)) this._pending.push({op:"delete", id:id});
+    this._persistQueue();
   },
   _maxFlushAttempts:6,
   flushPending:function(){
@@ -6807,11 +6990,14 @@ var Cloud = {
       var requeue=function(){ e.attempts=(e.attempts||0)+1; if(e.attempts < self._maxFlushAttempts) self._pending.push(e); };
       var done=function(r){ if(r&&r.error) requeue(); else note(); };
       try{
-        if(e.op==="insert"){ if(e.payload.list_id!==self.active){ return; } self.sb.from("items").insert(e.payload).then(done, requeue); }
+        if(e.op==="insert"){ if(e.payload.list_id!==self.active){ self._pending.push(e); return; }   // andere lijst: bewaren, niet droppen
+          self.sb.from("items").insert(e.payload).then(done, requeue); }
         else if(e.op==="update"){ self.sb.from("items").update(e.fields).eq("id", e.id).then(done, requeue); }
         else if(e.op==="delete"){ self.sb.from("items").delete().eq("id", e.id).then(done, requeue); }
       }catch(err){ requeue(); }
     });
+    this._persistQueue();
+    var self2=this; setTimeout(function(){ self2._persistQueue(); }, 4000);   // na de antwoorden: overgebleven/geherqueuede items bewaren
   },
   addItem:function(name, price, addQty, opts){
     name=(name||"").trim(); if(!name||!this.active) return;
@@ -6846,16 +7032,26 @@ var Cloud = {
   /* Schrijft een item weg en valt terug zonder 'unit' als de kolom (migratie M0) nog ontbreekt —
      zo blijft de app werken vóór én na het draaien van de migratie. */
   _hasUnit:undefined,
-  _isMissingUnit:function(err){
-    if(!err || this._hasUnit===false) return false;
+  _isMissingUnit:function(err){ return this._hasUnit!==false && this._isMissingCol(err, "unit"); },
+  /* Ontbrekende kolom (migratie nog niet gedraaid): Postgres 42703, PostgREST PGRST204 "Could not find the 'x' column …" */
+  _isMissingCol:function(err, col){
+    if(!err) return false;
     var m=String(err.message||"")+" "+String(err.details||"")+" "+String(err.hint||"");
-    // Postgres: 42703 (undefined column); PostgREST: PGRST204 "Could not find the 'unit' column of 'items' in the schema cache"
-    return err.code==="42703" || err.code==="PGRST204" || (/unit/i.test(m) && /(column|schema cache)/i.test(m));
+    return (err.code==="42703" || err.code==="PGRST204" || /(column|schema cache)/i.test(m)) && new RegExp(col,"i").test(m);
+  },
+  _isMissingFn:function(err){ return !!(err && (err.code==="PGRST202" || /could not find the function/i.test(String(err.message||"")))); },
+  _hasBoughtAt:undefined,
+  /* Eén update-pad: zonder client (offline koude start) meteen in de wachtrij, anders schrijven en bij een fout in de wachtrij */
+  _upd:function(id, fields){
+    var self=this;
+    if(!this.sb){ this._queueUpdate(id, fields); return; }
+    this.sb.from("items").update(fields).eq("id",id).then(function(r){ if(r&&r.error) self._queueUpdate(id, fields); }, function(){ self._queueUpdate(id, fields); });
   },
   _writeItem:function(op, data, id, onFail){
     var self=this;
     var run=function(d){ return op==="insert" ? self.sb.from("items").insert(d) : self.sb.from("items").update(d).eq("id", id); };
     var fail = onFail || function(){ self._queueUpdate(id, data); };
+    if(!this.sb){ fail(); return; }
     run(data).then(function(r){
       if(r && r.error){
         if("unit" in data && self._isMissingUnit(r.error)){
@@ -6873,14 +7069,13 @@ var Cloud = {
     var nd=!it.done; it.done=nd; if(typeof flipList==="function") flipList(renderLijst); else renderLijst();
     var self=this;
     var fields={done:nd, done_by_name:(nd?this.myName():null)};
-    this.sb.from("items").update(fields).eq("id",id).then(function(r){ if(r&&r.error) self._queueUpdate(id, fields); }, function(){ self._queueUpdate(id, fields); });
+    this._upd(id, fields);
     // Undo bij afvinken — gelijk aan de lokale lijst
     if(nd && !opts.quiet && typeof undoToast==="function"){
       undoToast(it.name+" afgevinkt", function(){
         var i2=state.list.find(function(x){return x.id===id;});
         if(i2){ i2.done=false; if(typeof flipList==="function") flipList(renderLijst); else renderLijst(); }
-        var uf={done:false, done_by_name:null};
-        self.sb.from("items").update(uf).eq("id",id).then(function(r){ if(r&&r.error) self._queueUpdate(id, uf); }, function(){ self._queueUpdate(id, uf); });
+        self._upd(id, {done:false, done_by_name:null});
       });
     }
   },
@@ -6888,14 +7083,22 @@ var Cloud = {
     var it=state.list.find(function(i){return i.id===id;}); if(!it) return;
     it.qty=Math.max(1,it.qty+delta); renderLijst();
     var self=this, q=it.qty;
-    this.sb.from("items").update({qty:q}).eq("id",id).then(function(r){ if(r&&r.error) self._queueUpdate(id, {qty:q}); }, function(){ self._queueUpdate(id, {qty:q}); });
+    if(!this.sb || this._isTmp(id) || this._hasBumpRpc===false){ this._upd(id, {qty:q}); return; }
+    // RPC telt op i.p.v. te overschrijven: twee telefoons die tegelijk +1 doen, komen op +2 uit
+    this.sb.rpc("item_bump_qty",{p_id:id, p_delta:delta}).then(function(r){
+      if(r && r.error){ if(self._isMissingFn(r.error)) self._hasBumpRpc=false; self._upd(id, {qty:q}); return; }
+      self._hasBumpRpc=true;
+      var it2=state.list.find(function(i){return i.id===id;});
+      if(it2 && typeof r.data==="number" && r.data!==it2.qty){ it2.qty=r.data; renderLijst(); }
+    }, function(){ self._upd(id, {qty:q}); });
   },
   remove:function(id){
     var it=state.list.find(function(i){return i.id===id;});
     var snap = it ? Object.assign({}, it) : null;
     state.list=state.list.filter(function(i){return i.id!==id;}); renderLijst();
     var self=this;
-    this.sb.from("items").delete().eq("id",id).then(function(r){ if(r&&r.error) self._queueDelete(id); }, function(){ self._queueDelete(id); });
+    if(!this.sb){ this._queueDelete(id); }
+    else this.sb.from("items").delete().eq("id",id).then(function(r){ if(r&&r.error) self._queueDelete(id); }, function(){ self._queueDelete(id); });
     // Undo bij verwijderen — voegt 'm opnieuw toe (realtime reconcilieert)
     if(snap && typeof undoToast==="function"){
       undoToast(snap.name+" verwijderd", function(){
@@ -6909,20 +7112,35 @@ var Cloud = {
     if("unit" in fields && this._hasUnit===false){ var f2={}; for(var k in fields){ if(k!=="unit") f2[k]=fields[k]; } fields=f2; }
     this._writeItem("update", fields, id);
   },
+  /* Afronden = soft-delete (bought_at): omkeerbaar, en de bron van de huishoud-koopgeschiedenis. Zonder de M3-kolom: gewoon verwijderen. */
   finish:function(){
     var done=state.list.filter(function(i){return i.done;}); if(!done.length||!this.active) return;
-    var self=this, ids=done.map(function(i){return i.id;});
-    done.forEach(function(it){ recordPurchase(it.name, it.price); });
-    if(typeof recordCoBuy==="function") recordCoBuy(done.map(function(it){return it.name;}));
-    save();
+    var self=this, ids=done.map(function(i){return i.id;}).filter(function(id){ return !self._isTmp(id); });
     ids.forEach(function(id){ self._deletedIds[id]=1; });   // tegen her-toevoegen via realtime-refresh
     state.list=state.list.filter(function(i){return !i.done;}); renderLijst();
     var clear=function(){ setTimeout(function(){ ids.forEach(function(id){ delete self._deletedIds[id]; }); }, 1500); };
-    var queueAll=function(){ ids.forEach(function(id){ self._queueDelete(id); }); };
-    this.sb.from("items").delete().in("id",ids).then(function(r){ if(r&&r.error) queueAll(); clear(); }, function(){ queueAll(); clear(); });
+    var now=new Date().toISOString();
+    var soft=(this._hasBoughtAt!==false);
+    var queueSoft=function(){ ids.forEach(function(id){ self._queueUpdate(id, {bought_at:now, done:true}); }); };
+    var queueHard=function(){ ids.forEach(function(id){ self._queueDelete(id); }); };
+    var hard=function(){ if(!self.sb){ queueHard(); clear(); return; } self.sb.from("items").delete().in("id",ids).then(function(r){ if(r&&r.error) queueHard(); clear(); }, function(){ queueHard(); clear(); }); };
+    if(!ids.length){ /* alleen nog-niet-gesyncte items: hun inserts vervallen via de wachtrij */ }
+    else if(!this.sb){ if(soft) queueSoft(); else queueHard(); clear(); }
+    else if(soft){
+      this.sb.from("items").update({bought_at:now, done:true}).in("id",ids).then(function(r){
+        if(r && r.error){ if(self._isMissingCol(r.error,"bought_at")){ self._hasBoughtAt=false; soft=false; hard(); return; } queueSoft(); }
+        else self._hasBoughtAt=true;
+        clear();
+      }, function(){ queueSoft(); clear(); });
+    } else hard();
     vibrate(12); renderVaste();
     if(typeof celebrate==="function") celebrate();
-    if(typeof finishAfterCloud==="function") finishAfterCloud(done);
+    var cloudUndo = soft ? function(){
+      ids.forEach(function(id){ delete self._deletedIds[id]; });
+      if(!self.sb){ ids.forEach(function(id){ self._queueUpdate(id, {bought_at:null}); }); return; }
+      self.sb.from("items").update({bought_at:null}).in("id",ids).then(function(){ self.refreshItems(self._activeRefreshToken); }, function(){ ids.forEach(function(id){ self._queueUpdate(id, {bought_at:null}); }); });
+    } : null;
+    if(typeof finishAfterCloud==="function") finishAfterCloud(done, cloudUndo);
     else toast(done.length+(done.length===1?" boodschap gekocht":" boodschappen gekocht"));
   },
 
