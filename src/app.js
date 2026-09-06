@@ -152,7 +152,7 @@ var NS = "mandje.v2";
 var CURRENT_STATE_VERSION = 3;
 var DEFAULTS = {
   version: CURRENT_STATE_VERSION,
-  settings:{ theme:"auto", textScale:1, shopHideDone:false, showPrices:false, seenIntro:false, categoryOrder:CATS.map(function(c){return c.id;}), minPurchases:3, cvThreshold:0.6, dueWindowDays:1, customCategories:[], customCatEmoji:{}, collapsedCats:{}, seenQtyHint:false, seenBulkHint:false, seenPriceNudge:false, pushOn:null },
+  settings:{ theme:"auto", textScale:1, shopHideDone:false, haptics:true, showPrices:false, seenIntro:false, categoryOrder:CATS.map(function(c){return c.id;}), minPurchases:3, cvThreshold:0.6, dueWindowDays:1, customCategories:[], customCatEmoji:{}, collapsedCats:{}, seenQtyHint:false, seenBulkHint:false, seenPriceNudge:false, pushOn:null },
   history:[],
   syncQueue:[],
   lastSyncState:{ mode:"local", status:"not_started", ready:false, pendingMutations:0, offline:false, reason:null, lastError:null, lastUpdated:0 },
@@ -309,6 +309,7 @@ function ensureRestore(){
 }
 
 function load(){
+  if(_savePending) saveNow();   // nooit een uitgestelde schrijfactie verliezen door een herlaad uit opslag
   var raw = null, parsed = null;
   try{ raw = localStorage.getItem(NS); }catch(e){}
   if(raw){
@@ -357,7 +358,15 @@ function load(){
   save();
 }
 
+/* save() bundelt meerdere mutaties in dezelfde tick tot één schrijfactie (microtask); saveNow() schrijft direct */
+var _savePending=false;
 function save(){
+  if(_savePending) return;
+  _savePending=true;
+  Promise.resolve().then(function(){ if(_savePending){ _savePending=false; _saveNow(); } });
+}
+function saveNow(){ _savePending=false; _saveNow(); }
+function _saveNow(){
   try{
     if(typeof Cloud === "undefined" || !Cloud.active){
       _localMutationEpoch += 1;
@@ -808,7 +817,7 @@ function parseQtyFromInput(s){
 }
 function $(s){ return document.querySelector(s); }
 function el(tag, cls, html){ var e=document.createElement(tag); if(cls)e.className=cls; if(html!=null)e.innerHTML=html; return e; }
-function vibrate(ms){ if(navigator.vibrate){ try{navigator.vibrate(ms);}catch(e){} } }
+function vibrate(ms){ if(typeof state!=="undefined" && state && state.settings && state.settings.haptics===false) return; if(navigator.vibrate){ try{navigator.vibrate(ms);}catch(e){} } }
 /* Haptic-layers — kies semantisch ipv elke keer een getal kiezen.
    tap=micro (qty+/-), tick=hoofd-actie (afvinken/toevoegen), nudge=warning. */
 function vibe(level){
@@ -1353,7 +1362,7 @@ function plainItemRow(it){
   var li=el("li","row"+(it.done?" done":"")); li.dataset.id=it.id;
   li.appendChild(el("div","behind",'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg><span>Verwijder</span>'));
   var card=el("div","card");
-  card.innerHTML='<button class="check" type="button" aria-label="'+(it.done?"Vinkje weghalen":"Afvinken")+'" aria-pressed="'+(it.done?"true":"false")+'">'+CHECK_SVG+'</button>'+
+  card.innerHTML='<button class="check" type="button" role="checkbox" aria-checked="'+(it.done?"true":"false")+'" aria-label="'+escapeAttr(it.name)+(it.done?" — vinkje weghalen":" afvinken")+'">'+CHECK_SVG+'</button>'+
     '<div class="meta"><div class="nm"></div>'+(it.note?'<div class="sub2"></div>':'')+'</div>'+
     (it.done?'':'<span class="sr-handle" aria-label="Sleep om te verplaatsen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></span>')+
     ((typeof HAS_POINTER!=="undefined" && HAS_POINTER) ? '<div class="row-actions"><button class="ra-btn ra-opt" type="button" aria-label="Opties voor '+escapeAttr(it.name)+'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></svg></button><button class="ra-btn ra-del" type="button" aria-label="Verwijder '+escapeAttr(it.name)+'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg></button></div>' : '');
@@ -1585,9 +1594,9 @@ function itemRow(it){
 
   if(!it.done && (!CAT_BY_ID[it.category] || it.category==="overig")) sub+=(sub?' · ':'')+'<button class="pick-cat" type="button">Schap kiezen</button>';
   card.innerHTML =
-    '<button class="check" type="button" aria-label="'+(it.done?"Vinkje weghalen":"Afvinken")+'" aria-pressed="'+(it.done?"true":"false")+'">'+CHECK_SVG+'</button>'+
+    '<button class="check" type="button" role="checkbox" aria-checked="'+(it.done?"true":"false")+'" aria-label="'+escapeAttr(it.name)+(it.done?" — vinkje weghalen":" afvinken")+'">'+CHECK_SVG+'</button>'+
     '<div class="meta"><div class="nm"></div>'+(sub?'<div class="sub2">'+sub+'</div>':'')+'</div>'+
-    '<div class="qty"><button class="q-minus" aria-label="minder">–</button><span>'+it.qty+'</span><button class="q-plus" aria-label="meer">+</button></div>'+
+    '<div class="qty"><button class="q-minus" type="button" aria-label="Minder '+escapeAttr(it.name)+'">–</button><span aria-live="polite">'+it.qty+'</span><button class="q-plus" type="button" aria-label="Meer '+escapeAttr(it.name)+'">+</button></div>'+
     (state.settings.showPrices && it.price!=null ? '<div class="price">'+euro(it.price*it.qty)+'</div>' : '')+
     ((typeof HAS_POINTER!=="undefined" && HAS_POINTER) ? '<div class="row-actions"><button class="ra-btn ra-opt" type="button" aria-label="Opties voor '+escapeAttr(it.name)+'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></svg></button><button class="ra-btn ra-del" type="button" aria-label="Verwijder '+escapeAttr(it.name)+'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg></button></div>' : '');
   card.querySelector(".nm").textContent=it.name;
@@ -2187,6 +2196,10 @@ function renderMeer(){
   priceRow.innerHTML='<div class="glabel">Prijzen bijhouden<div class="gsub">Toon een prijs per product en een lopend totaal</div></div>';
   priceRow.appendChild(switchBtn("Prijzen bijhouden", !!state.settings.showPrices, function(){ state.settings.showPrices=!state.settings.showPrices; save(); applyPriceVisibility(); renderLijst(); renderMeer(); }));
   g1.appendChild(priceRow);
+  var hapRow=el("div","grow");
+  hapRow.innerHTML='<div class="glabel">Trilfeedback<div class="gsub">Korte trilling bij afvinken en toevoegen (Android)</div></div>';
+  hapRow.appendChild(switchBtn("Trilfeedback", state.settings.haptics!==false, function(){ state.settings.haptics = (state.settings.haptics===false); save(); renderMeer(); if(state.settings.haptics) vibe("tick"); }));
+  g1.appendChild(hapRow);
   wrap.appendChild(g1);
 
   var standaloneP = (navigator.standalone===true) || (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches);
@@ -2310,6 +2323,9 @@ function renderMeer(){
   // ---- Back-up & privacy
   section("Back-up & privacy");
   wrap.appendChild(el("div","hint","Je persoonlijke lijst, vaste boodschappen en geschiedenis staan alleen op dit toestel — exporteer ze af en toe als back-up, of zet ze terug op een nieuw toestel. Gedeelde lijsten staan veilig online. Geen tracking, geen advertenties."));
+  var shareTxt=el("button","mbtn","Deel als tekst"); shareTxt.type="button";
+  shareTxt.addEventListener("click", shareListAsText);
+  wrap.appendChild(shareTxt);
   var expf=el("button","mbtn","Exporteer mijn lijst (bestand)");
   expf.addEventListener("click",exportFile);
   wrap.appendChild(expf);
@@ -2348,6 +2364,48 @@ function renderMeer(){
   });
   wrap.appendChild(gD);
   wrap.appendChild(el("div","hint","Hoe vaker je afrondt, hoe beter Mandje je vaste boodschappen leert kennen."));
+  var intro=el("button","mbtn","Bekijk de uitleg opnieuw"); intro.type="button";
+  intro.addEventListener("click", function(){ switchTab("lijst"); setTimeout(function(){ maybeIntro(true); }, 60); });
+  wrap.appendChild(intro);
+
+  // ---- Uitgaven: laatste 8 weken uit de geschiedenis (betaald bedrag, anders het lijst-totaal)
+  var hist=(state.history||[]).filter(function(h){ return (h.paid!=null && h.paid>0) || (h.total!=null && h.total>0); });
+  if(hist.length){
+    section("Uitgaven");
+    var nowD=new Date(); var monday=new Date(nowD.getFullYear(), nowD.getMonth(), nowD.getDate()-((nowD.getDay()+6)%7));
+    var weeks=[];
+    for(var w=7; w>=0; w--){ var st0=new Date(monday.getFullYear(), monday.getMonth(), monday.getDate()-7*w); weeks.push({start:st0, end:new Date(st0.getFullYear(), st0.getMonth(), st0.getDate()+7), sum:0}); }
+    hist.forEach(function(h){ var t=new Date(h.at).getTime(); var v=(h.paid!=null?h.paid:h.total)||0; weeks.forEach(function(wk){ if(t>=wk.start.getTime() && t<wk.end.getTime()) wk.sum+=v; }); });
+    var mx=Math.max.apply(null, weeks.map(function(wk){ return wk.sum; }).concat([1]));
+    var tot=weeks.reduce(function(a,wk){ return a+wk.sum; },0);
+    var gU=el("div","group");
+    gU.appendChild(el("div","grow",'<div class="glabel">Laatste 8 weken<div class="gsub">'+escapeHtml(euro(tot))+' totaal · '+escapeHtml(euro(weeks[7].sum))+' deze week</div></div>'));
+    var bars=el("div","spend");
+    weeks.forEach(function(wk,i){ var b=el("div","bar"+(i===7?" now":"")); b.style.height=Math.max(3, Math.round(wk.sum/mx*64))+"px"; b.title=euro(wk.sum); if(wk.sum>0) b.innerHTML='<span>'+escapeHtml(euro(wk.sum).replace(",00",""))+'</span>'; bars.appendChild(b); });
+    var lbls=el("div","spend-lbls"); weeks.forEach(function(wk){ lbls.appendChild(el("span",null, wk.start.getDate()+"/"+(wk.start.getMonth()+1))); });
+    var col=el("div","spend-wrap"); col.appendChild(bars); col.appendChild(lbls);
+    gU.appendChild(col); wrap.appendChild(gU);
+  }
+}
+/* Lijst als platte tekst (delen via WhatsApp/mail, of kopiëren) */
+function listAsText(){
+  var meta=currentListMeta(), lines=[meta.name||"Lijst",""];
+  var open=state.list.filter(function(i){return !i.done;}), done=state.list.filter(function(i){return i.done;});
+  if(isPlainList()){
+    var cur=null;
+    open.forEach(function(i){ var s=(i.section||"").trim(); if(s!==cur){ cur=s; if(s) lines.push(s.toUpperCase()); } lines.push("☐ "+i.name+(i.note?" ("+i.note+")":"")); });
+  } else {
+    var byCat={}; open.forEach(function(i){ var cid=CAT_BY_ID[i.category]?i.category:"overig"; (byCat[cid]=byCat[cid]||[]).push(i); });
+    catBuckets(byCat).forEach(function(cid){ var c=CAT_BY_ID[cid]||CAT_BY_ID["overig"]; lines.push(c.label.toUpperCase()); byCat[cid].forEach(function(i){ lines.push("☐ "+i.name+(i.qty>1?" ×"+i.qty:"")+(i.unit?" "+i.unit:"")+(i.note?" ("+i.note+")":"")); }); });
+  }
+  if(done.length){ lines.push(""); lines.push(listLabels().doneTitle.toUpperCase()); done.forEach(function(i){ lines.push("☑ "+i.name); }); }
+  lines.push(""); lines.push("— gemaakt met Mandje");
+  return lines.join("\n");
+}
+function shareListAsText(){
+  var text=listAsText();
+  if(navigator.share){ navigator.share({ title:currentListMeta().name||"Mandje", text:text }).catch(function(){}); return; }
+  if(typeof copyText==="function") copyText(text, "Lijst gekopieerd — plak 'm in een bericht");
 }
 
 /* ---------- Export / import (bestand) ---------- */
@@ -3450,9 +3508,10 @@ function setupPullToRefresh(){
   });
 }
 
-function maybeIntro(){
-  if(!state || !state.settings || state.settings.seenIntro) return;
-  if(state.list.length>0 || Object.keys(state.catalog).length>0){ state.settings.seenIntro=true; save(); return; }
+function maybeIntro(force){
+  if(!state || !state.settings) return;
+  if(!force && state.settings.seenIntro) return;
+  if(!force && (state.list.length>0 || Object.keys(state.catalog).length>0)){ state.settings.seenIntro=true; save(); return; }
   var sh=$("#sheet"); if(!sh) return;
   var stages = [
     {interactive:true, title:"Typ wat je nodig hebt", body:"Producten sorteren zichzelf in het juiste schap. Probeer maar:"},
@@ -3724,6 +3783,8 @@ if(typeof window!=="undefined"){
   window.repeatLastTrip = repeatLastTrip;
   window.addStore = addStore;
   window.createLocalList = createLocalList;
+  window.listAsText = listAsText;
+  window.saveNow = saveNow;
   window.switchLocalList = switchLocalList;
   window.deleteLocalList = deleteLocalList;
   window.duplicateLocalList = duplicateLocalList;

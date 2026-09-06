@@ -73,7 +73,9 @@ Object.keys(ICON_FILES).forEach(k => {
 // supabase SDK (ingebakken UMD-bundle — voorkomt runtime CDN-fetch)
 const supabaseSdkPath = path.join(root, "assets/supabase.js");
 const supabaseSdk = fs.existsSync(supabaseSdkPath) ? read("assets/supabase.js") : "";
-const sdkScript = supabaseSdk ? "<script>\n" + supabaseSdk + "\n</script>\n" : "";
+// De SDK gaat NIET meer inline mee (200 KB in het kritieke pad) maar als los root-bestand ./supabase.js,
+// dat cloud.js pas laadt bij het eerste cloud-gebruik en dat de service worker precached.
+const sdkScript = "";
 if (!supabaseSdk) console.warn("! assets/supabase.js niet gevonden — Cloud valt terug op runtime CDN-fetch");
 
 // Barcode-decoder (html5-qrcode) wordt lazy van CDN geladen bij de eerste scan
@@ -101,7 +103,7 @@ if (!/BUILD:\s*"__BUILD__"/.test(html)) {
 // sw.js zit niet in de HTML maar bepaalt wél de cache-naam → mee in de hash. Geen datum: dezelfde bron = dezelfde BUILD (reproduceerbaar).
 const swSrcPath = path.join(root, "src/sw.js");
 const swSrc = fs.existsSync(swSrcPath) ? readSafe("src/sw.js") : "";
-const hash = crypto.createHash("sha1").update(html).update(swSrc).digest("hex").slice(0, 8);
+const hash = crypto.createHash("sha1").update(html).update(swSrc).update(supabaseSdk).digest("hex").slice(0, 8);
 const buildId = hash;
 html = html.replace(/__BUILD__/g, buildId);
 
@@ -158,6 +160,10 @@ Object.keys(ICON_FILES).forEach(k => { fs.writeFileSync(path.join(root, ICON_FIL
 console.log("✓ iconen geschreven: " + Object.keys(ICON_FILES).map(k => ICON_FILES[k] + " (" + Math.round(iconBufs[k].length / 1024) + " KB)").join(", "));
 fs.writeFileSync(path.join(root, "manifest.webmanifest"), manifestJson);
 console.log("✓ manifest.webmanifest geschreven");
+if (supabaseSdk) {
+  fs.writeFileSync(path.join(root, "supabase.js"), supabaseSdk);
+  console.log("✓ supabase.js geschreven (" + Math.round(supabaseSdk.length / 1024) + " KB — los geladen bij het eerste cloud-gebruik)");
+}
 
 // Service worker: BUILD-waarde injecteren + naar repo-root schrijven (scope = /mandje/ op GitHub Pages)
 if (swSrc) {

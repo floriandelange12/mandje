@@ -8,7 +8,7 @@ var CACHE = "mandje-__BUILD__";
 var SHELL = "./index.html";
 // Precache: de shell, het manifest en de kleine iconen (push-icoon + badge). App-navigaties worden in
 // de fetch-handler op SHELL gemapt, dus "./" apart cachen zou het 600 KB-document twee keer opslaan.
-var PRECACHE = ["./index.html", "./manifest.webmanifest", "./icon-192.png", "./badge-96.png"];
+var PRECACHE = ["./index.html", "./manifest.webmanifest", "./icon-192.png", "./badge-96.png", "./supabase.js"];
 
 self.addEventListener("install", function(e){
   // De shell is verplicht: mislukt die, dan faalt de install en blijft de oude SW + cache bedienen.

@@ -44,7 +44,7 @@ const message = custom || ("deploy: build " + buildId);
 try {
   console.log("\nTe committen:\n" + status);
   // Alleen bekende paden — nooit ongezien een los bestand (sleutel, dump) naar de publieke repo
-  run("git add -A -- src assets tests tools supabase index.html sw.js manifest.webmanifest icon-180.png icon-192.png icon-512.png icon-512-maskable.png badge-96.png build.js deploy.js package.json package-lock.json CLAUDE.md README.md .gitignore .editorconfig .gitattributes");
+  run("git add -A -- src assets tests tools supabase index.html sw.js supabase.js manifest.webmanifest icon-180.png icon-192.png icon-512.png icon-512-maskable.png badge-96.png build.js deploy.js package.json package-lock.json CLAUDE.md README.md .gitignore .editorconfig .gitattributes");
   console.log("\n$ git commit -m " + JSON.stringify(message));
   execFileSync("git", ["commit", "-m", message], { stdio: "inherit", cwd: root });
   run("git push origin HEAD");   // expliciet naar origin (fl-labs26 is een redirect-host, zie CLAUDE.md)

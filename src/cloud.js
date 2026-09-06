@@ -31,6 +31,22 @@ var SUPABASE_SDK_CDNS = [
   {name:"esm.run",  url:"https://esm.run/@supabase/supabase-js@2"},
   {name:"jspm.dev", url:"https://jspm.dev/@supabase/supabase-js@2"}
 ];
+/* Eigen kopie van de SDK als los root-bestand (./supabase.js, in de SW-precache) — niet in het kritieke pad.
+   In jsdom (tests) zijn er geen losse bestanden: dan direct null zodat de CDN-fallback synchroon faalt. */
+function loadLocalSdk(){
+  return new Promise(function(resolve){
+    try{
+      if(typeof window==="undefined" || typeof document==="undefined"){ resolve(null); return; }
+      if(window.supabase){ resolve(window.supabase); return; }
+      if(/jsdom/i.test(navigator.userAgent||"")){ resolve(null); return; }
+      var s=document.createElement("script"); s.src="./supabase.js"; s.async=true;
+      var done=false, t=setTimeout(function(){ if(done) return; done=true; resolve(null); }, 8000);
+      s.onload=function(){ if(done) return; done=true; clearTimeout(t); resolve(window.supabase||null); };
+      s.onerror=function(){ if(done) return; done=true; clearTimeout(t); resolve(null); };
+      document.head.appendChild(s);
+    }catch(e){ resolve(null); }
+  });
+}
 function loadSupabaseSDK(){
   return new Promise(function(resolve, reject){
     var lastErr=null, i=0;
@@ -43,7 +59,8 @@ function loadSupabaseSDK(){
         console.warn("Mandje: "+cdn.name+" timeout");
         tryNext();
       }, 8000);
-      import(cdn.url).then(function(mod){
+      var imp; try{ imp=import(cdn.url); }catch(e){ imp=Promise.reject(e); }
+      imp.then(function(mod){
         if(done) return; done=true; clearTimeout(timeout);
         console.log("Mandje: SDK geladen via "+cdn.name);
         resolve(mod);
@@ -381,7 +398,8 @@ var Cloud = {
         if(!guard(true) || !this._canInit()){ 
           return;
         }
-        if(!sdk){ self._warned("sdk", "Mandje: SDK niet ingebakken, val terug op CDN"); sdk = await loadSupabaseSDK(); }
+        if(!sdk){ sdk = await loadLocalSdk(); }
+        if(!sdk){ self._warned("sdk", "Mandje: lokale SDK niet geladen, val terug op CDN"); sdk = await loadSupabaseSDK(); }
         if(!sdk || typeof sdk.createClient !== "function"){ throw new Error("Supabase SDK niet beschikbaar"); }
         this.sb=sdk.createClient(SUPABASE_URL, SUPABASE_ANON_KEY,
           {auth:{persistSession:true, autoRefreshToken:true, storageKey:"mandje.sb.auth"}});

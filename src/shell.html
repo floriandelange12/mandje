@@ -5,6 +5,11 @@
 <!-- Zoom toegestaan (a11y/WCAG): geen maximum-scale / user-scalable=no meer -->
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
 <title>Mandje</title>
+<meta name="description" content="Boodschappenlijst die je samen bijhoudt — offline, met winkelmodus, vaste boodschappen en paklijsten.">
+<meta property="og:title" content="Mandje">
+<meta property="og:description" content="Boodschappenlijst die je samen bijhoudt — offline, met winkelmodus en vaste boodschappen.">
+<meta property="og:type" content="website">
+<meta property="og:image" content="https://floriandelange12.github.io/mandje/icon-512.png">
 
 <!-- PWA / iPhone -->
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -625,6 +630,35 @@
   .row.dragging .card{ background:var(--surface-2); }
   .finish-inline{ display:flex; gap:8px; flex-wrap:wrap; }
   .finish-inline-btn.soft{ background:var(--surface-3); color:var(--ink); box-shadow:none; }
+  /* Prestaties: rijen ver buiten beeld niet layouten */
+  #open-list .row{ content-visibility:auto; contain-intrinsic-size:auto 64px; }
+  /* Uitgaven-inzicht */
+  .spend-wrap{ padding:6px 16px 14px; }
+  .spend{ display:flex; align-items:flex-end; gap:6px; height:84px; padding-top:16px; }
+  .spend .bar{ flex:1; position:relative; background:var(--brand-2); border-radius:var(--r-xs) var(--r-xs) 0 0; min-height:3px; }
+  .spend .bar.now{ background:var(--brand); }
+  .spend .bar span{ position:absolute; left:50%; bottom:100%; transform:translateX(-50%); font-size:var(--fs-xs); color:var(--ink-faint); white-space:nowrap; padding-bottom:2px; }
+  .spend-lbls{ display:flex; gap:6px; margin-top:4px; font-size:var(--fs-xs); color:var(--ink-faint); }
+  .spend-lbls span{ flex:1; text-align:center; }
+  /* Meer contrast / geforceerde kleuren */
+  @media (prefers-contrast: more){
+    :root, html[data-theme="dark"]{ --line:var(--line-strong); --ink-faint:var(--ink-soft); --ink-decorative:var(--ink-faint); }
+    .row{ box-shadow:none; border:1px solid var(--line-strong); }
+  }
+  @media (forced-colors: active){
+    .row, .card, .check, .shop-check, .switch, .chip, .mbtn, .toast, .sheet{ border:1px solid CanvasText; }
+    .row.done .check, .shop-row.done .shop-check, .switch.on{ background:Highlight; }
+    :focus-visible{ outline:2px solid Highlight; }
+  }
+  /* Afdrukken: alleen de lijst */
+  @media print{
+    .topbar, .addwrap, .totals, .toast, .scrim, .sheet, .shop-screen, .view-seg, #store-pick, #week-ritual, #due-banner, #shop-entry, .search-bar, .row-actions, .sr-handle, .qty button, .offline-badge, #list-switch-wrap, .members-row, .shortcuts-row{ display:none !important; }
+    html, body{ overflow:visible !important; height:auto !important; background:#fff !important; color:#000 !important; }
+    .app{ box-shadow:none !important; height:auto !important; overflow:visible !important; margin:0 !important; }
+    #main{ position:static !important; overflow:visible !important; }
+    .row, .card{ box-shadow:none !important; border:1px solid #999; break-inside:avoid; }
+    .largehead{ padding-top:0 !important; }
+  }
   .ls-item.active .lsi-name{ color:var(--brand); }
   .ls-item .lsi-check{ color:var(--brand); }
   .quick-create{ margin:14px 0 0; padding:0; }

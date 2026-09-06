@@ -64,7 +64,7 @@ Na deploy: hard verversen op de telefoon (pagina sluiten/heropenen of "Herlaad z
 - **Geen `.env` of geheimen committen.** De Supabase *publishable* key (`sb_publishable_...`) mag wél in de frontend staan: de beveiliging zit in Row Level Security in Supabase.
 - **Niet force-pushen zonder back-up.** Bij twijfel eerst een branch/commit als vangnet.
 - Remotes: `origin` = `floriandelange12/mandje`. `fl-labs26` → `FL-labs26/mandje` is omgebouwd tot **redirect-host** (oude URL stuurt door naar de nieuwe). Push naar fl-labs26 mag alleen wanneer het puur om de redirect-`index.html` gaat — geen app-content meer naar die remote.
-- Houd de **app-code single-file** (`index.html`) en zonder externe build-tooling (alleen Node voor build+tests; playwright is optioneel voor iconen/screenshots). De enige losse root-bestanden zijn PWA-metadata die niet inline kúnnen: `sw.js`, `manifest.webmanifest` (als data-URI zijn start_url/scope onoplosbaar) en de icoon-PNG's (manifest, apple-touch-icon, push-icoon/badge).
+- Houd de **app-code single-file** (`index.html`) en zonder externe build-tooling (alleen Node voor build+tests; playwright is optioneel voor iconen/screenshots). De enige losse root-bestanden zijn PWA-metadata die niet inline kúnnen (`sw.js`, `manifest.webmanifest`, de icoon-PNG's) en `supabase.js` (de vendor-SDK, 200 KB: bewust uit het kritieke pad, lazy geladen bij het eerste cloud-gebruik en door de SW precached). `build.js` schrijft ze allemaal.
 - **Design-tokens zijn de enige bron voor kleur, maat, radius, schaduw en motion.** Geen losse hex-kleuren, `font-size:14px` of `border-radius:12px` in nieuwe CSS; `tests/contrast.js` bewaakt de contrastratio's. Nieuwe overlays gaan altijd via `modalOpen/modalClose` (src/overlays.js).
 
 ## Werkwijze

@@ -694,7 +694,8 @@ const ok=(n,c)=>{ if(c){pass++;console.log("  ✓ "+n);} else {fail++;console.lo
     ok("Fase 2d: 'Standaard' zet de standaardvolgorde terug", order2.join()==="groente-fruit,brood-banket,zuivel-eieren" && JSON.parse(W.localStorage.getItem("mandje.v2")).settings.activeStoreId===null);
     // d) catalogusbeheer: hernoemen met samenvoegen, verbergen sluit uit van suggesties
     W.addToList("Bananen"); await wait(30);
-    ok("Fase 2d: hernoemen naar bestaande naam voegt samen (datums + timesAdded) en past de lijst aan", W.renameCatalogEntry("bananen","Appels") && !JSON.parse(W.localStorage.getItem("mandje.v2")).catalog.bananen && JSON.parse(W.localStorage.getItem("mandje.v2")).catalog.appels.timesAdded>=3 && D.querySelectorAll("#open-list li.row").length>=1 && !/bananen/i.test(D.querySelector("#open-list").textContent));
+    const renamed=W.renameCatalogEntry("bananen","Appels"); await wait(30);   // save() is gecoalesced (microtask)
+    ok("Fase 2d: hernoemen naar bestaande naam voegt samen (datums + timesAdded) en past de lijst aan", renamed && !JSON.parse(W.localStorage.getItem("mandje.v2")).catalog.bananen && JSON.parse(W.localStorage.getItem("mandje.v2")).catalog.appels.timesAdded>=3 && D.querySelectorAll("#open-list li.row").length>=1 && !/bananen/i.test(D.querySelector("#open-list").textContent));
     const cat=JSON.parse(W.localStorage.getItem("mandje.v2")).catalog;
     W.openCatalogSheet(); await wait(40);
     const rows=[...D.querySelectorAll("#sheet .cm-row")];
