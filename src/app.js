@@ -2610,7 +2610,8 @@ function renderMeer(){
    ["Cloud", cloudTxt],
    ["Wachtende wijzigingen", String(queued)],
    ["Opslag op dit toestel", (bytes/1024).toFixed(bytes>102400?0:1) + " KB"],
-   ["Bekende producten", String(known)]].forEach(function(r){
+   ["Bekende producten", String(known)],
+   ["Scanner", bcDiagLine() || "nog niet gebruikt"]].forEach(function(r){
     gD.appendChild(el("div","grow",'<div class="glabel">'+r[0]+'</div><span class="gval">'+escapeHtml(r[1])+'</span>'));
   });
   wrap.appendChild(gD);
@@ -3579,6 +3580,7 @@ function openBarcodeScanScreen(){
     '<h1>Richt op de streepjescode</h1>'+
     '<div class="ss-sub">Of scan de QR-code van een huisgenoot om mee te doen.</div>'+
     '<div id="bc-reader"></div>'+
+    '<div class="bc-diag" id="bc-diag" aria-hidden="true"></div>'+
     '<div class="bc-status" id="bc-status" role="status" aria-live="polite" aria-atomic="true"></div>'+
     '<div class="bc-hit" id="bc-hit"></div>'+
     '<div class="field" style="margin-top:8px"><svg class="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>'+
@@ -3623,6 +3625,18 @@ function loadBarcodeDecoder(){
   return _bcLibPromise;
 }
 var _bcStream=null, _bcTick=null, _bcZoom=1;
+/* Diagnose van de laatste scansessie: decoder, cameraresolutie, zoom, beelden, laatste fout (Meer → Diagnose + statusregel) */
+var _bcDiag={ decoder:"", res:"", zoom:1, frames:0, errors:0, lastError:"", startedAt:0, hit:"" };
+function bcDiagLine(){
+  var d=_bcDiag; if(!d.decoder) return "";
+  return d.decoder+(d.res?" · "+d.res:"")+(d.zoom>1?" · "+d.zoom+"×":"")+(d.frames?" · "+d.frames+" beelden":"")+(d.lastError?" · fout: "+d.lastError:"");
+}
+function bcDiagTick(){
+  // na 4 s zonder treffer: laten zien dat er gezocht wordt (en waarmee), zodat "niets gebeurt" nooit stil is
+  var d=_bcDiag, el=$("#bc-diag"); if(!el) return;
+  el.textContent = (d.frames>0 || d.lastError) ? bcDiagLine() : "";
+  if(!d.hit && d.startedAt && (Date.now()-d.startedAt)>4000 && !d.lastError) bcStatus(d.frames>0 ? "Zoeken… hou de code stil in het kader" : "Camera geeft nog geen beeld — even wachten");
+}
 /* Camera openen: achterkant, 1080p (Safari geeft anders 640×480), continu scherpstellen. Eén pad voor beide decoders. */
 function openBarcodeCamera(mySession, video, onReady){
   if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){ bcStatus("Geen camera beschikbaar — typ de naam"); return; }
@@ -3631,11 +3645,14 @@ function openBarcodeCamera(mySession, video, onReady){
     if(mySession!==_bcSession){ stream.getTracks().forEach(function(t){ t.stop(); }); return; }
     _bcStream=stream; video.srcObject=stream;
     try{ video.play().catch(function(){}); }catch(e){}
+    _bcDiag.startedAt=Date.now(); _bcDiag.frames=0; _bcDiag.errors=0; _bcDiag.lastError=""; _bcDiag.hit="";
+    try{ var st=stream.getVideoTracks()[0].getSettings ? stream.getVideoTracks()[0].getSettings() : null; if(st && st.width) _bcDiag.res=st.width+"×"+st.height; }catch(e){}
+    video.addEventListener("loadedmetadata", function(){ if(video.videoWidth) _bcDiag.res=video.videoWidth+"×"+video.videoHeight; });
     setupBarcodeZoom(stream.getVideoTracks()[0]);
     _bcRunning=true; bcStatus("");
     onReady(stream);
   };
-  var fail=function(){ bcStatus("Kan de camera niet openen — typ de naam"); };
+  var fail=function(err){ _bcDiag.lastError=(err && (err.name||err.message)) || "camera"; bcStatus("Kan de camera niet openen ("+_bcDiag.lastError+") — typ de naam"); };
   navigator.mediaDevices.getUserMedia(constraints).then(got, function(){
     // strengere wensen afgewezen (oude toestellen): nog één keer zonder resolutie-wens
     navigator.mediaDevices.getUserMedia({ video:{ facingMode:{ideal:"environment"} }, audio:false }).then(got, fail);
@@ -3647,7 +3664,7 @@ function setupBarcodeZoom(track){
   var caps=null; try{ caps=track.getCapabilities ? track.getCapabilities() : null; }catch(e){}
   var z=caps && caps.zoom; if(!z || !(z.max>=2)) return;
   var steps=[1,2,3].filter(function(v){ return v>=(z.min||1) && v<=z.max; });
-  var applyZoom=function(v){ _bcZoom=v; try{ track.applyConstraints({advanced:[{zoom:v}]}).catch(function(){}); }catch(e){} var c=$("#bc-zoom"); if(c) c.textContent=v+"×"; };
+  var applyZoom=function(v){ _bcZoom=v; _bcDiag.zoom=v; try{ track.applyConstraints({advanced:[{zoom:v}]}).catch(function(){}); }catch(e){} var c=$("#bc-zoom"); if(c) c.textContent=v+"×"; };
   var chip=document.createElement("button"); chip.type="button"; chip.id="bc-zoom"; chip.className="bc-zoom"; chip.setAttribute("aria-label","Zoom wisselen");
   chip.addEventListener("click", function(){ var i=steps.indexOf(_bcZoom); applyZoom(steps[(i+1)%steps.length]); });
   reader.appendChild(chip);
@@ -3661,9 +3678,13 @@ function newBarcodeVideo(){
 }
 /* Het stuk van het camerabeeld dat achter het witte kader zit (object-fit:cover + inzet 4%/18%), in camerapixels */
 function barcodeCropRect(video, reader){
-  var vw=video.videoWidth, vh=video.videoHeight, cw=reader.clientWidth||1, ch=reader.clientHeight||1;
+  var vw=video.videoWidth||0, vh=video.videoHeight||0, cw=reader.clientWidth||0, ch=reader.clientHeight||0;
+  if(!vw || !vh) return null;
+  if(!cw || !ch){ cw=vw; ch=vh; }   // nog niet gelay-out: hele beeld
   var scale=Math.max(cw/vw, ch/vh), visW=cw/scale, visH=ch/scale, vx=(vw-visW)/2, vy=(vh-visH)/2;
-  return { x:Math.round(vx+visW*0.04), y:Math.round(vy+visH*0.18), w:Math.round(visW*0.92), h:Math.round(visH*0.64) };
+  var r={ x:Math.round(vx+visW*0.04), y:Math.round(vy+visH*0.18), w:Math.round(visW*0.92), h:Math.round(visH*0.64) };
+  if(!(r.w>8 && r.h>8) || !isFinite(r.x) || !isFinite(r.y)) return { x:0, y:0, w:vw, h:vh };
+  return r;
 }
 function nativeDetectorFormats(){
   if(!window.BarcodeDetector) return Promise.resolve(null);
@@ -3677,15 +3698,16 @@ function nativeDetectorFormats(){
 function startNativeScanner(mySession, formats){
   var det; try{ det=new window.BarcodeDetector({formats:formats}); }catch(e){ return false; }
   var video=newBarcodeVideo(); if(!video) return false;
-  bcStatus("Camera starten…");
+  _bcDiag.decoder="Native"; bcStatus("Camera starten…");
   openBarcodeCamera(mySession, video, function(){
     var busy=false;
     var tick=function(){
       if(mySession!==_bcSession || !_bcRunning) return;
       if(!busy && video.readyState>=2){
         busy=true;
-        det.detect(video).then(function(codes){ busy=false; if(codes && codes.length && codes[0].rawValue) onBarcodeDecoded(codes[0].rawValue); }, function(){ busy=false; });
+        det.detect(video).then(function(codes){ busy=false; _bcDiag.frames++; if(codes && codes.length && codes[0].rawValue){ _bcDiag.hit=codes[0].rawValue; onBarcodeDecoded(codes[0].rawValue); } }, function(e){ busy=false; _bcDiag.errors++; _bcDiag.lastError=(e && e.name)||"detect"; });
       }
+      bcDiagTick();
       _bcTick=setTimeout(tick, 160);
     };
     tick();
@@ -3709,7 +3731,7 @@ function startZxingScanner(mySession){
     if(!ok || !hasZxing()){ bcStatus("Scanner niet beschikbaar — typ de naam"); return; }
     var scr=$("#barcode-screen"); if(!scr || !scr.classList.contains("show")) return; // gebruiker sloot al
     var video=newBarcodeVideo(); if(!video) return;
-    bcStatus("Camera starten…");
+    _bcDiag.decoder="ZXing"; bcStatus("Camera starten…");
     var Z=window.ZXing, reader=null;
     try{
       var hints=new Map();
@@ -3723,17 +3745,25 @@ function startZxingScanner(mySession){
       var tick=function(){
         if(mySession!==_bcSession || !_bcRunning) return;
         if(video.readyState>=2 && video.videoWidth && box){
-          try{
-            var r=barcodeCropRect(video, box);
-            var k=Math.min(1, 1600/Math.max(1,r.w));
-            var cw=Math.max(1,Math.round(r.w*k)), ch=Math.max(1,Math.round(r.h*k));
-            if(canvas.width!==cw) canvas.width=cw; if(canvas.height!==ch) canvas.height=ch;
-            ctx.drawImage(video, r.x, r.y, r.w, r.h, 0, 0, cw, ch);
-            var bmp=new Z.BinaryBitmap(new Z.HybridBinarizer(new Z.HTMLCanvasElementLuminanceSource(canvas)));
-            var res=reader.decodeWithState(bmp);
-            if(res && res.getText()) onBarcodeDecoded(res.getText());
-          }catch(e){ /* NotFound/Checksum/Format: volgend beeld */ }
+          var r=barcodeCropRect(video, box);
+          if(r){
+            try{
+              var k=Math.min(1, 1600/Math.max(1,r.w));
+              var cw=Math.max(1,Math.round(r.w*k)), ch=Math.max(1,Math.round(r.h*k));
+              if(canvas.width!==cw) canvas.width=cw; if(canvas.height!==ch) canvas.height=ch;
+              ctx.drawImage(video, r.x, r.y, r.w, r.h, 0, 0, cw, ch);
+              _bcDiag.frames++;
+              var bmp=new Z.BinaryBitmap(new Z.HybridBinarizer(new Z.HTMLCanvasElementLuminanceSource(canvas)));
+              var res=reader.decodeWithState(bmp);
+              if(res && res.getText()){ _bcDiag.hit=res.getText(); onBarcodeDecoded(res.getText()); }
+            }catch(e){
+              // NotFound/Checksum/Format = gewoon niets in beeld; al het andere is een echte fout en mag niet stil blijven
+              var nm=(e && e.name) || "";
+              if(!/NotFound|Checksum|Format/i.test(nm)){ _bcDiag.errors++; _bcDiag.lastError=nm||String(e).slice(0,60); if(_bcDiag.errors===5){ try{ console.warn("Mandje scanner:", e); }catch(x){} bcStatus("Scanner-fout: "+_bcDiag.lastError+" — typ de naam"); } }
+            }
+          }
         }
+        bcDiagTick();
         _bcTick=setTimeout(tick, 90);
       };
       tick();
