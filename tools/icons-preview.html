@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mandje — schap-iconen preview</title>
+<style>
+  :root{ --font:"Avenir Next","Nunito","Segoe UI","SF Pro Text","Helvetica Neue",Arial,sans-serif; }
+  *{ box-sizing:border-box; }
+  body{ margin:0; font:14px/1.45 var(--font); background:#E8E3D8; color:#1C1B18; }
+  header{ padding:20px 24px 8px; }
+  header h1{ margin:0 0 4px; font-size:20px; font-weight:600; }
+  header p{ margin:0; color:#6A6459; }
+  section{ padding:16px 24px 24px; }
+  section h2{ margin:0 0 10px; font-size:13px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:#6A6459; }
+  .board{ border-radius:18px; padding:20px; margin-bottom:16px; }
+  .board.light{ background:#F3EDE3; color:#24593F; }
+  .board.dark{ background:#15130F; color:#8FD1A8; }
+  .board .label{ font-size:12px; opacity:.7; margin:0 0 12px; }
+  .grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(88px,1fr)); gap:14px 8px; }
+  .cell{ display:flex; flex-direction:column; align-items:center; gap:8px; text-align:center; }
+  .cell .name{ font-size:11px; line-height:1.2; opacity:.75; word-break:break-word; }
+  .cell .group{ font-size:10px; opacity:.5; }
+  .icon{ display:inline-flex; }
+  .icon svg{ display:block; }
+  .s24 .icon svg{ width:24px; height:24px; }
+  .s32 .icon svg{ width:32px; height:32px; }
+  .s48 .icon svg{ width:48px; height:48px; }
+  /* Iconen in één rij, dicht naast elkaar — om lijngewicht te vergelijken */
+  .row{ display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+  .row .icon svg{ width:24px; height:24px; }
+  .row.big .icon svg{ width:48px; height:48px; }
+  .hero-wrap{ display:flex; gap:32px; flex-wrap:wrap; align-items:flex-end; }
+  .hero-wrap .icon svg{ width:auto; height:200px; }
+  .hero-wrap .icon.small svg{ height:110px; }
+  .hero-accent{ color:#C98A1B; }
+  .dark .hero-accent{ color:#E9B65C; }
+  .apps{ display:flex; gap:24px; flex-wrap:wrap; align-items:flex-end; }
+  .app{ display:flex; flex-direction:column; gap:8px; align-items:center; font-size:11px; color:#6A6459; }
+  .app svg{ display:block; }
+  .app.a128 svg{ width:128px; height:128px; }
+  .app.a512 svg{ width:512px; height:512px; max-width:100%; height:auto; }
+  .app.a60 svg{ width:60px; height:60px; }
+  .app .mask{ border-radius:50%; overflow:hidden; }
+  .app .ios{ border-radius:22.37%; overflow:hidden; }
+  .checker{ background:
+     linear-gradient(45deg,#d8d3c8 25%,transparent 25%,transparent 75%,#d8d3c8 75%),
+     linear-gradient(45deg,#d8d3c8 25%,transparent 25%,transparent 75%,#d8d3c8 75%);
+     background-size:16px 16px; background-position:0 0,8px 8px; background-color:#f6f4ef; padding:12px; border-radius:12px; }
+  pre#report{ background:#1E1D17; color:#F2EFE6; padding:14px 16px; border-radius:12px; font:12px/1.5 ui-monospace,Menlo,Consolas,monospace; white-space:pre-wrap; }
+  pre#report .ok{ color:#7BD9A6; } pre#report .bad{ color:#E5705F; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Mandje — schap-iconen</h1>
+  <p>Bron: <code>src/icons.js</code>. Monochroom, <code>currentColor</code>, 24×24, stroke 1.75. Licht = #F3EDE3 / #24593F, donker = #15130F / #8FD1A8.</p>
+</header>
+
+<section>
+  <h2>Controle</h2>
+  <pre id="report">…</pre>
+</section>
+
+<section>
+  <h2>Gewichtsvergelijking — alle 20 op één rij (24px en 48px)</h2>
+  <div class="board light"><div class="row" id="row-light-24"></div><div style="height:14px"></div><div class="row big" id="row-light-48"></div></div>
+  <div class="board dark"><div class="row" id="row-dark-24"></div><div style="height:14px"></div><div class="row big" id="row-dark-48"></div></div>
+</section>
+
+<section>
+  <h2>Raster — licht</h2>
+  <div class="board light s24"><p class="label">24px</p><div class="grid" id="grid-light-24"></div></div>
+  <div class="board light s32"><p class="label">32px</p><div class="grid" id="grid-light-32"></div></div>
+  <div class="board light s48"><p class="label">48px</p><div class="grid" id="grid-light-48"></div></div>
+</section>
+
+<section>
+  <h2>Raster — donker</h2>
+  <div class="board dark s24"><p class="label">24px</p><div class="grid" id="grid-dark-24"></div></div>
+  <div class="board dark s32"><p class="label">32px</p><div class="grid" id="grid-dark-32"></div></div>
+  <div class="board dark s48"><p class="label">48px</p><div class="grid" id="grid-dark-48"></div></div>
+</section>
+
+<section>
+  <h2>Hero (lege staat) — 120×110, stroke 1.6, accent via <code>.hero-accent</code></h2>
+  <div class="board light"><div class="hero-wrap" id="hero-light"></div></div>
+  <div class="board dark"><div class="hero-wrap" id="hero-dark"></div></div>
+</section>
+
+<section>
+  <h2>App-iconen — maskable (volvlak) en any (squircle, transparante hoeken)</h2>
+  <div class="checker"><div class="apps" id="apps"></div></div>
+</section>
+
+<script src="../src/icons.js"></script>
+<script>
+(function(){
+  /* Verwachte CATS-id's uit src/app.js (volgorde zoals daar), voor de sleutelcontrole. */
+  var CATS_IDS = ["groente-fruit","brood-banket","zuivel-eieren","kaas-vleeswaren","vlees-vis","diepvries",
+    "ontbijt-beleg","houdbaar","snoep-snacks","dranken","huishouden","verzorging","baby-kind","huisdier",
+    "klussen","tuin-planten","apotheek","kantoor-school","kleding-textiel","overig"];
+  /* Toonvolgorde: per groep, zodat de families naast elkaar staan. */
+  var ORDER = ["groente-fruit","tuin-planten","brood-banket","ontbijt-beleg","houdbaar","snoep-snacks",
+    "zuivel-eieren","kaas-vleeswaren","diepvries","dranken","vlees-vis","huisdier","verzorging","baby-kind",
+    "apotheek","huishouden","klussen","kantoor-school","kleding-textiel","overig"];
+
+  function el(tag, cls, html){ var e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; }
+
+  /* ---- Controle ---- */
+  var lines=[], ok=true;
+  function pass(m){ lines.push('<span class="ok">✓</span> '+m); }
+  function fail(m){ ok=false; lines.push('<span class="bad">✗</span> '+m); }
+  var keys=Object.keys(SHELF_ICONS);
+  (keys.length===20) ? pass('20 sleutels in SHELF_ICONS') : fail(keys.length+' sleutels in SHELF_ICONS (verwacht 20)');
+  var missing=CATS_IDS.filter(function(id){ return !SHELF_ICONS[id]; });
+  var extra=keys.filter(function(k){ return CATS_IDS.indexOf(k)<0; });
+  (!missing.length && !extra.length) ? pass('sleutels komen exact overeen met CATS-id\'s') : fail('sleutels wijken af — ontbreekt: ['+missing.join(', ')+'] extra: ['+extra.join(', ')+']');
+  var gm=CATS_IDS.filter(function(id){ return !SHELF_GROUP[id]; });
+  (!gm.length && Object.keys(SHELF_GROUP).length===20) ? pass('SHELF_GROUP dekt alle 20 id\'s') : fail('SHELF_GROUP onvolledig: '+gm.join(', '));
+
+  var parser=new DOMParser();
+  function parses(name, svg){
+    var doc=parser.parseFromString(svg,'image/svg+xml');
+    var err=doc.querySelector('parsererror');
+    if(err){ fail(name+' parset niet: '+err.textContent.slice(0,120)); return null; }
+    return doc.documentElement;
+  }
+  var bad=0;
+  keys.forEach(function(k){
+    var root=parses(k, SHELF_ICONS[k]); if(!root){ bad++; return; }
+    var a=[['viewBox','0 0 24 24'],['fill','none'],['stroke','currentColor'],['stroke-width','1.75'],['stroke-linecap','round'],['stroke-linejoin','round'],['aria-hidden','true']];
+    a.forEach(function(p){ if(root.getAttribute(p[0])!==p[1]){ bad++; fail(k+': '+p[0]+'="'+root.getAttribute(p[0])+'" (verwacht "'+p[1]+'")'); } });
+    if(root.hasAttribute('width')||root.hasAttribute('height')){ bad++; fail(k+': heeft width/height'); }
+    if(root.hasAttribute('xmlns')){ bad++; fail(k+': heeft xmlns (niet nodig inline)'); }
+  });
+  if(!bad) pass('alle 20 SVG\'s parsen en dragen de vaste attributen (geen width/height/xmlns)');
+  var h=parses('HERO_BASKET_SVG', HERO_BASKET_SVG);
+  if(h){ (h.getAttribute('viewBox')==='0 0 120 110' && h.querySelector('.hero-accent')) ? pass('hero: viewBox 120×110 en .hero-accent aanwezig') : fail('hero: viewBox/.hero-accent klopt niet'); }
+  var ai=parses('APP_ICON_SVG', APP_ICON_SVG), aa=parses('APP_ICON_ANY_SVG', APP_ICON_ANY_SVG);
+  if(ai && aa){ (ai.getAttribute('xmlns') && aa.getAttribute('xmlns') && ai.getAttribute('viewBox')==='0 0 512 512') ? pass('app-iconen: xmlns + viewBox 512') : fail('app-iconen: xmlns/viewBox ontbreekt'); }
+  lines.unshift(ok ? '<span class="ok">Alles groen.</span>' : '<span class="bad">Er zijn afwijkingen.</span>');
+  document.getElementById('report').innerHTML=lines.join('\n');
+
+  /* ---- Rijen + rasters ---- */
+  function fillRow(id){ var r=document.getElementById(id); ORDER.forEach(function(k){ var i=el('span','icon',SHELF_ICONS[k]); i.title=k; r.appendChild(i); }); }
+  ['row-light-24','row-light-48','row-dark-24','row-dark-48'].forEach(fillRow);
+  function fillGrid(id){
+    var g=document.getElementById(id);
+    ORDER.forEach(function(k){
+      var c=el('div','cell');
+      c.appendChild(el('span','icon',SHELF_ICONS[k]));
+      c.appendChild(el('span','name',k));
+      c.appendChild(el('span','group',SHELF_GROUP[k]||'?'));
+      g.appendChild(c);
+    });
+  }
+  ['grid-light-24','grid-light-32','grid-light-48','grid-dark-24','grid-dark-32','grid-dark-48'].forEach(fillGrid);
+
+  /* ---- Hero ---- */
+  ['hero-light','hero-dark'].forEach(function(id){
+    var w=document.getElementById(id);
+    w.appendChild(el('span','icon',HERO_BASKET_SVG));
+    w.appendChild(el('span','icon small',HERO_BASKET_SVG));
+  });
+
+  /* ---- App-iconen ---- */
+  var apps=document.getElementById('apps');
+  function app(cls, svg, label, wrapCls){
+    var a=el('div','app '+cls);
+    var w=el('div', wrapCls||''); w.innerHTML=svg; a.appendChild(w);
+    a.appendChild(el('span',null,label)); apps.appendChild(a);
+  }
+  app('a60',  APP_ICON_SVG,     'maskable 60');
+  app('a60',  APP_ICON_SVG,     'maskable 60 · cirkelmasker','mask');
+  app('a128', APP_ICON_SVG,     'maskable 128');
+  app('a128', APP_ICON_SVG,     'maskable 128 · cirkelmasker','mask');
+  app('a128', APP_ICON_ANY_SVG, 'any 128 (squircle)');
+  app('a128', APP_ICON_SVG,     'maskable 128 · iOS-masker','ios');
+  app('a512', APP_ICON_SVG,     'maskable 512');
+  app('a512', APP_ICON_ANY_SVG, 'any 512 (squircle)');
+})();
+</script>
+</body>
+</html>

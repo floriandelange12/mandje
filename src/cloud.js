@@ -1412,11 +1412,14 @@ function openSheet2(html){
   $("#scrim2").classList.add("show"); s.classList.add("show");
   document.body.classList.add("sheet-open");
   if(typeof bindSheetKeyboardScroll==="function") bindSheetKeyboardScroll(s);
+  if(typeof injectSheetX==="function") injectSheetX(s, closeSheet2);
+  if(typeof modalOpen==="function") modalOpen(s, closeSheet2);
   return s;
 }
 function closeSheet2(){
   $("#scrim2").classList.remove("show"); $("#sheet2").classList.remove("show");
   if(!$("#sheet").classList.contains("show")) document.body.classList.remove("sheet-open");
+  if(typeof modalClose==="function") modalClose($("#sheet2"));
 }
 $("#scrim2").addEventListener("click",closeSheet2);
 
@@ -1710,7 +1713,7 @@ function wireShareSheet(s, l, isOwner, prettyName){
         Cloud.renameList(l.id, nv).then(function(ok){ if(ok) openShareSheet(l.id); });
       };
       s.querySelector("#sh-rename-save").addEventListener("click", doSave);
-      inp.addEventListener("keydown", function(e){ if(e.key==="Enter") doSave(); if(e.key==="Escape") openShareSheet(l.id); });
+      inp.addEventListener("keydown", function(e){ if(e.key==="Enter") doSave(); if(e.key==="Escape"){ e.stopPropagation(); openShareSheet(l.id); } });
     });
   }
 }
@@ -1760,6 +1763,9 @@ function shareNative(url, text, fallbackMsg){
 /* ---- publieke stuur-pagina (geen lidmaatschap) ---- */
 function openSendScreen(token){
   var scr=$("#send-screen"); scr.classList.add("show");
+  // Deep-link-pagina (?send=…): geen eigen history-entry (back = browser-geschiedenis), wel Escape/X
+  function closeSendScreen(){ try{ history.replaceState({}, "", location.pathname); }catch(e){} scr.classList.remove("show"); if(typeof modalClose==="function") modalClose(scr); }
+  if(typeof modalOpen==="function") modalOpen(scr, closeSendScreen, {history:false});
   var added=[];
   function renderError(msg){
     scr.innerHTML =
@@ -1769,10 +1775,7 @@ function openSendScreen(token){
       '<div class="ss-sub">'+escapeHtml(msg||"Deze stuur-link is verlopen of de lijst is verwijderd.")+'</div>'+
       '<button class="mbtn primary" id="ss-back" style="margin-top:26px">Terug naar Mandje</button>';
     var back = scr.querySelector("#ss-back");
-    if(back) back.addEventListener("click", function(){
-      try{ history.replaceState({}, "", location.pathname); }catch(e){}
-      scr.classList.remove("show");
-    });
+    if(back) back.addEventListener("click", closeSendScreen);
   }
   function render(listName){
     Shortcuts.load();

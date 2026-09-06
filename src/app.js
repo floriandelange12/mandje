@@ -671,7 +671,7 @@ function flyToAvatar(fromEl, toEl, label){
   }catch(e){}
 }
 
-var CHECK_SVG='<svg viewBox="0 0 24 24" fill="none" stroke="var(--on-green)" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path pathLength="24" d="M20 6 9 17l-5-5"/></svg>';
+var CHECK_SVG='<svg viewBox="0 0 24 24" fill="none" stroke="var(--on-brand)" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path pathLength="24" d="M20 6 9 17l-5-5"/></svg>';
 
 /* ============================================================
    TOAST
@@ -856,18 +856,20 @@ function renderLijst(){
       var arr=byCat[cid]; if(!arr || !arr.length) return;
       var c=CAT_BY_ID[cid]||CAT_BY_ID["overig"];
       var collapsed = !!(state.settings.collapsedCats && state.settings.collapsedCats[cid]);
-      var sec=el("div","section collapsible"+(collapsed?" collapsed":""));
-      sec.innerHTML='<span class="cat-emoji emoji">'+glyphHtml(c.glyph)+'</span><span>'+escapeHtml(c.label)+'</span><span class="count">'+arr.length+'</span><svg class="sec-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>';
+      var sec=el("button","section collapsible"+(collapsed?" collapsed":""));
+      sec.type="button"; sec.setAttribute("aria-expanded", collapsed?"false":"true"); sec.setAttribute("aria-controls","cat-"+cid);
+      sec.innerHTML=shelfIcon(c)+'<span>'+escapeHtml(c.label)+'</span><span class="count">'+arr.length+'</span><svg class="sec-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>';
       openFrag.appendChild(sec);
-      var ul=el("ul","list"+(collapsed?" collapsed":""));
+      var ul=el("ul","list"+(collapsed?" collapsed":"")); ul.id="cat-"+cid;
       arr.forEach(function(it){ ul.appendChild(itemRow(it)); });
       openFrag.appendChild(ul);
       sec.addEventListener("click", function(){
         state.settings.collapsedCats = state.settings.collapsedCats || {};
         state.settings.collapsedCats[cid] = !state.settings.collapsedCats[cid];
         save();
-        sec.classList.toggle("collapsed");
-        ul.classList.toggle("collapsed");
+        var nowCollapsed = sec.classList.toggle("collapsed");
+        ul.classList.toggle("collapsed", nowCollapsed);
+        sec.setAttribute("aria-expanded", nowCollapsed?"false":"true");
       });
     });
     if(done.length){
@@ -904,7 +906,7 @@ function itemRow(it){
     li.classList.add("entering");
     setTimeout(function(){ li.classList.remove("entering"); }, 360);
   }
-  li.appendChild(el("div","behind",'<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg><span>Verwijder</span>'));
+  li.appendChild(el("div","behind",'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg><span>Verwijder</span>'));
   var card=el("div","card");
 
   var sub="";
@@ -1065,7 +1067,7 @@ function renderDueBanner(){
   var chips=el("div","chips");
   top.forEach(function(d){
     var c=CAT_BY_ID[d.e.category]||CAT_BY_ID["overig"];
-    var chip=el("button","chip amber",'<span class="emoji">'+c.glyph+'</span><span>'+escapeHtml(d.e.name)+'</span><span class="plus">+</span>');
+    var chip=el("button","chip amber",shelfIcon(c)+'<span>'+escapeHtml(d.e.name)+'</span><span class="plus">+</span>');
     chip.addEventListener("click",function(){ addToList(d.e.name, d.e.defaultPrice); toast(d.e.name+" toegevoegd"); });
     chips.appendChild(chip);
   });
@@ -1098,10 +1100,11 @@ function renderShopEntry(){
 function openShoppingMode(){
   var scr=$("#shop-screen"); if(!scr) return;
   scr.classList.add("show");
+  modalOpen(scr, closeShoppingMode);
   renderShoppingMode();
 }
 function closeShoppingMode(){
-  var scr=$("#shop-screen"); if(scr) scr.classList.remove("show");
+  var scr=$("#shop-screen"); if(scr){ scr.classList.remove("show"); modalClose(scr); }
 }
 function shopRow(it){
   var row=el("button","shop-row"+(it.done?" done":"")); row.type="button";
@@ -1136,7 +1139,7 @@ function renderShoppingMode(){
   catBuckets(byCat).forEach(function(cid){
     var arr=byCat[cid]; if(!arr||!arr.length) return;
     var c=CAT_BY_ID[cid]||CAT_BY_ID["overig"];
-    body.appendChild(el("div","shop-sec",'<span class="cat-emoji emoji">'+glyphHtml(c.glyph)+'</span><span>'+escapeHtml(c.label)+'</span>'));
+    body.appendChild(el("div","shop-sec",shelfIcon(c)+'<span>'+escapeHtml(c.label)+'</span>'));
     arr.forEach(function(it){ body.appendChild(shopRow(it)); });
   });
   if(done.length){
@@ -1270,7 +1273,7 @@ function buildMealEditor(id){
       '<button class="save" id="ml-save">'+(m?"Opslaan":"Aanmaken")+'</button>'+
       (m?'<button class="del" id="ml-del">Verwijder</button>':'<button class="del" id="ml-cancel">Annuleren</button>')+
     '</div>';
-  $("#scrim").classList.add("show"); sh.classList.add("show"); document.body.classList.add("sheet-open"); bindSheetKeyboardScroll(sh);
+  openSheetUI();
   setTimeout(function(){ var i=$("#ml-name"); if(i) i.focus(); }, 260);
   sh.querySelectorAll("#ml-emojis .ep-cell").forEach(function(b){
     b.addEventListener("click", function(){
@@ -1303,7 +1306,7 @@ function vasteRow(r){
   if(isDue(r.a)) info='<b>Bijna op</b> · '+info;
   var autoBadge = r.e.autoAdd ? '<span class="vauto">Auto</span>' : '';
   div.innerHTML=
-    '<div class="vemoji">'+c.glyph+'</div>'+
+    shelfIcon(c,{bubble:true})+
     '<div class="vmeta"><div class="vname"></div><div class="vcad">'+info+'</div></div>'+
     autoBadge+
     '<button class="vadd" aria-label="Toevoegen">'+(onList?'✓':'+')+'</button>';
@@ -1564,7 +1567,7 @@ function buildSheet(d){
   var renderCatChips = function(){
     catWrap.innerHTML="";
     getAllCats().forEach(function(c){
-      var b=el("button","catchip"+(c.id===chosenCat?" on":""),'<span class="emoji">'+glyphHtml(c.glyph)+'</span><span>'+escapeHtml(c.label)+'</span>');
+      var b=el("button","catchip"+(c.id===chosenCat?" on":""),shelfIcon(c)+'<span>'+escapeHtml(c.label)+'</span>');
       b.addEventListener("click",function(){ chosenCat=c.id; catWrap.querySelectorAll(".catchip").forEach(function(x){x.classList.remove("on");}); b.classList.add("on"); });
       // Long-press: pictogram wijzigen via emoji-picker (in 2e sheet, blijft buildSheet open)
       attachLongPress(b, function(){
@@ -1677,6 +1680,7 @@ function attachSheetDismiss(sheetEl, closeFn){
   if(!sheetEl) return;
   var startY=0, curY=0, dragging=false;
   sheetEl.addEventListener("touchstart", function(e){
+    if(typeof sheetLayout==="function" && sheetLayout()!=="bottom"){ dragging=false; return; }   // dialoog/zijpaneel: geen swipe-down
     // Alleen starten in de bovenste ~70px (grip + titel), niet midden in content
     var rect = sheetEl.getBoundingClientRect();
     if(e.touches[0].clientY - rect.top > 70){ dragging=false; return; }
@@ -1695,10 +1699,11 @@ function attachSheetDismiss(sheetEl, closeFn){
     else { sheetEl.style.transform=""; }
   });
 }
-function openSheetUI(){ $("#scrim").classList.add("show"); $("#sheet").classList.add("show"); document.body.classList.add("sheet-open"); bindSheetKeyboardScroll($("#sheet")); }
+function openSheetUI(){ var s=$("#sheet"); $("#scrim").classList.add("show"); s.classList.add("show"); document.body.classList.add("sheet-open"); bindSheetKeyboardScroll(s); injectSheetX(s, closeSheet); modalOpen(s, closeSheet); }
 function closeSheet(){
   $("#scrim").classList.remove("show"); $("#sheet").classList.remove("show"); sheetCtx=null;
   if(!$("#sheet2").classList.contains("show")) document.body.classList.remove("sheet-open");
+  modalClose($("#sheet"));
 }
 $("#scrim").addEventListener("click",closeSheet);
 
@@ -1778,7 +1783,7 @@ function buildAC(q){
   list.innerHTML="";
   results.forEach(function(r){
     var c=CAT_BY_ID[r.cat]||CAT_BY_ID["overig"];
-    var row=el("div","ac-item",'<span class="ac-emoji emoji">'+c.glyph+'</span><span class="ac-name">'+escapeHtml(r.name)+'</span>'+(qmod?'<span class="ac-qmod">'+qmod+'</span>':'')+'<span class="ac-add">+</span>');
+    var row=el("div","ac-item",shelfIcon(c,{bubble:true})+'<span class="ac-name">'+escapeHtml(r.name)+'</span>'+(qmod?'<span class="ac-qmod">'+qmod+'</span>':'')+'<span class="ac-add">+</span>');
     row.addEventListener("click",function(){
       // gebruik de qty/eenheid die in het invoerveld stond als die er was
       var pq = parseQtyFromInput($("#add-name").value || "");
@@ -1923,7 +1928,7 @@ function makeSortableList(container, items, onReorder){
     var row = el("div","sort-row");
     row.dataset.id = item.id;
     row.innerHTML =
-      '<span class="sr-emoji emoji">'+item.glyph+'</span>'+
+      shelfIcon(CAT_BY_ID[item.id]||item,{bubble:true})+
       '<span class="sr-label"></span>'+
       (item.isCustom?'<button class="sr-del" type="button">Verwijder</button>':'')+
       '<span class="sr-handle" aria-label="Sleep"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></span>';
@@ -1970,7 +1975,7 @@ function openAddCategorySheet(){
       '<button class="save" id="nc-go">Toevoegen</button>'+
       '<button class="del" id="nc-cancel">Annuleren</button>'+
     '</div>';
-  $("#scrim").classList.add("show"); sh.classList.add("show"); document.body.classList.add("sheet-open"); bindSheetKeyboardScroll(sh);
+  openSheetUI();
   setTimeout(function(){ var i=$("#nc-name"); if(i) i.focus(); }, 260);
   sh.querySelectorAll("#nc-emojis .ep-cell").forEach(function(b){
     b.addEventListener("click", function(){
@@ -2018,14 +2023,14 @@ function openEmojiPickerForCat(catId, onPick){
       '<button class="save" id="em-go">Opslaan</button>'+
       '<button class="del" id="em-cancel">Annuleren</button>'+
     '</div>';
-  scrim.classList.add("show"); sh.classList.add("show");
+  var close = function(){ scrim.classList.remove("show"); sh.classList.remove("show"); modalClose(sh); };
+  scrim.classList.add("show"); sh.classList.add("show"); modalOpen(sh, close);
   sh.querySelectorAll("#em-pick .ep-cell").forEach(function(b){
     b.addEventListener("click", function(){
       sh.querySelectorAll("#em-pick .ep-cell").forEach(function(x){x.classList.remove("on");});
       b.classList.add("on"); picked = b.dataset.em;
     });
   });
-  var close = function(){ scrim.classList.remove("show"); sh.classList.remove("show"); };
   $("#em-cancel").addEventListener("click", close);
   $("#em-go").addEventListener("click", function(){
     state.settings.customCatEmoji = state.settings.customCatEmoji || {};
@@ -2045,7 +2050,7 @@ function openBulkPasteSheet(){
       '<button class="save" id="bulk-go">Toevoegen</button>'+
       '<button class="del" id="bulk-cancel">Annuleren</button>'+
     '</div>';
-  $("#scrim").classList.add("show"); sh.classList.add("show"); document.body.classList.add("sheet-open"); bindSheetKeyboardScroll(sh);
+  openSheetUI();
   setTimeout(function(){ var i=$("#bulk-input"); if(i) i.focus(); }, 260);
   $("#bulk-cancel").addEventListener("click", closeSheet);
   $("#bulk-go").addEventListener("click", function(){
@@ -2105,7 +2110,7 @@ function effectiveTheme(){
 function applyTheme(){
   var eff=effectiveTheme();
   document.documentElement.setAttribute("data-theme",eff);
-  var color=eff==="dark"?"#141410":"#F6F4EF";
+  var color=eff==="dark"?"#15130F":"#F3EDE3";
   // Eén theme-color-meta (zonder media-attribuut) die altijd het effectieve thema volgt —
   // anders bleef de statusbalk crème bij handmatig 'Donker' op een licht systeem.
   var m=document.querySelector('meta[name="theme-color"]');
@@ -2154,6 +2159,7 @@ function emptyState(icon,h,p,actionLabel,actionFn){
       '<path d="M29 55 L34 55" opacity=".5"/>'+
     '</svg>'
   };
+  if(icon==="bag" && typeof HERO_BASKET_SVG!=="undefined") icons.bag = HERO_BASKET_SVG;
   var e=el("div","empty hero");
   e.innerHTML='<div class="ico">'+(icons[icon]||icons.bag)+'</div><h2>'+h+'</h2><p>'+p+'</p>';
   if(actionLabel && typeof actionFn === "function"){
@@ -2168,6 +2174,20 @@ function escapeHtml(s){ return (s||"").replace(/[&<>"]/g,function(c){return {"&"
 function escapeAttr(s){ return escapeHtml(s).replace(/'/g,"&#39;"); }
 /* Schap-pictogram (emoji, ook uit eigen schappen = gebruikersinvoer) veilig als HTML */
 function glyphHtml(g){ return escapeHtml(String(g||"").slice(0,8)); }
+/* Schap-icoon: eigen lijn-icoon (src/icons.js) in de schap-kleur; eigen schappen en emoji-overrides houden hun emoji.
+   opts.bubble = getinte bubbel eromheen (lijstrijen, autocomplete). */
+function shelfIcon(cat, opts){
+  opts = opts || {};
+  var id = cat && cat.id;
+  var svg = (typeof SHELF_ICONS !== "undefined" && id) ? SHELF_ICONS[id] : null;
+  var grp = (typeof SHELF_GROUP !== "undefined" && id && SHELF_GROUP[id]) || "huis";
+  var override = !!(state && state.settings && state.settings.customCatEmoji && id && state.settings.customCatEmoji[id]);
+  var cls = "shelf-ico shelf-" + grp + (opts.bubble ? " shelf-bubble" : "");
+  if(!svg || (cat && cat.isCustom) || override){
+    return '<span class="' + cls + ' is-emoji" aria-hidden="true"><span class="emoji">' + glyphHtml(cat ? cat.glyph : "🛒") + '</span></span>';
+  }
+  return '<span class="' + cls + '" aria-hidden="true">' + svg + '</span>';
+}
 
 /* Event-delegated tap-ripples — Material-Design-light. Werkt op chips,
    menu-knoppen en sheet-acties. Hosts zijn al position:relative+overflow:hidden
@@ -2338,6 +2358,7 @@ function openBarcodeScanScreen(){
     '</div>'+
     '<button class="mbtn" id="bc-close" style="margin-top:18px">Sluiten</button>';
   scr.classList.add("show");
+  modalOpen(scr, closeBarcodeScanScreen);
   var close=$("#bc-close"); if(close) close.addEventListener("click", closeBarcodeScanScreen);
   var mi=$("#bc-manual-input"), ma=$("#bc-manual-add");
   var manualAdd=function(){ var v=(mi.value||"").trim(); if(!v) return; var p=parseQtyFromInput(v); addToList(p.name, null, {qty:p.qty, unit:p.unit}); toast(p.name+" toegevoegd"); closeBarcodeScanScreen(); };
@@ -2401,7 +2422,7 @@ function stopBarcodeScanner(){
 function closeBarcodeScanScreen(){
   _bcSession++;
   stopBarcodeScanner();
-  var scr=$("#barcode-screen"); if(scr) scr.classList.remove("show");
+  var scr=$("#barcode-screen"); if(scr){ scr.classList.remove("show"); modalClose(scr); }
 }
 function onBarcodeDecoded(text){
   var ean=(text||"").trim(); if(!ean) return;
@@ -2524,7 +2545,7 @@ function maybeIntro(){
     if(!name){ resEl.classList.remove("show"); resEl.innerHTML=""; if(hintEl) hintEl.textContent=""; return; }
     var c = CAT_BY_ID[classify(name)] || CAT_BY_ID["overig"];
     var disp = name.charAt(0).toUpperCase()+name.slice(1);
-    resEl.innerHTML = '<span class="idemo-chip"><span class="emoji">'+(c?c.glyph:"🛒")+'</span>'+escapeHtml(disp)+'</span>'+
+    resEl.innerHTML = '<span class="idemo-chip">'+shelfIcon(c||CAT_BY_ID["overig"])+escapeHtml(disp)+'</span>'+
       '<span class="idemo-arrow">→</span>'+
       '<span class="idemo-shelf">'+escapeHtml(c?c.label:"Overig")+'</span>';
     if(!resEl.classList.contains("show")) resEl.classList.add("show");
@@ -2580,7 +2601,7 @@ function maybeIntro(){
       });
     }
   };
-  $("#scrim").classList.add("show"); sh.classList.add("show");
+  openSheetUI();
   render();
 }
 
@@ -2622,6 +2643,7 @@ function initApp(){
 
   $("#add-btn").addEventListener("click",doAdd);
   $("#add-name").addEventListener("keydown",function(e){ if(e.key==="Enter") doAdd(); });
+  document.addEventListener("keydown", onGlobalKey);   // Escape-hiërarchie, Tab-trap, sneltoetsen (src/overlays.js)
   $("#add-name").addEventListener("input",function(){ buildAC(this.value); });
   $("#add-name").addEventListener("blur",function(){ setTimeout(hideAC,180); });
   attachLongPress($("#add-btn"), function(){
@@ -2641,7 +2663,6 @@ function initApp(){
   setupOfflineIndicator();
   setupTopShareBtn();
   setupPullToRefresh();
-  setupRipples();
   setupServiceWorker();
   setupBarcode();
   // Swipe-down-to-close op beide sheets (1× binden — containers zijn persistent)
@@ -2689,7 +2710,10 @@ function initApp(){
     });
   },{passive:true});
 
-  document.addEventListener("dblclick",function(e){ e.preventDefault(); },{passive:false});
+  // Dubbeltik-zoom voorkomen op touch; op desktop mag dubbelklik gewoon tekst selecteren
+  if(!(window.matchMedia && window.matchMedia("(hover:hover) and (pointer:fine)").matches)){
+    document.addEventListener("dblclick",function(e){ e.preventDefault(); },{passive:false});
+  }
 
   renderLijst(); renderDueBanner();
   switchTab("lijst");

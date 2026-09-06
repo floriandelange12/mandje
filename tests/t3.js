@@ -352,7 +352,7 @@ const ok=(n,c)=>{ if(c){pass++;console.log("  ✓ "+n);} else {fail++;console.lo
     ok("Fase0: subhead telt 1 te halen", /1 te halen/.test(doc28.querySelector("#subhead").textContent));
     // thema-meta: precies één theme-color en die volgt het thema
     ok("Fase0: precies één theme-color-meta", doc28.querySelectorAll('meta[name="theme-color"]').length===1);
-    ok("Fase0: theme-color volgt licht thema", doc28.querySelector('meta[name="theme-color"]').getAttribute("content")==="#F6F4EF");
+    ok("Fase0: theme-color volgt licht thema", doc28.querySelector('meta[name="theme-color"]').getAttribute("content")==="#F3EDE3");
     // statische CSS-invarianten in de gebouwde bundel
     ok("Fase0: rode swipe-laag alleen tijdens vegen (.row.swiping .behind)", /\.row\.swiping \.behind\{\s*opacity:1/.test(html) && /\.row \.behind\{[^}]*opacity:0/.test(html));
     const zi=(sel)=>{ const m=html.match(new RegExp(sel.replace(/[.\-]/g,"\\$&")+"\\{[^}]*z-index:(\\d+)")); return m?+m[1]:-1; };
@@ -364,7 +364,7 @@ const ok=(n,c)=>{ if(c){pass++;console.log("  ✓ "+n);} else {fail++;console.lo
     const dom28b=new JSDOM(html,{url:"https://example.com/",runScripts:"dangerously",resources:"usable",pretendToBeVisual:true,
       beforeParse(w){ w.localStorage.setItem("mandje.v2", seed([],{theme:"dark"})); }});
     await wait(120);
-    ok("Fase0: theme-color volgt donker thema", dom28b.window.document.querySelector('meta[name="theme-color"]').getAttribute("content")==="#141410");
+    ok("Fase0: theme-color volgt donker thema", dom28b.window.document.querySelector('meta[name="theme-color"]').getAttribute("content")==="#15130F");
     dom28b.window.close();
 
     // c) zoekfilter overleeft een re-render + toast-dode-zone

@@ -49,7 +49,13 @@ if (app.indexOf(MARKER) === -1) {
   console.error("✗ Build-marker niet gevonden in src/app.js — build gestopt.");
   process.exit(1);
 }
-const combined = app.replace(MARKER, () => "\n/* ===== CLOUD MODULE ===== */\n" + cloud + "\n\n" + MARKER);
+// Prelude-modules (iconen, overlays/toetsenbord) gaan BINNEN de IIFE vóór de app-code — function-declaraties
+// worden gehoist, dus app.js kan ze overal gebruiken; window blijft schoon.
+const PRELUDE = ["src/icons.js", "src/overlays.js"].filter(p => fs.existsSync(path.join(root, p)));
+const prelude = PRELUDE.map(p => "/* ===== " + p + " ===== */\n" + readSafe(p)).join("\n");
+const IIFE_OPEN = '"use strict";\n(function(){\n';
+if (app.indexOf(IIFE_OPEN) !== 0) { console.error("✗ src/app.js begint niet met de verwachte IIFE-opener — build gestopt."); process.exit(1); }
+const combined = (IIFE_OPEN + prelude + "\n" + app.slice(IIFE_OPEN.length)).replace(MARKER, () => "\n/* ===== CLOUD MODULE ===== */\n" + cloud + "\n\n" + MARKER);
 
 // assets (base64)
 const icons = {};
