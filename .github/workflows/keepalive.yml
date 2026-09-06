@@ -1,0 +1,24 @@
+# Houdt het gratis Supabase-project wakker: het gratis plan pauzeert een project na een week zonder
+# databaseverkeer. Elke drie dagen één klein REST-verzoek (RLS geeft een lege lijst terug, maar de
+# query raakt de database en telt als activiteit). URL en publishable key komen uit src/shell.html.
+name: Supabase keep-alive
+
+on:
+  schedule:
+    - cron: "17 6 */3 * *"   # elke 3 dagen om 06:17 UTC
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ping de database
+        run: |
+          URL=$(grep -oE 'SUPABASE_URL:\s*"[^"]+"' src/shell.html | grep -oE 'https://[^"]+')
+          KEY=$(grep -oE 'SUPABASE_ANON_KEY:\s*"[^"]+"' src/shell.html | sed -E 's/.*"([^"]+)"/\1/')
+          if [ -z "$URL" ] || [ -z "$KEY" ]; then echo "Geen Supabase-config in src/shell.html — niets te doen"; exit 0; fi
+          code=$(curl -sS --max-time 30 -o /tmp/body -w "%{http_code}" "$URL/rest/v1/lists?select=id&limit=1" -H "apikey: $KEY" -H "Authorization: Bearer $KEY")
+          echo "REST-antwoord: $code"; head -c 300 /tmp/body; echo
+          case "$code" in 200|401|403|404) exit 0 ;; *) echo "Onverwachte status $code"; exit 1 ;; esac
