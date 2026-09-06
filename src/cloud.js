@@ -273,13 +273,24 @@ var Cloud = {
   },
   /* ---- web push (Fase 5, dormant tot VAPID_PUBLIC_KEY + backend bestaan) ---- */
   pushEnabled:function(){ return !!((window.MANDJE_CONFIG&&window.MANDJE_CONFIG.VAPID_PUBLIC_KEY)) && ("serviceWorker" in navigator) && ("PushManager" in window) && ("Notification" in window); },
+  /* Geeft {ok, reason} terug: ok | unsupported | no-cloud | denied | dismissed | no-sw | error.
+     iOS: alleen als de app op het beginscherm staat (anders is PushManager er niet). */
   subscribeToPush:async function(){
-    if(!this.pushEnabled() || !this.ready || !this.userId) return false;
+    if(!this.pushEnabled()) return {ok:false, reason:"unsupported"};
+    if(!this.ready || !this.userId) return {ok:false, reason:"no-cloud"};
     var key=window.MANDJE_CONFIG.VAPID_PUBLIC_KEY;
     try{
-      var perm=await Notification.requestPermission();
-      if(perm!=="granted") return false;
-      var reg=await navigator.serviceWorker.ready;
+      var perm=null;
+      try{
+        perm=await new Promise(function(res){
+          var p=null;
+          try{ p=Notification.requestPermission(function(r){ res(r); }); }catch(e){ res(Notification.permission); return; }
+          if(p && typeof p.then==="function") p.then(res, function(){ res(Notification.permission); });
+        });
+      }catch(e){ perm=Notification.permission; }
+      if(perm!=="granted") return {ok:false, reason:(perm==="denied" ? "denied" : "dismissed")};
+      var reg=await Promise.race([navigator.serviceWorker.ready, new Promise(function(res){ setTimeout(function(){ res(null); }, 8000); })]);
+      if(!reg || !reg.pushManager) return {ok:false, reason:"no-sw"};
       var sub=await reg.pushManager.getSubscription();
       if(!sub) sub=await reg.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey:urlB64ToUint8Array(key) });
       var j=sub.toJSON();
@@ -288,10 +299,10 @@ var Cloud = {
         p256dh:(j.keys&&j.keys.p256dh)||"", auth:(j.keys&&j.keys.auth)||"",
         updated_at:new Date().toISOString()
       }, { onConflict:"endpoint" });
-      if(r.error){ if(typeof toast==="function") toast("Herinneringen aanzetten lukte niet"); return false; }
+      if(r.error){ console.warn("Mandje: push_subscriptions upsert faalde", r.error); return {ok:false, reason:"error"}; }
       if(typeof state!=="undefined" && state && state.settings){ state.settings.pushOn = true; if(typeof save==="function") save(); }
-      return true;
-    }catch(e){ return false; }
+      return {ok:true, reason:"ok"};
+    }catch(e){ console.warn("Mandje: push aanzetten faalde", e); return {ok:false, reason:"error"}; }
   },
   unsubscribePush:async function(){
     // Voorkeur éérst uitzetten (vóór de await) zodat een parallelle init niet her-abonneert
@@ -438,6 +449,7 @@ var Cloud = {
         this._stateSummaryAt = Date.now ? Date.now() : 0;
         this._notifiedEnabled = false;
         this._notifiedError = false;
+        if(typeof refreshOfflineBadge === "function") refreshOfflineBadge();   // "Lokaal"-pil weg zodra de cloud er is
         if(typeof window !== "undefined"){
           if(typeof window.refreshTopShareBtn === "function") window.refreshTopShareBtn();
           if(typeof window.updateSubhead === "function") window.updateSubhead();

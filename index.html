@@ -327,6 +327,13 @@
   .pw input.pricein::placeholder{ color:var(--ink-faint); font-weight:var(--fw-medium); }
   .addbtn{ flex:0 0 var(--tap-size); width:var(--tap-size); height:var(--tap-size); border:0; border-radius:var(--r-md); background:var(--brand); color:var(--on-brand); display:flex; align-items:center; justify-content:center; margin-left:0; box-shadow:var(--el-1); transition:transform var(--dur-instant) var(--ease-out), filter var(--dur-instant) var(--ease-inout); }
   .addbtn svg{ width:22px; height:22px; }
+  /* leeg veld: rustige knop; pas met tekst wordt hij brand-groen */
+  .addbtn:not(.ready){ background:var(--surface-3); color:var(--ink-faint); box-shadow:none; }
+  .shop-add .shop-add-btn:not(.ready){ background:var(--surface-3); color:var(--ink-faint); }
+  /* zoek-icoon in het typ-veld van de scanner (had geen maat → vulde de hele kaart) */
+  .field > svg.lead{ width:18px; height:18px; flex:0 0 18px; margin-left:10px; color:var(--ink-faint); }
+  #bc-reader{ position:relative; }
+  #bc-reader::after{ content:""; position:absolute; left:4%; right:4%; top:18%; bottom:18%; border:2px solid rgba(255,255,255,.85); border-radius:var(--r-md); box-shadow:0 0 0 999px rgba(0,0,0,.18); pointer-events:none; }
   .addbtn:active{ transform:var(--press); filter:brightness(.92); }
   .addbtn-bulk{ flex:0 0 var(--tap-size-sm); width:var(--tap-size-sm); height:var(--tap-size-sm); margin-left:6px; border:0; border-radius:var(--r-md); background:var(--surface-3); color:var(--ink-soft); display:flex; align-items:center; justify-content:center; transition:transform var(--dur-instant) var(--ease-out), background var(--dur-fast) var(--ease-inout); }
   .addbtn-bulk svg{ width:18px; height:18px; }
@@ -1177,7 +1184,8 @@
     .ra-btn svg{ width:17px; height:17px; }
     .ra-btn:hover{ background:var(--surface-3); color:var(--ink); }
     .ra-btn.ra-del:hover{ background:var(--danger-2); color:var(--danger); }
-    .addbtn:hover:not(:active){ background:var(--brand-strong); box-shadow:var(--el-2); }
+    .addbtn.ready:hover:not(:active){ background:var(--brand-strong); box-shadow:var(--el-2); }
+    .addbtn:not(.ready):hover{ background:var(--line-strong); color:var(--ink-soft); }
     .addbtn-bulk:hover, .field-scan:hover, .topbar .gear:hover, .topbar .share-top:hover, .search-bar .search-clear:hover, .co-suggest .cs-close:hover, .shop-head .shop-close:hover, .banner .b-dismiss:hover, .sheet-x:hover{ background:var(--surface-3); color:var(--ink); }
     .field-scan:hover{ color:var(--brand); }
     .chip:hover:not(:active), .sc-chip:hover:not(:active), .list-switch:hover, .members-row .share-btn:hover{ background:var(--line); }
@@ -1218,7 +1226,7 @@
   window.MANDJE_CONFIG = {
     SUPABASE_URL:      "https://yctcpxgjpmhyohbsrygy.supabase.co",   /* ingevuld ✓ */
     SUPABASE_ANON_KEY: "sb_publishable_lT77Nkcrl6VsBIx-PFuMtw_mdJ6fyNj",   /* ingevuld ✓ (publishable key) */
-    BUILD:             "c80615c9", /* wordt door build.js vervangen door datum + inhoudshash (nooit handmatig ophogen) */
+    BUILD:             "45072bc5", /* wordt door build.js vervangen door datum + inhoudshash (nooit handmatig ophogen) */
     EMAIL_AUTH:        false, /* zet op true zodra e-mail magic-link aan staat in Supabase → toont "Beveilig je account" */
     VAPID_PUBLIC_KEY:  "BIkVm3JYB2t37GOXQlMTwSRipLcEvjrDY8Kb2mmNOIIrRY4zmR57RznHTJ2NQ5Z9h1fkp3if2OkDGmcmItLjy54"  /* public key (veilig in frontend). Privésleutel staat alleen als Supabase-secret. */
   };
@@ -3944,7 +3952,7 @@ function buildShopChrome(scr){
     e.preventDefault();
     var inp=scr.querySelector("#shop-add-name"); var p=parseQtyFromInput(inp.value||""); if(!p.name) return;
     if(addToList(p.name, null, {qty:p.qty, unit:p.unit, silent:true})){
-      inp.value=""; vibe("tick");
+      inp.value=""; if(inp._updAdd) inp._updAdd(); vibe("tick");
       renderShopBody();
       var k=norm(p.name), row=null;
       scr.querySelectorAll("#shop-body .shop-row").forEach(function(r){ if(!row && norm(r.dataset.name||"")===k) row=r; });
@@ -3954,6 +3962,7 @@ function buildShopChrome(scr){
       toast(p.name+(c?" → "+c.label:""), {duration:1400});
     }
   });
+  bindAddState(scr.querySelector("#shop-add-name"), scr.querySelector(".shop-add-btn"));
   scr.querySelector("#shop-hide").addEventListener("click", function(){
     var on=!scr.classList.contains("hide-done");
     scr.classList.toggle("hide-done", on);
@@ -4326,7 +4335,22 @@ function renderMeer(){
       var onP = !!(state.settings.pushOn) && (typeof Notification!=="undefined" && Notification.permission==="granted");
       var rsw = switchBtn("Herinneringen", onP, function(){
         if(rsw.classList.contains("on")){ Cloud.unsubscribePush(); rsw.classList.remove("on"); rsw.setAttribute("aria-checked","false"); toast("Herinneringen uit"); }
-        else { Cloud.subscribeToPush().then(function(ok){ if(ok){ rsw.classList.add("on"); rsw.setAttribute("aria-checked","true"); toast("Herinneringen aan ✓"); } else { toast("Toestemming geweigerd"); } }); }
+        else {
+          Cloud.subscribeToPush().then(function(res){
+            var ok = res===true || (res && res.ok);
+            if(ok){ rsw.classList.add("on"); rsw.setAttribute("aria-checked","true"); toast("Herinneringen aan ✓"); return; }
+            var why = (res && res.reason) || "error";
+            var msg = {
+              "no-cloud":   "Meldingen hebben verbinding met de cloud nodig — probeer het zo nog eens",
+              "denied":     "Meldingen zijn geblokkeerd voor Mandje. Zet ze aan bij Instellingen → Meldingen → Mandje",
+              "dismissed":  "Je hebt de vraag weggetikt — tik nog eens en kies 'Sta toe'",
+              "unsupported":"Dit toestel ondersteunt geen meldingen voor webapps",
+              "no-sw":      "De app is nog niet klaar op de achtergrond — herlaad en probeer het opnieuw",
+              "error":      "Aanzetten lukte niet — probeer het straks nog eens"
+            }[why] || "Aanzetten lukte niet";
+            toast(msg, {duration:5000});
+          });
+        }
       });
       remRow.appendChild(rsw);
       gP.appendChild(remRow);
@@ -4818,13 +4842,22 @@ function attachSwipe(card,onDelete){
 /* ============================================================
    ADD-FIELD + AUTOCOMPLETE
    ============================================================ */
+/* Plusknop volgt het veld: leeg = rustig grijs (tikken focust het veld), tekst = brand-kleur */
+function bindAddState(inp, btn){
+  if(!inp || !btn) return null;
+  var upd=function(){ var has=!!(inp.value||"").trim(); btn.classList.toggle("ready", has); btn.setAttribute("aria-disabled", has?"false":"true"); };
+  inp.addEventListener("input", upd);
+  btn.addEventListener("click", function(e){ if(!(inp.value||"").trim()){ e.preventDefault(); e.stopImmediatePropagation(); try{ inp.focus(); }catch(x){} } }, true);
+  inp._updAdd=upd; upd();
+  return upd;
+}
 function doAdd(){
   var raw = $("#add-name").value;
   var p = isPlainList() ? { name:(raw||"").trim(), qty:1 } : parseQtyFromInput(raw);
   if(!p.name) return;
   hideAC();  // direct sluiten zodat AC-popover niet "kort flikkert" tussen items
   if(addToList(p.name, null, {qty: p.qty, unit: p.unit})){
-    $("#add-name").value="";
+    $("#add-name").value=""; if($("#add-name")._updAdd) $("#add-name")._updAdd();
     $("#add-name").focus();
     vibe("tick");
   }
@@ -5439,6 +5472,7 @@ function openBarcodeScanScreen(){
   var close=$("#bc-close"); if(close) close.addEventListener("click", closeBarcodeScanScreen);
   var mi=$("#bc-manual-input"), ma=$("#bc-manual-add");
   var manualAdd=function(){ var v=(mi.value||"").trim(); if(!v) return; var p=parseQtyFromInput(v); addToList(p.name, null, {qty:p.qty, unit:p.unit}); toast(p.name+" toegevoegd"); closeBarcodeScanScreen(); };
+  bindAddState(mi, ma);
   if(ma) ma.addEventListener("click", manualAdd);
   if(mi) mi.addEventListener("keydown", function(e){ if(e.key==="Enter") manualAdd(); });
   startBarcodeScanner();
@@ -5466,9 +5500,50 @@ function loadBarcodeDecoder(){
   });
   return _bcLibPromise;
 }
+var _bcStream=null, _bcTick=null;
+function nativeDetectorFormats(){
+  if(!window.BarcodeDetector) return Promise.resolve(null);
+  try{
+    return window.BarcodeDetector.getSupportedFormats().then(function(f){
+      var want=["ean_13","ean_8","upc_a","upc_e","qr_code"].filter(function(x){ return f.indexOf(x)!==-1; });
+      return want.indexOf("ean_13")!==-1 ? want : null;   // zonder EAN heeft het geen zin
+    }, function(){ return null; });
+  }catch(e){ return Promise.resolve(null); }
+}
+function startNativeScanner(mySession, formats){
+  var reader=$("#bc-reader"); if(!reader) return false;
+  var det; try{ det=new window.BarcodeDetector({formats:formats}); }catch(e){ return false; }
+  var video=document.createElement("video"); video.setAttribute("playsinline",""); video.muted=true; video.autoplay=true;
+  reader.innerHTML=""; reader.appendChild(video);
+  bcStatus("Camera starten…");
+  navigator.mediaDevices.getUserMedia({ video:{ facingMode:{ideal:"environment"}, width:{ideal:1280}, height:{ideal:720} }, audio:false }).then(function(stream){
+    if(mySession!==_bcSession){ stream.getTracks().forEach(function(t){ t.stop(); }); return; }
+    _bcStream=stream; video.srcObject=stream;
+    try{ video.play().catch(function(){}); }catch(e){}
+    _bcRunning=true; bcStatus("");
+    var busy=false;
+    var tick=function(){
+      if(mySession!==_bcSession || !_bcRunning) return;
+      if(!busy && video.readyState>=2){
+        busy=true;
+        det.detect(video).then(function(codes){ busy=false; if(codes && codes.length && codes[0].rawValue) onBarcodeDecoded(codes[0].rawValue); }, function(){ busy=false; });
+      }
+      _bcTick=setTimeout(tick, 160);
+    };
+    tick();
+  }, function(){ bcStatus("Kan de camera niet openen — typ de naam"); });
+  return true;
+}
 function startBarcodeScanner(){
   var mySession=_bcSession;
   bcStatus("Scanner laden…");
+  nativeDetectorFormats().then(function(formats){
+    if(mySession!==_bcSession) return;
+    if(formats && startNativeScanner(mySession, formats)) return;
+    startHtml5Scanner(mySession);
+  });
+}
+function startHtml5Scanner(mySession){
   loadBarcodeDecoder().then(function(ok){
     if(mySession!==_bcSession) return;   // scherm intussen gesloten of heropend → deze start is verouderd
     if(!ok || !window.Html5Qrcode){ bcStatus("Scanner niet beschikbaar — typ de naam"); return; }
@@ -5478,7 +5553,8 @@ function startBarcodeScanner(){
       _bcScanner = new window.Html5Qrcode("bc-reader", { verbose:false });
       var inst=_bcScanner;
       var F = window.Html5QrcodeSupportedFormats;
-      var config = { fps:10, qrbox:{width:240,height:150} };
+      // Scanvlak = bijna het hele beeld: een streepjescode onderin beeld werd anders nooit gelezen
+      var config = { fps:12, qrbox:function(w,h){ return { width:Math.round(w*0.94), height:Math.round(h*0.7) }; }, experimentalFeatures:{ useBarCodeDetectorIfSupported:true } };
       if(F) config.formatsToSupport = [F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E, F.QR_CODE];   // QR = uitnodig-link van een huisgenoot
       _bcScanner.start({facingMode:"environment"}, config, onBarcodeDecoded, function(){})
         .then(function(){
@@ -5494,6 +5570,8 @@ function startBarcodeScanner(){
 }
 function stopBarcodeScanner(){
   if(_bcScanner && _bcRunning){ try{ _bcScanner.stop().then(function(){ try{ _bcScanner.clear(); }catch(x){} }, function(){}); }catch(e){} }
+  if(_bcTick){ clearTimeout(_bcTick); _bcTick=null; }
+  if(_bcStream){ try{ _bcStream.getTracks().forEach(function(t){ t.stop(); }); }catch(e){} _bcStream=null; }
   _bcRunning=false;
 }
 function closeBarcodeScanScreen(){
@@ -5758,6 +5836,7 @@ function initApp(){
   refreshTopShareBtn();
   applyListType();
 
+  bindAddState($("#add-name"), $("#add-btn"));
   $("#add-btn").addEventListener("click",doAdd);
   $("#add-name").addEventListener("keydown",function(e){
     var list=$("#ac-list"), items=list.classList.contains("show") ? list.querySelectorAll(".ac-item") : [];
@@ -6235,13 +6314,24 @@ var Cloud = {
   },
   /* ---- web push (Fase 5, dormant tot VAPID_PUBLIC_KEY + backend bestaan) ---- */
   pushEnabled:function(){ return !!((window.MANDJE_CONFIG&&window.MANDJE_CONFIG.VAPID_PUBLIC_KEY)) && ("serviceWorker" in navigator) && ("PushManager" in window) && ("Notification" in window); },
+  /* Geeft {ok, reason} terug: ok | unsupported | no-cloud | denied | dismissed | no-sw | error.
+     iOS: alleen als de app op het beginscherm staat (anders is PushManager er niet). */
   subscribeToPush:async function(){
-    if(!this.pushEnabled() || !this.ready || !this.userId) return false;
+    if(!this.pushEnabled()) return {ok:false, reason:"unsupported"};
+    if(!this.ready || !this.userId) return {ok:false, reason:"no-cloud"};
     var key=window.MANDJE_CONFIG.VAPID_PUBLIC_KEY;
     try{
-      var perm=await Notification.requestPermission();
-      if(perm!=="granted") return false;
-      var reg=await navigator.serviceWorker.ready;
+      var perm=null;
+      try{
+        perm=await new Promise(function(res){
+          var p=null;
+          try{ p=Notification.requestPermission(function(r){ res(r); }); }catch(e){ res(Notification.permission); return; }
+          if(p && typeof p.then==="function") p.then(res, function(){ res(Notification.permission); });
+        });
+      }catch(e){ perm=Notification.permission; }
+      if(perm!=="granted") return {ok:false, reason:(perm==="denied" ? "denied" : "dismissed")};
+      var reg=await Promise.race([navigator.serviceWorker.ready, new Promise(function(res){ setTimeout(function(){ res(null); }, 8000); })]);
+      if(!reg || !reg.pushManager) return {ok:false, reason:"no-sw"};
       var sub=await reg.pushManager.getSubscription();
       if(!sub) sub=await reg.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey:urlB64ToUint8Array(key) });
       var j=sub.toJSON();
@@ -6250,10 +6340,10 @@ var Cloud = {
         p256dh:(j.keys&&j.keys.p256dh)||"", auth:(j.keys&&j.keys.auth)||"",
         updated_at:new Date().toISOString()
       }, { onConflict:"endpoint" });
-      if(r.error){ if(typeof toast==="function") toast("Herinneringen aanzetten lukte niet"); return false; }
+      if(r.error){ console.warn("Mandje: push_subscriptions upsert faalde", r.error); return {ok:false, reason:"error"}; }
       if(typeof state!=="undefined" && state && state.settings){ state.settings.pushOn = true; if(typeof save==="function") save(); }
-      return true;
-    }catch(e){ return false; }
+      return {ok:true, reason:"ok"};
+    }catch(e){ console.warn("Mandje: push aanzetten faalde", e); return {ok:false, reason:"error"}; }
   },
   unsubscribePush:async function(){
     // Voorkeur éérst uitzetten (vóór de await) zodat een parallelle init niet her-abonneert
@@ -6400,6 +6490,7 @@ var Cloud = {
         this._stateSummaryAt = Date.now ? Date.now() : 0;
         this._notifiedEnabled = false;
         this._notifiedError = false;
+        if(typeof refreshOfflineBadge === "function") refreshOfflineBadge();   // "Lokaal"-pil weg zodra de cloud er is
         if(typeof window !== "undefined"){
           if(typeof window.refreshTopShareBtn === "function") window.refreshTopShareBtn();
           if(typeof window.updateSubhead === "function") window.updateSubhead();

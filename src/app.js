@@ -2006,7 +2006,7 @@ function buildShopChrome(scr){
     e.preventDefault();
     var inp=scr.querySelector("#shop-add-name"); var p=parseQtyFromInput(inp.value||""); if(!p.name) return;
     if(addToList(p.name, null, {qty:p.qty, unit:p.unit, silent:true})){
-      inp.value=""; vibe("tick");
+      inp.value=""; if(inp._updAdd) inp._updAdd(); vibe("tick");
       renderShopBody();
       var k=norm(p.name), row=null;
       scr.querySelectorAll("#shop-body .shop-row").forEach(function(r){ if(!row && norm(r.dataset.name||"")===k) row=r; });
@@ -2016,6 +2016,7 @@ function buildShopChrome(scr){
       toast(p.name+(c?" → "+c.label:""), {duration:1400});
     }
   });
+  bindAddState(scr.querySelector("#shop-add-name"), scr.querySelector(".shop-add-btn"));
   scr.querySelector("#shop-hide").addEventListener("click", function(){
     var on=!scr.classList.contains("hide-done");
     scr.classList.toggle("hide-done", on);
@@ -2388,7 +2389,22 @@ function renderMeer(){
       var onP = !!(state.settings.pushOn) && (typeof Notification!=="undefined" && Notification.permission==="granted");
       var rsw = switchBtn("Herinneringen", onP, function(){
         if(rsw.classList.contains("on")){ Cloud.unsubscribePush(); rsw.classList.remove("on"); rsw.setAttribute("aria-checked","false"); toast("Herinneringen uit"); }
-        else { Cloud.subscribeToPush().then(function(ok){ if(ok){ rsw.classList.add("on"); rsw.setAttribute("aria-checked","true"); toast("Herinneringen aan ✓"); } else { toast("Toestemming geweigerd"); } }); }
+        else {
+          Cloud.subscribeToPush().then(function(res){
+            var ok = res===true || (res && res.ok);
+            if(ok){ rsw.classList.add("on"); rsw.setAttribute("aria-checked","true"); toast("Herinneringen aan ✓"); return; }
+            var why = (res && res.reason) || "error";
+            var msg = {
+              "no-cloud":   "Meldingen hebben verbinding met de cloud nodig — probeer het zo nog eens",
+              "denied":     "Meldingen zijn geblokkeerd voor Mandje. Zet ze aan bij Instellingen → Meldingen → Mandje",
+              "dismissed":  "Je hebt de vraag weggetikt — tik nog eens en kies 'Sta toe'",
+              "unsupported":"Dit toestel ondersteunt geen meldingen voor webapps",
+              "no-sw":      "De app is nog niet klaar op de achtergrond — herlaad en probeer het opnieuw",
+              "error":      "Aanzetten lukte niet — probeer het straks nog eens"
+            }[why] || "Aanzetten lukte niet";
+            toast(msg, {duration:5000});
+          });
+        }
       });
       remRow.appendChild(rsw);
       gP.appendChild(remRow);
@@ -2880,13 +2896,22 @@ function attachSwipe(card,onDelete){
 /* ============================================================
    ADD-FIELD + AUTOCOMPLETE
    ============================================================ */
+/* Plusknop volgt het veld: leeg = rustig grijs (tikken focust het veld), tekst = brand-kleur */
+function bindAddState(inp, btn){
+  if(!inp || !btn) return null;
+  var upd=function(){ var has=!!(inp.value||"").trim(); btn.classList.toggle("ready", has); btn.setAttribute("aria-disabled", has?"false":"true"); };
+  inp.addEventListener("input", upd);
+  btn.addEventListener("click", function(e){ if(!(inp.value||"").trim()){ e.preventDefault(); e.stopImmediatePropagation(); try{ inp.focus(); }catch(x){} } }, true);
+  inp._updAdd=upd; upd();
+  return upd;
+}
 function doAdd(){
   var raw = $("#add-name").value;
   var p = isPlainList() ? { name:(raw||"").trim(), qty:1 } : parseQtyFromInput(raw);
   if(!p.name) return;
   hideAC();  // direct sluiten zodat AC-popover niet "kort flikkert" tussen items
   if(addToList(p.name, null, {qty: p.qty, unit: p.unit})){
-    $("#add-name").value="";
+    $("#add-name").value=""; if($("#add-name")._updAdd) $("#add-name")._updAdd();
     $("#add-name").focus();
     vibe("tick");
   }
@@ -3501,6 +3526,7 @@ function openBarcodeScanScreen(){
   var close=$("#bc-close"); if(close) close.addEventListener("click", closeBarcodeScanScreen);
   var mi=$("#bc-manual-input"), ma=$("#bc-manual-add");
   var manualAdd=function(){ var v=(mi.value||"").trim(); if(!v) return; var p=parseQtyFromInput(v); addToList(p.name, null, {qty:p.qty, unit:p.unit}); toast(p.name+" toegevoegd"); closeBarcodeScanScreen(); };
+  bindAddState(mi, ma);
   if(ma) ma.addEventListener("click", manualAdd);
   if(mi) mi.addEventListener("keydown", function(e){ if(e.key==="Enter") manualAdd(); });
   startBarcodeScanner();
@@ -3528,9 +3554,50 @@ function loadBarcodeDecoder(){
   });
   return _bcLibPromise;
 }
+var _bcStream=null, _bcTick=null;
+function nativeDetectorFormats(){
+  if(!window.BarcodeDetector) return Promise.resolve(null);
+  try{
+    return window.BarcodeDetector.getSupportedFormats().then(function(f){
+      var want=["ean_13","ean_8","upc_a","upc_e","qr_code"].filter(function(x){ return f.indexOf(x)!==-1; });
+      return want.indexOf("ean_13")!==-1 ? want : null;   // zonder EAN heeft het geen zin
+    }, function(){ return null; });
+  }catch(e){ return Promise.resolve(null); }
+}
+function startNativeScanner(mySession, formats){
+  var reader=$("#bc-reader"); if(!reader) return false;
+  var det; try{ det=new window.BarcodeDetector({formats:formats}); }catch(e){ return false; }
+  var video=document.createElement("video"); video.setAttribute("playsinline",""); video.muted=true; video.autoplay=true;
+  reader.innerHTML=""; reader.appendChild(video);
+  bcStatus("Camera starten…");
+  navigator.mediaDevices.getUserMedia({ video:{ facingMode:{ideal:"environment"}, width:{ideal:1280}, height:{ideal:720} }, audio:false }).then(function(stream){
+    if(mySession!==_bcSession){ stream.getTracks().forEach(function(t){ t.stop(); }); return; }
+    _bcStream=stream; video.srcObject=stream;
+    try{ video.play().catch(function(){}); }catch(e){}
+    _bcRunning=true; bcStatus("");
+    var busy=false;
+    var tick=function(){
+      if(mySession!==_bcSession || !_bcRunning) return;
+      if(!busy && video.readyState>=2){
+        busy=true;
+        det.detect(video).then(function(codes){ busy=false; if(codes && codes.length && codes[0].rawValue) onBarcodeDecoded(codes[0].rawValue); }, function(){ busy=false; });
+      }
+      _bcTick=setTimeout(tick, 160);
+    };
+    tick();
+  }, function(){ bcStatus("Kan de camera niet openen — typ de naam"); });
+  return true;
+}
 function startBarcodeScanner(){
   var mySession=_bcSession;
   bcStatus("Scanner laden…");
+  nativeDetectorFormats().then(function(formats){
+    if(mySession!==_bcSession) return;
+    if(formats && startNativeScanner(mySession, formats)) return;
+    startHtml5Scanner(mySession);
+  });
+}
+function startHtml5Scanner(mySession){
   loadBarcodeDecoder().then(function(ok){
     if(mySession!==_bcSession) return;   // scherm intussen gesloten of heropend → deze start is verouderd
     if(!ok || !window.Html5Qrcode){ bcStatus("Scanner niet beschikbaar — typ de naam"); return; }
@@ -3540,7 +3607,8 @@ function startBarcodeScanner(){
       _bcScanner = new window.Html5Qrcode("bc-reader", { verbose:false });
       var inst=_bcScanner;
       var F = window.Html5QrcodeSupportedFormats;
-      var config = { fps:10, qrbox:{width:240,height:150} };
+      // Scanvlak = bijna het hele beeld: een streepjescode onderin beeld werd anders nooit gelezen
+      var config = { fps:12, qrbox:function(w,h){ return { width:Math.round(w*0.94), height:Math.round(h*0.7) }; }, experimentalFeatures:{ useBarCodeDetectorIfSupported:true } };
       if(F) config.formatsToSupport = [F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E, F.QR_CODE];   // QR = uitnodig-link van een huisgenoot
       _bcScanner.start({facingMode:"environment"}, config, onBarcodeDecoded, function(){})
         .then(function(){
@@ -3556,6 +3624,8 @@ function startBarcodeScanner(){
 }
 function stopBarcodeScanner(){
   if(_bcScanner && _bcRunning){ try{ _bcScanner.stop().then(function(){ try{ _bcScanner.clear(); }catch(x){} }, function(){}); }catch(e){} }
+  if(_bcTick){ clearTimeout(_bcTick); _bcTick=null; }
+  if(_bcStream){ try{ _bcStream.getTracks().forEach(function(t){ t.stop(); }); }catch(e){} _bcStream=null; }
   _bcRunning=false;
 }
 function closeBarcodeScanScreen(){
@@ -3820,6 +3890,7 @@ function initApp(){
   refreshTopShareBtn();
   applyListType();
 
+  bindAddState($("#add-name"), $("#add-btn"));
   $("#add-btn").addEventListener("click",doAdd);
   $("#add-name").addEventListener("keydown",function(e){
     var list=$("#ac-list"), items=list.classList.contains("show") ? list.querySelectorAll(".ac-item") : [];

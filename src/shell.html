@@ -327,6 +327,13 @@
   .pw input.pricein::placeholder{ color:var(--ink-faint); font-weight:var(--fw-medium); }
   .addbtn{ flex:0 0 var(--tap-size); width:var(--tap-size); height:var(--tap-size); border:0; border-radius:var(--r-md); background:var(--brand); color:var(--on-brand); display:flex; align-items:center; justify-content:center; margin-left:0; box-shadow:var(--el-1); transition:transform var(--dur-instant) var(--ease-out), filter var(--dur-instant) var(--ease-inout); }
   .addbtn svg{ width:22px; height:22px; }
+  /* leeg veld: rustige knop; pas met tekst wordt hij brand-groen */
+  .addbtn:not(.ready){ background:var(--surface-3); color:var(--ink-faint); box-shadow:none; }
+  .shop-add .shop-add-btn:not(.ready){ background:var(--surface-3); color:var(--ink-faint); }
+  /* zoek-icoon in het typ-veld van de scanner (had geen maat → vulde de hele kaart) */
+  .field > svg.lead{ width:18px; height:18px; flex:0 0 18px; margin-left:10px; color:var(--ink-faint); }
+  #bc-reader{ position:relative; }
+  #bc-reader::after{ content:""; position:absolute; left:4%; right:4%; top:18%; bottom:18%; border:2px solid rgba(255,255,255,.85); border-radius:var(--r-md); box-shadow:0 0 0 999px rgba(0,0,0,.18); pointer-events:none; }
   .addbtn:active{ transform:var(--press); filter:brightness(.92); }
   .addbtn-bulk{ flex:0 0 var(--tap-size-sm); width:var(--tap-size-sm); height:var(--tap-size-sm); margin-left:6px; border:0; border-radius:var(--r-md); background:var(--surface-3); color:var(--ink-soft); display:flex; align-items:center; justify-content:center; transition:transform var(--dur-instant) var(--ease-out), background var(--dur-fast) var(--ease-inout); }
   .addbtn-bulk svg{ width:18px; height:18px; }
@@ -1177,7 +1184,8 @@
     .ra-btn svg{ width:17px; height:17px; }
     .ra-btn:hover{ background:var(--surface-3); color:var(--ink); }
     .ra-btn.ra-del:hover{ background:var(--danger-2); color:var(--danger); }
-    .addbtn:hover:not(:active){ background:var(--brand-strong); box-shadow:var(--el-2); }
+    .addbtn.ready:hover:not(:active){ background:var(--brand-strong); box-shadow:var(--el-2); }
+    .addbtn:not(.ready):hover{ background:var(--line-strong); color:var(--ink-soft); }
     .addbtn-bulk:hover, .field-scan:hover, .topbar .gear:hover, .topbar .share-top:hover, .search-bar .search-clear:hover, .co-suggest .cs-close:hover, .shop-head .shop-close:hover, .banner .b-dismiss:hover, .sheet-x:hover{ background:var(--surface-3); color:var(--ink); }
     .field-scan:hover{ color:var(--brand); }
     .chip:hover:not(:active), .sc-chip:hover:not(:active), .list-switch:hover, .members-row .share-btn:hover{ background:var(--line); }
