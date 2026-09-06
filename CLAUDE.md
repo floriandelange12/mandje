@@ -19,6 +19,8 @@ src/shell.html      HTML + alle CSS + design-tokens (:root en html[data-theme="d
 src/icons.js        Schap-iconen (SHELF_ICONS/SHELF_GROUP), hero-mandje, app-icoon-SVG's. Prelude-module.
 src/overlays.js     Eén overlay-model: modalOpen/modalClose (LIFO-stack, role=dialog, inert, focus-trap,
                     Escape, history-token voor Android-back), sheetLayout(), injectSheetX, onGlobalKey.
+src/qr.js           Eigen QR-encoder (byte-modus, EC M, versie 1–10) voor de uitnodig-link in de deel-sheet;
+                    `node tools/qr-check.js` controleert de codes tegen jsQR (playwright + internet).
 src/app.js          Kernlogica (IIFE): categorisering, store/migratie, cadans-engine, lijst-acties,
                     render, sheet, tabs, thema/tekstgrootte, Meer-tab, start-parameters, init.
 src/cloud.js        Supabase-module — wordt door de build BINNEN de IIFE van app.js gevoegd,
@@ -66,6 +68,7 @@ Na deploy: hard verversen op de telefoon (pagina sluiten/heropenen of "Herlaad z
 - Remotes: `origin` = `floriandelange12/mandje`. `fl-labs26` → `FL-labs26/mandje` is omgebouwd tot **redirect-host** (oude URL stuurt door naar de nieuwe). Push naar fl-labs26 mag alleen wanneer het puur om de redirect-`index.html` gaat — geen app-content meer naar die remote.
 - Houd de **app-code single-file** (`index.html`) en zonder externe build-tooling (alleen Node voor build+tests; playwright is optioneel voor iconen/screenshots). De enige losse root-bestanden zijn PWA-metadata die niet inline kúnnen (`sw.js`, `manifest.webmanifest`, de icoon-PNG's) en `supabase.js` (de vendor-SDK, 200 KB: bewust uit het kritieke pad, lazy geladen bij het eerste cloud-gebruik en door de SW precached). `build.js` schrijft ze allemaal.
 - **Design-tokens zijn de enige bron voor kleur, maat, radius, schaduw en motion.** Geen losse hex-kleuren, `font-size:14px` of `border-radius:12px` in nieuwe CSS; `tests/contrast.js` bewaakt de contrastratio's. Nieuwe overlays gaan altijd via `modalOpen/modalClose` (src/overlays.js).
+- **Nooit tekst afkappen met "…"**: namen, kopjes en suggesties lopen door op twee regels (`-webkit-line-clamp:2`). Gebruikersinvoer en DB-data altijd via `escapeHtml`/`textContent` in de DOM; `save()` is gecoalesced (microtask), dus tests wachten met `await wait(20)` vóór ze localStorage lezen.
 
 ## Werkwijze
 1. Begrijp de vraag, bewerk de relevante `src/`-bestanden.
