@@ -513,6 +513,7 @@ var Cloud = {
       this.active=listId; try{ localStorage.setItem("mandje.activeList", listId); }catch(e){}
       await this.refreshItems(refreshToken); await this.refreshMembers(refreshToken);
       this.subscribe(listId); this.startPresence();
+      if(typeof applyListType==="function") applyListType();
       applyListHeader(); renderListSwitch(); renderMembersRow();
     },
     openLocal:function(){
@@ -527,7 +528,7 @@ var Cloud = {
       }
       this.active=null; try{ localStorage.setItem("mandje.activeList","local"); }catch(e){}
       this.stop();
-      load(); applyListHeader(); renderListSwitch(); renderMembersRow();
+      load(); if(typeof applyListType==="function") applyListType(); applyListHeader(); renderListSwitch(); renderMembersRow();
     renderLijst(); renderDueBanner();
   },
   stop:function(){
@@ -1350,10 +1351,10 @@ function applyListHeader(){
     ctitle.style.setProperty("--list-dot", col);
     if(shareTop) shareTop.classList.add("show");
   } else {
-    title.textContent="Boodschappen";
+    title.textContent=(typeof localListName==="function") ? localListName() : "Boodschappen";
     title.classList.remove("has-dot");
     title.style.removeProperty("--list-dot");
-    ctitle.textContent="Boodschappen";
+    ctitle.textContent=(typeof localListName==="function") ? localListName() : "Boodschappen";
     ctitle.classList.remove("has-dot");
     ctitle.style.removeProperty("--list-dot");
     if(shareTop) shareTop.classList.remove("show");
@@ -1364,10 +1365,11 @@ function renderListSwitch(){
   var wrap=$("#list-switch-wrap"); if(!wrap) return;
   wrap.innerHTML="";
   if(activeTab!=="lijst") return;          // pill alleen op de lijst-tab
-  if(!Cloud.enabled) return; // sharing niet geconfigureerd → niets tonen
+  var locals = (typeof localLists==="function") ? localLists() : [];
+  if(!Cloud.enabled && locals.length<=1) return;   // één lokale lijst en geen cloud → niets te kiezen
   var l=Cloud.activeList();
-  var name = Cloud.active ? (l?listDisplayName(l):"Gedeeld") : "Persoonlijk";
-  // Gedeeld = gekleurde owner-stip; inbox = 📥; Persoonlijk = mandje-emoji
+  var meta = (typeof currentListMeta==="function") ? currentListMeta() : null;
+  var name = Cloud.active ? (l?listDisplayName(l):"Gedeeld") : ((meta && meta.name) || "Boodschappen");
   var icoHtml;
   if(Cloud.active && isInboxList(l)){
     icoHtml = '<span class="ls-ico">📥</span>';
@@ -1375,10 +1377,11 @@ function renderListSwitch(){
     var col = ownerColor(l);
     icoHtml = '<span class="ls-ico-dot" style="background:'+col+'"></span>';
   } else {
-    icoHtml = '<span class="ls-ico">🧺</span>';
+    icoHtml = '<span class="ls-ico">'+escapeHtml((meta && meta.glyph) || "🧺")+'</span>';
   }
   var sub = Cloud.active ? "Gedeeld" : "Op dit toestel";
-  var pill=el("button","list-switch",icoHtml+'<span class="ls-name">'+escapeHtml(name)+'</span><span class="ls-pill-sub">'+sub+'</span><svg class="ls-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>');
+  var pill=el("button","list-switch",icoHtml+'<span class="ls-name">'+escapeHtml(name)+'</span><span class="ls-pill-sub">'+sub+'</span><svg class="ls-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>');
+  pill.type="button"; pill.setAttribute("aria-label","Lijst kiezen: "+name);
   pill.addEventListener("click",openSwitchSheet);
   wrap.appendChild(pill);
 }
@@ -1438,15 +1441,23 @@ $("#scrim2").addEventListener("click",closeSheet2);
 
 function openSwitchSheet(){
   var html='<h3>Mijn lijsten</h3>';
-  // Persoonlijk (lokaal, altijd bovenaan) — subtiele grijze ico zodat 't visueel verschilt van cloud-lijsten
-  html+='<div class="ls-item'+(!Cloud.active?" active":"")+'" data-act="local">'+
-    '<div class="lsi-ico" style="background:var(--surface-3);color:var(--ink-soft)">🧺</div>'+
-    '<div style="flex:1;min-width:0"><div class="lsi-name">Persoonlijk</div>'+
-    '<div class="lsi-sub">Alleen op dit toestel</div></div>'+
-    (!Cloud.active?'<span class="lsi-check">✓</span>':'')+
-  '</div>';
+  // Lokale lijsten (op dit toestel) — met beheer-knop
+  var locals = (typeof localLists==="function") ? localLists() : [];
+  var activeLocal = (typeof state!=="undefined" && state) ? state.activeLocalId : null;
+  locals.forEach(function(ll){
+    var isOn = !Cloud.active && ll.id===activeLocal;
+    var kind = (typeof presetOf==="function") ? presetOf(ll.preset).name : "Lijst";
+    var cnt = (ll.id===activeLocal && !Cloud.active ? state.list : (ll.items||[])).filter(function(i){ return !i.done; }).length;
+    html+='<div class="ls-item'+(isOn?" active":"")+'" data-act="local:'+escapeAttr(ll.id)+'" role="button" tabindex="0">'+
+      '<div class="lsi-ico" style="background:var(--surface-3)">'+escapeHtml(ll.glyph||"🧺")+'</div>'+
+      '<div class="lsi-meta"><div class="lsi-name lsi-text">'+escapeHtml(ll.name)+'</div>'+
+      '<div class="lsi-sub">'+escapeHtml(kind)+' · op dit toestel'+(cnt?' · '+cnt+' open':'')+'</div></div>'+
+      (isOn?'<span class="lsi-check">✓</span>':'')+
+      '<button class="lsi-more" type="button" data-manage="'+escapeAttr(ll.id)+'" aria-label="Beheer '+escapeAttr(ll.name)+'">⋯</button>'+
+    '</div>';
+  });
   // Cloud-lijsten — inbox eerst, rest daarna
-  var sortedLists = Cloud.lists.slice().sort(function(a,b){ return (isInboxList(b)?1:0)-(isInboxList(a)?1:0); });
+  var sortedLists = (Cloud.lists||[]).slice().sort(function(a,b){ return (isInboxList(b)?1:0)-(isInboxList(a)?1:0); });
   sortedLists.forEach(function(l){
     var col=ownerColor(l);
     var inbox=isInboxList(l);
@@ -1460,36 +1471,31 @@ function openSwitchSheet(){
     else badge=cnt+' leden';
     var ico = inbox
       ? '<div class="lsi-ico" style="background:var(--brand-2)">📥</div>'
-      : '<div class="lsi-ico" style="background:'+col+';color:#fff;font-size:13px;font-weight:700;letter-spacing:.02em">'+escapeHtml(initials(nm))+'</div>';
-    html+='<div class="ls-item'+(Cloud.active===l.id?" active":"")+'" data-act="'+l.id+'">'+
+      : '<div class="lsi-ico" style="background:'+col+';color:#fff;font-size:var(--fs-sm);font-weight:var(--fw-bold);letter-spacing:.02em">'+escapeHtml(initials(nm))+'</div>';
+    html+='<div class="ls-item'+(Cloud.active===l.id?" active":"")+'" data-act="'+escapeAttr(l.id)+'" role="button" tabindex="0">'+
       ico+
       '<div class="lsi-meta"><div class="lsi-name lsi-text">'+escapeHtml(nm)+'</div>'+
       '<div class="lsi-sub">'+escapeHtml(badge)+'</div></div>'+
       (Cloud.active===l.id?'<span class="lsi-check">✓</span>':'')+
     '</div>';
   });
-  // Inline aanmaken — type+Enter = direct nieuwe lijst, geen extra sheet nodig
-  html+='<div class="quick-create"><input class="txt" id="ls-new-name" type="text" placeholder="+ Nieuwe lijst… (Thuis, Weekend, Vakantie)" autocapitalize="words" autocomplete="off" enterkeyhint="done"></div>'+
-    '<button class="mbtn" id="ls-join" style="width:100%;margin-top:8px">Code invoeren</button>';
+  html+='<button class="mbtn" id="ls-new" type="button" style="width:100%;margin-top:12px">+ Nieuwe lijst</button>'+
+    (Cloud.enabled ? '<button class="mbtn" id="ls-join" type="button" style="width:100%;margin-top:8px">Code invoeren</button>' : '');
   var s=openSheet2(html);
   s.querySelectorAll(".ls-item").forEach(function(it){
-    it.addEventListener("click",function(){
+    var go=function(){
       var act=it.dataset.act; closeSheet2();
-      if(act==="local") Cloud.openLocal(); else Cloud.open(act).then(function(){ switchTab("lijst"); });
-    });
+      if(act.indexOf("local:")===0){ if(typeof switchLocalList==="function") switchLocalList(act.slice(6)); }
+      else Cloud.open(act).then(function(){ switchTab("lijst"); });
+    };
+    it.addEventListener("click",function(e){ if(e.target && e.target.closest && e.target.closest(".lsi-more")) return; go(); });
+    it.addEventListener("keydown",function(e){ if(e.target!==it) return; if(e.key==="Enter"||e.key===" "){ e.preventDefault(); go(); } });
   });
-  var newInp = s.querySelector("#ls-new-name");
-  if(newInp){
-    newInp.addEventListener("keydown", function(e){
-      if(e.key !== "Enter") return;
-      var nm = (newInp.value||"").trim();
-      if(!nm) return;
-      newInp.value = "";
-      closeSheet2();
-      ensureIdentity(function(){ Cloud.createList(nm); });
-    });
-  }
-  s.querySelector("#ls-join").addEventListener("click",function(){ closeSheet2(); ensureIdentity(function(){ promptJoin(); }); });
+  s.querySelectorAll(".lsi-more").forEach(function(b){
+    b.addEventListener("click",function(e){ e.stopPropagation(); var id=b.dataset.manage; closeSheet2(); if(typeof openListManageSheet==="function") openListManageSheet(id); });
+  });
+  s.querySelector("#ls-new").addEventListener("click",function(){ closeSheet2(); if(typeof openNewListSheet==="function") openNewListSheet(); });
+  var jb=s.querySelector("#ls-join"); if(jb) jb.addEventListener("click",function(){ closeSheet2(); ensureIdentity(function(){ promptJoin(); }); });
 }
 
 function promptNewList(){

@@ -606,6 +606,25 @@
   .ls-item .lsi-ico{ width:40px; height:40px; border-radius:var(--r-md); background:var(--brand-2); display:flex; align-items:center; justify-content:center; font-size:var(--fs-xl); flex:0 0 auto; }
   .ls-item .lsi-name{ flex:1; font-size:var(--fs-lg); font-weight:var(--fw-medium); min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
   .ls-item .lsi-sub{ font-size:var(--fs-sm); color:var(--ink-soft); }
+  .ls-item .lsi-more{ flex:0 0 auto; width:var(--tap-size-sm); height:var(--tap-size-sm); border:0; border-radius:var(--r-sm); background:var(--surface-3); color:var(--ink-soft); font-size:var(--fs-lg); }
+  /* nieuwe lijst: soort-keuze */
+  .type-grid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(140px, 1fr)); gap:8px; margin:0 0 12px; }
+  .type-chip{ border:0; background:var(--surface-2); border-radius:var(--r-md); padding:12px 12px 10px; text-align:left; box-shadow:var(--el-1); color:var(--ink); }
+  .type-chip.on{ background:var(--brand-2); box-shadow:inset 0 0 0 2px var(--brand); }
+  .type-chip .tc-g{ font-size:var(--fs-xl); line-height:1; }
+  .type-chip .tc-n{ display:block; font-weight:var(--fw-bold); margin-top:6px; font-size:var(--fs-md); }
+  .type-chip .tc-s{ display:block; font-size:var(--fs-xs); color:var(--ink-soft); margin-top:2px; line-height:1.35; }
+  /* plain lijsten: geen schappen-segment, geen scanner, meerregelige tekst, sleepgreep */
+  body.list-plain .view-seg, body.list-plain .field-scan{ display:none; }
+  body.list-plain .nm{ white-space:normal; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; text-overflow:clip; width:auto; }
+  body.list-plain .nm::after{ display:none; }
+  body.list-plain .row.done .nm{ text-decoration:line-through; }
+  .card .sr-handle{ flex:0 0 auto; width:36px; height:36px; margin:-4px -8px -4px 0; display:flex; align-items:center; justify-content:center; color:var(--ink-decorative); touch-action:none; cursor:grab; border-radius:var(--r-sm); }
+  .card .sr-handle svg{ width:18px; height:18px; }
+  .row.dragging{ z-index:5; box-shadow:var(--el-3); opacity:.95; }
+  .row.dragging .card{ background:var(--surface-2); }
+  .finish-inline{ display:flex; gap:8px; flex-wrap:wrap; }
+  .finish-inline-btn.soft{ background:var(--surface-3); color:var(--ink); box-shadow:none; }
   .ls-item.active .lsi-name{ color:var(--brand); }
   .ls-item .lsi-check{ color:var(--brand); }
   .quick-create{ margin:14px 0 0; padding:0; }
@@ -1033,6 +1052,7 @@
     .grip{ display:none; }
     .sheet-x.sheet-x{ display:flex; }
     .scrim{ background:var(--scrim-panel); }
+    body.sheet-open .toast{ left:calc(50% - var(--panel-w) / 2); }   /* toast midden in het zichtbare deel naast het paneel */
     .shop-screen{ padding-inline:max(24px, calc((100% - 880px) / 2)); }
     .shop-enter-btn{ width:auto; min-width:300px; padding-inline:28px; }
   }

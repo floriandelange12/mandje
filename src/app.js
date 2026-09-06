@@ -175,6 +175,15 @@ var _personalList = null;
 function deepClone(o){ return JSON.parse(JSON.stringify(o)); }
 function isPlainObject(o){ return !!o && typeof o==="object" && !Array.isArray(o); }
 function safeParse(raw){ if(typeof raw !== "string") return null; try{ return JSON.parse(raw); }catch(e){ return null; } }
+function normalizeItems(arr){
+  var out=[]; if(!Array.isArray(arr)) return out;
+  for(var i=0;i<arr.length;i++){
+    var it=arr[i]; if(!isPlainObject(it)) continue;
+    out.push({ id:it.id||uid(), name:(it.name||"").toString(), category:it.category||"overig", qty:Math.max(1, Number(it.qty)||1), price:(it.price==null?null:Number(it.price)),
+      note:(it.note||"").toString(), unit:(it.unit||"").toString(), section:(it.section||"").toString().slice(0,40), done:!!it.done, assigned_to:it.assigned_to||null, added_by_name:it.added_by_name||"", addedAt:it.addedAt||nowISO() });
+  }
+  return out;
+}
 function normalizeState(raw){
   var inState = isPlainObject(raw) ? raw : {};
   var out = Object.assign({}, DEFAULTS, {
@@ -203,6 +212,7 @@ function normalizeState(raw){
         price: (it.price == null ? null : Number(it.price)),
         note: (it.note||"").toString(),
         unit: (it.unit||"").toString(),
+        section: (it.section||"").toString().slice(0,40),
         done: !!it.done,
         assigned_to: it.assigned_to || null,
         added_by_name: it.added_by_name || "",
@@ -210,6 +220,22 @@ function normalizeState(raw){
       });
     }
   }
+  // Meerdere lokale lijsten (Fase 6): index met items; de actieve lijst leeft in out.list (save() synct terug)
+  var llIn = Array.isArray(inState.localLists) ? inState.localLists.filter(isPlainObject) : [];
+  out.localLists = llIn.map(function(l){
+    return { id:String(l.id||("l_"+uid())), name:String(l.name||"Lijst").slice(0,40), type:(l.type==="plain"?"plain":"grocery"),
+      preset:String(l.preset||(l.type==="plain"?"check":"grocery")), glyph:String(l.glyph||"🧺").slice(0,4),
+      finish:(l.finish==="terugzetten"?"terugzetten":"opruimen"), placeholder:(l.placeholder==null?null:String(l.placeholder).slice(0,80)),
+      open:(l.open?String(l.open).slice(0,30):null), done:(l.done?String(l.done).slice(0,30):null), doneTitle:(l.doneTitle?String(l.doneTitle).slice(0,30):null),
+      items:normalizeItems(l.items), createdAt:l.createdAt||nowISO() };
+  });
+  if(!out.localLists.length){
+    out.localLists=[{ id:"l_boodschappen", name:"Boodschappen", type:"grocery", preset:"grocery", glyph:"🧺", finish:"opruimen", placeholder:null, open:null, done:null, doneTitle:null, items:[], createdAt:nowISO() }];
+  }
+  out.activeLocalId = (inState.activeLocalId && out.localLists.some(function(l){ return l.id===inState.activeLocalId; })) ? inState.activeLocalId : out.localLists[0].id;
+  var actL = out.localLists.filter(function(l){ return l.id===out.activeLocalId; })[0];
+  if(llIn.length && actL) out.list = actL.items;      // nieuwe opslag: items van de actieve lijst
+  if(actL) actL.items = out.list;                      // oude opslag: de enige lijst wordt "Boodschappen"
   if(!Array.isArray(out.settings.categoryOrder)) out.settings.categoryOrder = DEFAULTS.settings.categoryOrder.slice();
   if(!Array.isArray(out.settings.customCategories)) out.settings.customCategories = [];
   if(!isPlainObject(out.settings.customCatEmoji)) out.settings.customCatEmoji = {};
@@ -312,6 +338,8 @@ function load(){
       if(typeof window !== "undefined") window.__mandjeLocalMutationEpoch = _localMutationEpoch;
     }
     rebuildCatIndex();
+    // Eenmalige migratie naar meerdere lijsten (Fase 6): oude opslag zonder index direct in de nieuwe vorm wegschrijven
+    if(!Array.isArray(parsed.localLists)){ try{ save(); }catch(e){} }
     return;
   }
   // geen geldige v2-data -> eenmalige migratie vanaf v1
@@ -346,6 +374,8 @@ function save(){
     }
     // Tijdens een actieve cloud-lijst staat de cloud-lijst in state.list → bewaar i.p.v.
     // daarvan de persoonlijke lijst, zodat terugschakelen naar Persoonlijk 'm intact houdt.
+    var actList = activeLocalList();
+    if(actList) actList.items = (typeof Cloud!=="undefined" && Cloud.active) ? (_personalList || []) : state.list;
     var snap = state;
     if(typeof Cloud!=="undefined" && Cloud.active){
       snap = Object.assign({}, state, { list: _personalList || [] });
@@ -537,6 +567,7 @@ function dismissDueBanner(){
    nooit dubbel toevoegen wanneer al op de lijst. Lokaal alleen. */
 function runAutoAddDueItems(){
   if(typeof Cloud!=="undefined" && Cloud.active) return;
+  if(!T().cadence) return;
   var due = getDueItems(); if(!due.length) return;
   var addedNames = [];
   var nowMs = (typeof Date !== "undefined" && Date.now) ? Date.now() : 0;
@@ -587,6 +618,7 @@ function quickChip(e){
 }
 /* Startzet bij een lege lijst: vaak gekocht, vorige lijst herhalen, bundels kiezen */
 function renderQuickStart(wrap){
+  if(!T().catalog) return;
   var freq=frequentItems(8);
   var last=(state.history||[])[0];
   var meals=(typeof mealList==="function") ? mealList() : [];
@@ -892,6 +924,19 @@ function undoToast(label, restoreFn){
 function addToList(name, price, opts){
   name=(name||"").trim(); if(!name) return false;
   opts=opts||{};
+  if(isPlainList()){
+    // 'Kleding: sokken' → kopje Kleding; geen aantallen, geen catalogus, achteraan toevoegen
+    var sec=(opts.section||"").trim();
+    var mm=name.match(/^([^:]{1,30}):\s*(.+)$/);
+    if(mm && !/^https?$/i.test(mm[1])){ sec=mm[1].trim(); name=mm[2].trim(); }
+    if(!name) return false;
+    var mk0=matchKey(name);
+    if(state.list.some(function(i){ return !i.done && matchKey(i.name)===mk0; })){ if(!opts.silent) toast(name+" staat er al op"); return false; }
+    state.list.push({ id:uid(), name:name, category:"overig", section:sec.slice(0,40), qty:1, price:null, note:"", unit:"", done:false, addedAt:nowISO() });
+    save(); renderLijst();
+    if(!opts.silent) toast(name+(sec?" → "+sec:""), {duration:1400});
+    return true;
+  }
   var addQty = Math.max(1, opts.qty || 1);
   var silent = !!opts.silent;
   var unit = opts.unit || "";
@@ -960,6 +1005,7 @@ function removeFromList(id){
   });
 }
 function finishShopping(){
+  if(isPlainList()){ finishPlain(); return; }
   if(Cloud.active){ Cloud.finish(); return; }
   var done=state.list.filter(function(i){return i.done;});
   if(!done.length) return;
@@ -1046,6 +1092,300 @@ function openFinishSheet(entry, undoFn){
 /* Schap-volgorde voor de render: eerst de ingestelde volgorde, daarna élk schap dat wél items
    heeft maar niet in categoryOrder staat (bv. een eigen schap van een ander lid op een gedeelde
    lijst). Zonder dit vangnet verdwenen die items geruisloos uit de lijst terwijl ze wél meetelden. */
+/* ============================================================
+   LIJSTEN & LIJSTTYPES — meerdere lokale lijsten; 'grocery' (alles wat er is) of 'plain'
+   (geen aantal-parsing, geen prijzen/cadans/catalogus, vrije secties, handmatige volgorde)
+   ============================================================ */
+var LIST_TYPES = {
+  grocery: { id:"grocery", qty:true,  prices:true,  cadence:true,  catalog:true,  shelves:true,  shop:true,  scan:true,  placeholder:"Wat heb je nodig?  ·  bijv. melk 2", open:"te halen", done:"in mandje", doneTitle:"In mandje" },
+  plain:   { id:"plain",   qty:false, prices:false, cadence:false, catalog:false, shelves:false, shop:false, scan:false, placeholder:"Wat moet erop?  ·  bijv. Kleding: sokken", open:"open", done:"afgevinkt", doneTitle:"Afgevinkt" }
+};
+var LIST_PRESETS = [
+  { key:"grocery", type:"grocery", name:"Boodschappen", glyph:"🧺", finish:"opruimen",    sub:"Schappen, aantallen, vaste boodschappen", placeholder:null, open:"te halen", done:"in mandje", doneTitle:"In mandje" },
+  { key:"pack",    type:"plain",   name:"Paklijst",     glyph:"🧳", finish:"terugzetten", sub:"Kopjes als Kleding en Documenten, herbruikbaar", placeholder:"Wat gaat er mee?  ·  bijv. Kleding: sokken", open:"in te pakken", done:"ingepakt", doneTitle:"Ingepakt" },
+  { key:"todo",    type:"plain",   name:"To-do",        glyph:"✅", finish:"opruimen",    sub:"Taken afstrepen en opruimen", placeholder:"Wat moet er gebeuren?", open:"te doen", done:"klaar", doneTitle:"Klaar" },
+  { key:"check",   type:"plain",   name:"Checklist",    glyph:"📝", finish:"terugzetten", sub:"Steeds opnieuw afvinken", placeholder:"Volgende punt…", open:"open", done:"afgevinkt", doneTitle:"Afgevinkt" },
+  { key:"notes",   type:"plain",   name:"Notities",     glyph:"🗒️", finish:"opruimen",    sub:"Losse aantekeningen, afstrepen als het klaar is", placeholder:"Schrijf een notitie…", open:"notities", done:"afgevinkt", doneTitle:"Afgevinkt" }
+];
+var LIST_TEMPLATES = {
+  strand:      { name:"Strand", items:[["Kleding","zwemkleding","slippers","hoed of pet","zonnebril","luchtige kleding","vest voor 's avonds"],["Toiletspullen","zonnebrand","aftersun","lippenbalsem met SPF","tandenborstel en tandpasta","deodorant","shampoo"],["Documenten","paspoort of ID","verzekeringspas","boekingsbevestiging","pinpas en wat contant geld"],["Elektronica","telefoon en oplader","powerbank","oordopjes","e-reader of boek"],["Overig","strandlaken","strandtas","waterfles","snacks voor onderweg","kaartspel"]] },
+  stedentrip:  { name:"Stedentrip", items:[["Kleding","comfortabele schoenen","regenjas","nette outfit","ondergoed en sokken","pyjama"],["Toiletspullen","tandenborstel en tandpasta","deodorant","reisformaat shampoo","medicijnen","pleisters"],["Documenten","paspoort of ID","boekingsbevestiging hotel","tickets","OV-kaart of app","pinpas en wat contant geld"],["Elektronica","telefoon en oplader","powerbank","oordopjes","wereldstekker"],["Overig","kleine rugzak","waterfles","reisgids of offline kaart","kauwgom"]] },
+  wintersport: { name:"Wintersport", items:[["Kleding","skibroek","skijas","thermo-ondergoed","skisokken","handschoenen","muts en buff","fleece","après-ski schoenen"],["Uitrusting","skibril","helm","skipas","zonnebrand SPF50","lippenbalsem met SPF"],["Documenten","paspoort of ID","reisverzekering","boekingsbevestiging","rijbewijs"],["Elektronica","telefoon en oplader","powerbank","oordopjes"],["Overig","medicijnen en pleisters","dagrugzak","waterfles","snacks voor op de piste"]] },
+  kamperen:    { name:"Kamperen", items:[["Slapen","tent","haringen en hamer","slaapzak","matje of luchtbed","kussen","zaklamp of hoofdlamp"],["Koken","gasstel en gas","aansteker","pannetje","bestek en borden","afwasmiddel en doek","koelbox","waterjerrycan"],["Kleding","regenjas","warme trui","stevige schoenen","slippers","zwemkleding"],["Verzorging","toilettas","zonnebrand","muggenspray","EHBO-setje","toiletpapier"],["Overig","campingstoelen","tafel","verlengsnoer","kaartspel","vuilniszakken"]] },
+  weekend:     { name:"Weekend weg", items:[["Kleding","2× outfit","ondergoed en sokken","pyjama","jas","comfortabele schoenen"],["Toiletspullen","tandenborstel en tandpasta","deodorant","medicijnen","reisformaat shampoo"],["Documenten","ID","boekingsbevestiging","pinpas"],["Elektronica","telefoon en oplader","powerbank","oordopjes"],["Overig","boek","waterfles","snacks","cadeautje voor de gastheer"]] }
+};
+function templateItems(key){
+  var t=LIST_TEMPLATES[key]; if(!t) return [];
+  var out=[];
+  t.items.forEach(function(sec){ var sname=sec[0]; sec.slice(1).forEach(function(n){ out.push({ id:uid(), name:n, category:"overig", section:sname, qty:1, price:null, note:"", unit:"", done:false, addedAt:nowISO() }); }); });
+  return out;
+}
+function localLists(){ return (state && Array.isArray(state.localLists)) ? state.localLists : []; }
+function localListById(id){ var ls=localLists(); for(var i=0;i<ls.length;i++){ if(ls[i].id===id) return ls[i]; } return null; }
+function activeLocalList(){ return localListById(state && state.activeLocalId) || localLists()[0] || null; }
+function presetOf(key){ for(var i=0;i<LIST_PRESETS.length;i++){ if(LIST_PRESETS[i].key===key) return LIST_PRESETS[i]; } return LIST_PRESETS[0]; }
+/* Meta van de geopende lijst — een gedeelde (cloud-)lijst is voorlopig altijd 'grocery' (lists.type komt met migratie M6) */
+function currentListMeta(){
+  if(typeof Cloud!=="undefined" && Cloud && Cloud.active){
+    var l = (typeof Cloud.activeList==="function") ? Cloud.activeList() : null;
+    return { id:Cloud.active, name:(l && typeof listDisplayName==="function") ? listDisplayName(l) : "Gedeeld", type:(l && l.type==="plain") ? "plain" : "grocery", preset:"grocery", glyph:"🧺", finish:"opruimen", shared:true };
+  }
+  return activeLocalList() || { id:"l_boodschappen", name:"Boodschappen", type:"grocery", preset:"grocery", glyph:"🧺", finish:"opruimen" };
+}
+function T(){ var m=currentListMeta(); return LIST_TYPES[m.type] || LIST_TYPES.grocery; }
+function isPlainList(){ return T().id==="plain"; }
+function localListName(){ return currentListMeta().name || "Boodschappen"; }
+function listLabels(){
+  var m=currentListMeta(), p=presetOf(m.preset), t=T();
+  return { open:m.open||p.open||t.open, done:m.done||p.done||t.done, doneTitle:m.doneTitle||p.doneTitle||t.doneTitle, placeholder:m.placeholder||p.placeholder||t.placeholder };
+}
+/* body-klasse + placeholder volgen het lijsttype */
+function applyListType(){
+  var plain=isPlainList();
+  document.body.classList.toggle("list-plain", plain);
+  var inp=$("#add-name"); if(inp) inp.placeholder = listLabels().placeholder;
+}
+function createLocalList(opts){
+  opts=opts||{};
+  var p=presetOf(opts.preset||"grocery");
+  var l={ id:"l_"+uid(), name:String(opts.name||p.name).trim().slice(0,40)||p.name, type:p.type, preset:p.key, glyph:p.glyph, finish:p.finish,
+    placeholder:p.placeholder, open:p.open, done:p.done, doneTitle:p.doneTitle, items:[], createdAt:nowISO() };
+  if(opts.template && LIST_TEMPLATES[opts.template]) l.items = templateItems(opts.template);
+  state.localLists = localLists().concat([l]);
+  save();
+  return l;
+}
+function switchLocalList(id){
+  var target=localListById(id); if(!target) return false;
+  if(typeof Cloud!=="undefined" && Cloud && Cloud.active && typeof Cloud.openLocal==="function"){ Cloud.openLocal(); }   // eerst terug naar lokaal
+  var cur=activeLocalList();
+  if(cur && cur.id!==target.id) cur.items = state.list.slice();
+  state.activeLocalId = target.id;
+  if(cur && cur.id===target.id){ /* al actief */ } else { state.list = (target.items||[]).slice(); }
+  save();
+  applyListType();
+  if(typeof applyListHeader==="function") applyListHeader();
+  if(typeof renderListSwitch==="function") renderListSwitch();
+  if(activeTab!=="lijst") switchTab("lijst"); else { renderLijst(); renderDueBanner(); updateSubhead(); }
+  return true;
+}
+function renameLocalList(id, name){ var l=localListById(id); if(!l) return false; name=String(name||"").trim().slice(0,40); if(!name) return false; l.name=name; save(); if(typeof applyListHeader==="function") applyListHeader(); if(typeof renderListSwitch==="function") renderListSwitch(); return true; }
+function duplicateLocalList(id){
+  var l=localListById(id); if(!l) return null;
+  var items=(l.id===state.activeLocalId ? state.list : (l.items||[])).map(function(i){ var c=Object.assign({}, i); c.id=uid(); c.done=false; return c; });
+  var copy=Object.assign({}, l, { id:"l_"+uid(), name:(l.name+" (kopie)").slice(0,40), items:items, createdAt:nowISO() });
+  state.localLists = localLists().concat([copy]); save();
+  return copy;
+}
+function deleteLocalList(id){
+  var ls=localLists(); if(ls.length<=1) return false;
+  var l=localListById(id); if(!l) return false;
+  var wasActive = (state.activeLocalId===id) && !(typeof Cloud!=="undefined" && Cloud && Cloud.active);
+  state.localLists = ls.filter(function(x){ return x.id!==id; });
+  if(state.activeLocalId===id){
+    var next=state.localLists[0];
+    state.activeLocalId=next.id;
+    if(wasActive) state.list=(next.items||[]).slice();
+  }
+  save();
+  if(wasActive){ applyListType(); if(typeof applyListHeader==="function") applyListHeader(); if(activeTab==="lijst"){ renderLijst(); renderDueBanner(); updateSubhead(); } }
+  if(typeof renderListSwitch==="function") renderListSwitch();
+  return true;
+}
+/* Nieuwe lijst: naam, soort (preset), optioneel sjabloon (paklijst), optioneel delen (cloud, alleen boodschappen) */
+function openNewListSheet(){
+  var sh=$("#sheet"); if(!sh) return;
+  var chosen="grocery", template=null;
+  var canShare = !!(typeof Cloud!=="undefined" && Cloud && Cloud.enabled);
+  sh.innerHTML='<div class="grip"></div><h3>Nieuwe lijst</h3>'+
+    '<div class="frow"><div class="fl">Naam</div><input class="txt" id="nl-name" placeholder="bijv. Vakantie, Klussen, Verjaardag" autocapitalize="words" autocomplete="off"></div>'+
+    '<div class="sheet-label"><span class="lbl-cap">Soort lijst</span></div><div class="type-grid" id="nl-types"></div>'+
+    '<div id="nl-templates"></div>'+
+    (canShare ? '<div class="grow wrap" id="nl-share-row" style="padding:10px 4px;border:0"><div class="glabel">Delen (online)<div class="gsub">Samen bijhouden met huisgenoten — alleen voor boodschappen</div></div></div>' : '')+
+    '<div class="sheet-actions"><button class="save" id="nl-go" type="button">Aanmaken</button><button class="del" id="nl-cancel" type="button">Annuleren</button></div>';
+  var grid=sh.querySelector("#nl-types"), tplWrap=sh.querySelector("#nl-templates"), nameInp=sh.querySelector("#nl-name");
+  var shareOn=false, shareSw=null;
+  if(canShare){
+    shareSw=el("button","switch"); shareSw.type="button"; shareSw.setAttribute("role","switch"); shareSw.setAttribute("aria-checked","false"); shareSw.setAttribute("aria-label","Delen (online)");
+    shareSw.addEventListener("click",function(){ shareOn=!shareOn; shareSw.classList.toggle("on", shareOn); shareSw.setAttribute("aria-checked", shareOn?"true":"false"); });
+    sh.querySelector("#nl-share-row").appendChild(shareSw);
+  }
+  var renderTypes=function(){
+    grid.innerHTML="";
+    LIST_PRESETS.forEach(function(p){
+      var b=el("button","type-chip"+(p.key===chosen?" on":""),'<span class="tc-g" aria-hidden="true">'+p.glyph+'</span><span class="tc-n">'+escapeHtml(p.name)+'</span><span class="tc-s">'+escapeHtml(p.sub)+'</span>');
+      b.type="button"; b.setAttribute("aria-pressed", p.key===chosen?"true":"false");
+      b.addEventListener("click",function(){ chosen=p.key; template=null; if(!nameInp.value.trim() || LIST_PRESETS.some(function(x){ return x.name===nameInp.value.trim(); })) nameInp.value = p.name; renderTypes(); renderTemplates(); });
+      grid.appendChild(b);
+    });
+    var shareRow=sh.querySelector("#nl-share-row"); if(shareRow) shareRow.style.display = (chosen==="grocery") ? "" : "none";
+  };
+  var renderTemplates=function(){
+    tplWrap.innerHTML="";
+    if(chosen!=="pack") return;
+    tplWrap.innerHTML='<div class="sheet-label"><span class="lbl-cap">Begin met een sjabloon</span><span class="lbl-hint">optioneel</span></div><div class="cadrow" id="nl-tpl"></div>';
+    var row=tplWrap.querySelector("#nl-tpl");
+    Object.keys(LIST_TEMPLATES).forEach(function(k){
+      var b=el("button","cadchip"+(template===k?" on":""),LIST_TEMPLATES[k].name); b.type="button";
+      b.addEventListener("click",function(){ template = (template===k) ? null : k; if(template && (!nameInp.value.trim() || nameInp.value.trim()==="Paklijst")) nameInp.value = LIST_TEMPLATES[k].name; renderTemplates(); });
+      row.appendChild(b);
+    });
+  };
+  renderTypes(); renderTemplates();
+  sh.querySelector("#nl-cancel").addEventListener("click", closeSheet);
+  sh.querySelector("#nl-go").addEventListener("click", function(){
+    var name=(nameInp.value||"").trim() || presetOf(chosen).name;
+    closeSheet();
+    if(shareOn && chosen==="grocery" && canShare){
+      if(typeof ensureIdentity==="function") ensureIdentity(function(){ Cloud.createList(name); }); else Cloud.createList(name);
+      return;
+    }
+    var l=createLocalList({ name:name, preset:chosen, template:template });
+    switchLocalList(l.id);
+    toast(name+" aangemaakt"+(template?" — "+l.items.length+" items uit het sjabloon":""));
+  });
+  openSheetUI();
+  setTimeout(function(){ nameInp.focus(); }, 260);
+}
+/* Beheer: hernoemen, afrond-modus (plain), dupliceren, verwijderen */
+function openListManageSheet(id){
+  var l=localListById(id); if(!l) return;
+  var sh=$("#sheet"); if(!sh) return;
+  var p=presetOf(l.preset);
+  sh.innerHTML='<div class="grip"></div><h3></h3>'+
+    '<div class="frow"><div class="fl">Naam</div><input class="txt" id="lm-name" autocapitalize="words" autocomplete="off"></div>'+
+    '<div class="hint" style="margin:0 6px 12px">'+p.glyph+' '+escapeHtml(p.name)+' · '+((l.id===state.activeLocalId?state.list:(l.items||[])).length)+' items · op dit toestel</div>'+
+    (l.type==="plain" ? '<div class="sheet-label"><span class="lbl-cap">Na het afvinken</span></div><div class="cadrow" id="lm-finish"></div><div class="hint" style="margin:0 6px 12px" id="lm-finish-hint"></div>' : '')+
+    '<div class="sheet-actions"><button class="save" id="lm-save" type="button">Opslaan</button><button class="del" id="lm-del" type="button">Verwijder</button></div>'+
+    '<button class="mbtn" id="lm-dup" type="button" style="margin-top:10px">Dupliceren (kopie zonder vinkjes)</button>';
+  sh.querySelector("h3").textContent=l.name;
+  sh.querySelector("#lm-name").value=l.name;
+  var finish=l.finish;
+  var fr=sh.querySelector("#lm-finish");
+  if(fr){
+    var opts=[["opruimen","Opruimen","Afgevinkte items verdwijnen (to-do)"],["terugzetten","Terugzetten","Alle vinkjes gaan weer uit (paklijst, checklist)"]];
+    var paint=function(){ fr.innerHTML=""; opts.forEach(function(o){ var b=el("button","cadchip"+(o[0]===finish?" on":""),o[1]); b.type="button"; b.addEventListener("click",function(){ finish=o[0]; paint(); }); fr.appendChild(b); }); sh.querySelector("#lm-finish-hint").textContent=(opts.filter(function(o){return o[0]===finish;})[0]||opts[0])[2]; };
+    paint();
+  }
+  sh.querySelector("#lm-save").addEventListener("click",function(){
+    renameLocalList(id, sh.querySelector("#lm-name").value);
+    l.finish=finish; save(); closeSheet();
+    if(activeTab==="lijst") renderLijst();
+    toast("Opgeslagen");
+  });
+  sh.querySelector("#lm-dup").addEventListener("click",function(){ var c=duplicateLocalList(id); closeSheet(); if(c){ switchLocalList(c.id); toast(c.name+" aangemaakt"); } });
+  sh.querySelector("#lm-del").addEventListener("click",function(){
+    if(localLists().length<=1){ toast("Je laatste lijst kun je niet verwijderen"); return; }
+    if(!confirm("'"+l.name+"' verwijderen? Dit kan niet ongedaan worden gemaakt.")) return;
+    closeSheet(); deleteLocalList(id); toast("Lijst verwijderd");
+  });
+  openSheetUI();
+}
+/* Plain-lijst: item-sheet met naam, kopje en notitie */
+function openPlainSheet(listId){
+  var it=state.list.find(function(i){return i.id===listId;}); if(!it) return;
+  var sh=$("#sheet"); if(!sh) return;
+  var sections=[]; state.list.forEach(function(i){ var s=(i.section||"").trim(); if(s && sections.indexOf(s)===-1) sections.push(s); });
+  sh.innerHTML='<div class="grip"></div><h3></h3>'+
+    '<div class="frow"><div class="fl">Tekst</div><input class="txt" id="ps-name" autocomplete="off"></div>'+
+    '<div class="frow"><div class="fl">Kopje</div><input class="txt" id="ps-section" list="ps-sections" placeholder="bijv. Kleding, Documenten" autocapitalize="words" autocomplete="off"><datalist id="ps-sections"></datalist></div>'+
+    (sections.length ? '<div class="cadrow" id="ps-secchips"></div>' : '')+
+    '<div class="frow"><div class="fl">Notitie</div><textarea class="io" id="ps-note" rows="3" placeholder="Extra details…"></textarea></div>'+
+    '<div class="sheet-actions"><button class="save" id="ps-save" type="button">Klaar</button><button class="del" id="ps-del" type="button">Verwijder</button></div>';
+  sh.querySelector("h3").textContent=it.name;
+  sh.querySelector("#ps-name").value=it.name;
+  sh.querySelector("#ps-section").value=it.section||"";
+  sh.querySelector("#ps-note").value=it.note||"";
+  var dl=sh.querySelector("#ps-sections"); sections.forEach(function(s){ var o=document.createElement("option"); o.value=s; dl.appendChild(o); });
+  var chips=sh.querySelector("#ps-secchips");
+  if(chips){ sections.forEach(function(s){ var b=el("button","cadchip"+((it.section||"")===s?" on":""),s); b.type="button"; b.addEventListener("click",function(){ sh.querySelector("#ps-section").value=s; chips.querySelectorAll(".cadchip").forEach(function(x){ x.classList.toggle("on", x===b); }); }); chips.appendChild(b); }); }
+  sh.querySelector("#ps-save").addEventListener("click",function(){
+    var nm=(sh.querySelector("#ps-name").value||"").trim(); if(nm) it.name=nm;
+    it.section=(sh.querySelector("#ps-section").value||"").trim().slice(0,40);
+    it.note=(sh.querySelector("#ps-note").value||"").trim();
+    save(); closeSheet(); renderLijst(); toast("Opgeslagen");
+  });
+  sh.querySelector("#ps-del").addEventListener("click",function(){ closeSheet(); removeFromList(it.id); });
+  openSheetUI();
+}
+/* Afronden op plain lijsten: opruimen (afgevinkt weg) of terugzetten (alle vinkjes uit) — altijd met undo */
+function finishPlain(mode){
+  var meta=currentListMeta(); mode = mode || meta.finish || "opruimen";
+  var done=state.list.filter(function(i){return i.done;}); if(!done.length) return;
+  var snapshot=state.list.map(function(i){ return Object.assign({}, i); });
+  if(mode==="terugzetten"){ state.list.forEach(function(i){ i.done=false; }); }
+  else { state.list=state.list.filter(function(i){return !i.done;}); }
+  save(); renderLijst(); vibe("nudge");
+  var label = mode==="terugzetten" ? done.length+(done.length===1?" vinkje":" vinkjes")+" teruggezet" : done.length+(done.length===1?" item opgeruimd":" items opgeruimd");
+  undoToast(label, function(){ state.list=snapshot; save(); renderLijst(); });
+}
+/* Plain-lijst: kopjes in volgorde van verschijnen, rijen met sleepgreep, afgevinkt onderaan */
+function renderPlainLists(open, done, openFrag, doneFrag){
+  var lab=listLabels();
+  var groups=[], byName={};
+  open.forEach(function(it){ var s=(it.section||"").trim(); if(!byName[s]){ byName[s]={name:s, items:[]}; groups.push(byName[s]); } byName[s].items.push(it); });
+  groups.forEach(function(g){
+    var wrap=el("div","shelf plain"); wrap.dataset.section=g.name;
+    if(g.name){ var sec=el("div","section plain-sec",'<span class="ps-name"></span><span class="count">'+g.items.length+'</span>'); sec.querySelector(".ps-name").textContent=g.name; wrap.appendChild(sec); }
+    var ul=el("ul","list"); g.items.forEach(function(it){ ul.appendChild(itemRow(it)); }); wrap.appendChild(ul);
+    attachSortHandles(Array.prototype.slice.call(ul.children), function(ids){ reorderPlainItems(ids); }, 8);
+    openFrag.appendChild(wrap);
+  });
+  if(done.length){
+    var s2=el("div","section",'<span class="ps-name"></span><span class="count">'+done.length+'</span>'); s2.querySelector(".ps-name").textContent=lab.doneTitle; doneFrag.appendChild(s2);
+    var ul2=el("ul","list"); done.forEach(function(it){ ul2.appendChild(itemRow(it)); }); doneFrag.appendChild(ul2);
+    var meta=currentListMeta();
+    var fw=el("div","finish-inline");
+    var fb=el("button","finish-inline-btn", meta.finish==="terugzetten" ? "Alles terugzetten ↺" : "Opruimen ✓"); fb.type="button";
+    fb.addEventListener("click", function(){ finishPlain(); }); fw.appendChild(fb);
+    if(meta.finish==="terugzetten"){ var fb2=el("button","finish-inline-btn soft","Opruimen"); fb2.type="button"; fb2.addEventListener("click", function(){ finishPlain("opruimen"); }); fw.appendChild(fb2); }
+    doneFrag.appendChild(fw);
+  }
+}
+function reorderPlainItems(ids){
+  var pos=[]; state.list.forEach(function(it,i){ if(ids.indexOf(it.id)!==-1) pos.push(i); });
+  var byId={}; state.list.forEach(function(it){ byId[it.id]=it; });
+  ids.forEach(function(id,k){ if(pos[k]!=null && byId[id]) state.list[pos[k]]=byId[id]; });
+  save(); renderLijst();
+}
+/* Plain-rij: vinkje, tekst (meerregelig), notitie, sleepgreep */
+function plainItemRow(it){
+  var li=el("li","row"+(it.done?" done":"")); li.dataset.id=it.id;
+  li.appendChild(el("div","behind",'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg><span>Verwijder</span>'));
+  var card=el("div","card");
+  card.innerHTML='<button class="check" type="button" aria-label="'+(it.done?"Vinkje weghalen":"Afvinken")+'" aria-pressed="'+(it.done?"true":"false")+'">'+CHECK_SVG+'</button>'+
+    '<div class="meta"><div class="nm"></div>'+(it.note?'<div class="sub2"></div>':'')+'</div>'+
+    (it.done?'':'<span class="sr-handle" aria-label="Sleep om te verplaatsen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></span>')+
+    ((typeof HAS_POINTER!=="undefined" && HAS_POINTER) ? '<div class="row-actions"><button class="ra-btn ra-opt" type="button" aria-label="Opties voor '+escapeAttr(it.name)+'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></svg></button><button class="ra-btn ra-del" type="button" aria-label="Verwijder '+escapeAttr(it.name)+'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg></button></div>' : '');
+  card.querySelector(".nm").textContent=it.name;
+  var sub=card.querySelector(".sub2"); if(sub) sub.textContent=it.note;
+  var raOpt=card.querySelector(".ra-opt"), raDel=card.querySelector(".ra-del");
+  if(raOpt) raOpt.addEventListener("click",function(e){ e.stopPropagation(); openPlainSheet(it.id); });
+  if(raDel) raDel.addEventListener("click",function(e){ e.stopPropagation(); removeFromList(it.id); });
+  card.querySelector(".check").addEventListener("click",function(e){ e.stopPropagation(); toggleDone(it.id); });
+  var h=card.querySelector(".sr-handle"); if(h){ h.addEventListener("click",function(e){ e.stopPropagation(); }); h.addEventListener("touchstart",function(e){ e.stopPropagation(); },{passive:true}); }
+  card.addEventListener("click",function(){ if(card._suppressClick) return; openPlainSheet(it.id); });
+  card.setAttribute("role","button"); card.setAttribute("tabindex","0"); card.setAttribute("aria-label", it.name+" — bewerken");
+  card.addEventListener("keydown",function(e){ if(e.target!==card) return; if(e.key==="Enter" || e.key===" "){ e.preventDefault(); openPlainSheet(it.id); } });
+  li.appendChild(card);
+  attachSwipe(card, function(){ removeFromList(it.id); });
+  return li;
+}
+/* Sleepgrepen op bestaande rijen (zelfde mechaniek als de schap-volgorde in Meer) */
+function attachSortHandles(rows, onReorder, gap){
+  _ensureSortListeners();
+  rows.forEach(function(row){
+    var handle = row.querySelector(".sr-handle"); if(!handle) return;
+    var startDrag = function(clientY){
+      _sortState.dragging = row; _sortState.items = rows; _sortState.dragIdx = rows.indexOf(row);
+      _sortState.startY = clientY; _sortState.offset = 0; _sortState.onReorder = onReorder; _sortState.gap = gap||6;
+      row.classList.add("dragging"); vibrate(8);
+    };
+    handle.addEventListener("touchstart", function(e){ startDrag(e.touches[0].clientY); e.preventDefault(); }, {passive:false});
+    handle.addEventListener("mousedown", function(e){ startDrag(e.clientY); e.preventDefault(); });
+  });
+}
+
 /* ---------- Winkels: eigen looproute (schapvolgorde) per supermarkt ---------- */
 var STORE_PRESETS = {
   ah:    ["groente-fruit","brood-banket","kaas-vleeswaren","vlees-vis","zuivel-eieren","ontbijt-beleg","houdbaar","snoep-snacks","dranken","diepvries","huishouden","verzorging","baby-kind","huisdier","tuin-planten","klussen","apotheek","kantoor-school","kleding-textiel","overig"],
@@ -1125,7 +1465,9 @@ function renderLijst(){
   var doneFrag = document.createDocumentFragment();
 
   if(state.list.length===0){
-    if(typeof Cloud!=="undefined" && Cloud.active){
+    if(isPlainList()){
+      openFrag.appendChild(emptyState("bag","Nog niets op "+localListName(),"Typ hieronder wat erop moet. Tip: 'Kleding: sokken' zet het onder het kopje Kleding."));
+    } else if(typeof Cloud!=="undefined" && Cloud.active){
       openFrag.appendChild(emptyState(
         "bag",
         "Begin je lijst",
@@ -1137,6 +1479,8 @@ function renderLijst(){
       openFrag.appendChild(emptyState("bag","Begin je lijst","Typ hieronder wat je nodig hebt. Producten landen vanzelf in het juiste schap."));
     }
     renderQuickStart(openFrag);
+  } else if(isPlainList()){
+    renderPlainLists(open, done, openFrag, doneFrag);
   } else {
     // groepeer open per categorie volgens categoryOrder
     var byCat={}; open.forEach(function(it){ var cid = CAT_BY_ID[it.category] ? it.category : "overig"; (byCat[cid]=byCat[cid]||[]).push(it); });
@@ -1218,6 +1562,7 @@ function scrollToRow(id){
 }
 
 function itemRow(it){
+  if(isPlainList()) return plainItemRow(it);
   var li=el("li","row"+(it.done?" done":"")); li.dataset.id=it.id;
   // Slide-in als item < 600ms geleden toegevoegd
   var addedMs = it.addedAt ? new Date(it.addedAt).getTime() : 0;
@@ -1281,7 +1626,7 @@ function updateTotals(){
   $("#t-finish").style.display=done?"inline-flex":"none";
   var hint=$("#t-hint"); if(hint) hint.style.display=(state.settings.showPrices && !hasPrices && state.list.length>0)?"block":"none";
   var progWrap=$("#t-prog-wrap"); if(progWrap) progWrap.style.display=hasPrices?"":"none";
-  var show = activeTab==="lijst" && state.list.length>0 && state.settings.showPrices;
+  var show = activeTab==="lijst" && state.list.length>0 && state.settings.showPrices && T().prices;
   $("#totals").classList.toggle("hide", !show);
   $("#pad-lijst").className = "pad-bottom"+(show?" with-total":"");
   // has-total verkort het scrollgebied tot bóven de totaalbalk → de balk dekt nooit items af
@@ -1354,12 +1699,13 @@ function updateSubhead(){
   }
   var parts = [];
   if(activeTab==="lijst"){
-    if(state.list.length===0){ parts.push("Je mandje is leeg"); }
+    var lab=listLabels(), plain=isPlainList();
+    if(state.list.length===0){ parts.push(plain ? "Nog niets op de lijst" : "Je mandje is leeg"); }
     else {
-      parts.push(waiting===0 ? "Alles in het mandje" : waiting + " te halen");
-      if(doneCount>0 && waiting>0) parts.push(doneCount + " in mandje");
+      parts.push(waiting===0 ? (plain ? "Alles "+lab.done : "Alles in het mandje") : waiting + " " + lab.open);
+      if(doneCount>0 && waiting>0) parts.push(doneCount + " " + lab.done);
     }
-    if(state.settings && state.settings.showPrices){
+    if(state.settings && state.settings.showPrices && T().prices){
       var total = 0; state.list.forEach(function(i){ total += (i.price||0) * (i.qty||1); });
       if(total>0) parts.push(euro(total));
     }
@@ -1425,6 +1771,7 @@ function renderWeekRitual(){
 }
 function renderDueBanner(){
   var wrap=$("#due-banner"); wrap.innerHTML="";
+  if(!T().cadence){ var wr=$("#week-ritual"); if(wr) wr.innerHTML=""; return; }
   renderWeekRitual();
   if(activeTab!=="lijst") return;
   var due=getDueItems(); if(!due.length) return;
@@ -1463,7 +1810,7 @@ function renderDueBanner(){
 function renderShopEntry(){
   var wrap=$("#shop-entry"); if(!wrap) return;
   var open=state.list.filter(function(i){return !i.done;}).length;
-  if(activeTab!=="lijst" || open<1){ wrap.innerHTML=""; return; }
+  if(activeTab!=="lijst" || open<1 || !T().shop){ wrap.innerHTML=""; return; }
   wrap.innerHTML="";
   var b=el("button","shop-enter-btn",
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.7 13.4a2 2 0 0 0 2 1.6h9.7a2 2 0 0 0 2-1.6L23 6H6"/></svg>'+
@@ -1484,7 +1831,7 @@ function releaseWakeLock(){ try{ if(_wakeLock){ _wakeLock.release().catch(functi
 function shopIsOpen(){ var scr=$("#shop-screen"); return !!(scr && scr.classList.contains("show")); }
 
 function openShoppingMode(){
-  var scr=$("#shop-screen"); if(!scr) return;
+  var scr=$("#shop-screen"); if(!scr || !T().shop) return;
   buildShopChrome(scr);
   scr.classList.toggle("hide-done", !!(state.settings && state.settings.shopHideDone));
   scr.classList.add("show");
@@ -2040,6 +2387,7 @@ function importFromFile(){
 var sheetCtx=null; // {type:'list'|'catalog', id|key}
 
 function openSheet(listId){
+  if(isPlainList()){ openPlainSheet(listId); return; }
   var it=state.list.find(function(i){return i.id===listId;}); if(!it) return;
   var k=norm(it.name);
   var e=state.catalog[k]; var a=e?analyse(e):null;
@@ -2306,7 +2654,7 @@ function attachSwipe(card,onDelete){
    ============================================================ */
 function doAdd(){
   var raw = $("#add-name").value;
-  var p = parseQtyFromInput(raw);
+  var p = isPlainList() ? { name:(raw||"").trim(), qty:1 } : parseQtyFromInput(raw);
   if(!p.name) return;
   hideAC();  // direct sluiten zodat AC-popover niet "kort flikkert" tussen items
   if(addToList(p.name, null, {qty: p.qty, unit: p.unit})){
@@ -2316,6 +2664,7 @@ function doAdd(){
   }
 }
 function buildAC(q){
+  if(isPlainList()){ hideAC(); return; }
   // strip qty-syntax voor ac-zoekopdracht (zodat "melk 2" ook 'melk' suggereert)
   var parsed = parseQtyFromInput(q||"");
   var stripped = parsed.name;
@@ -2458,7 +2807,7 @@ function _sortMove(clientY){
   var d = _sortState; if(!d.dragging) return;
   d.offset = clientY - d.startY;
   d.dragging.style.transform = "translateY("+d.offset+"px) scale(1.02)";
-  var rowH = d.dragging.offsetHeight + 6;
+  var rowH = d.dragging.offsetHeight + (d.gap||6);
   var newIdx = Math.max(0, Math.min(d.items.length-1, d.dragIdx + Math.round(d.offset/rowH)));
   d.items.forEach(function(r,i){
     if(r===d.dragging) return;
@@ -2470,7 +2819,7 @@ function _sortMove(clientY){
 }
 function _sortEnd(){
   var d = _sortState; if(!d.dragging) return;
-  var rowH = d.dragging.offsetHeight + 6;
+  var rowH = d.dragging.offsetHeight + (d.gap||6);
   var newIdx = Math.max(0, Math.min(d.items.length-1, d.dragIdx + Math.round(d.offset/rowH)));
   d.items.forEach(function(r){ r.style.transform=""; r.classList.remove("dragging"); });
   if(newIdx !== d.dragIdx){
@@ -3217,6 +3566,7 @@ function initApp(){
   }
   updateSubhead();
   refreshTopShareBtn();
+  applyListType();
 
   $("#add-btn").addEventListener("click",doAdd);
   $("#add-name").addEventListener("keydown",function(e){
@@ -3373,6 +3723,19 @@ if(typeof window!=="undefined"){
   window.openFinishSheet = openFinishSheet;
   window.repeatLastTrip = repeatLastTrip;
   window.addStore = addStore;
+  window.createLocalList = createLocalList;
+  window.switchLocalList = switchLocalList;
+  window.deleteLocalList = deleteLocalList;
+  window.duplicateLocalList = duplicateLocalList;
+  window.renameLocalList = renameLocalList;
+  window.localLists = localLists;
+  window.currentListMeta = currentListMeta;
+  window.isPlainList = isPlainList;
+  window.openNewListSheet = openNewListSheet;
+  window.openListManageSheet = openListManageSheet;
+  window.finishPlain = finishPlain;
+  window.reorderPlainItems = reorderPlainItems;
+  window.templateItems = templateItems;
   window.addToList = addToList;
   window.toggleDone = toggleDone;
   window.activeStore = activeStore;

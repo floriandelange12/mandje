@@ -5,7 +5,7 @@
   "description": "Mandje — premium boodschappenlijst-PWA (single-file build, GitHub Pages)",
   "scripts": {
     "build": "node build.js",
-    "test": "node tests/test.js && node tests/t3.js && node tests/t4.js && node tests/contrast.js",
+    "test": "node tests/test.js && node tests/t3.js && node tests/t4.js && node tests/t5.js && node tests/contrast.js",
     "deploy": "node deploy.js"
   },
   "devDependencies": {
