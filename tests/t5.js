@@ -98,9 +98,10 @@ const stored=(W)=>JSON.parse(W.localStorage.getItem("mandje.v2"));
   ok("To-do 'Klussen' aangemaakt en actief (opruimen-modus)", st.localLists.length===3 && st.activeLocalId===st.localLists[2].id && st.localLists[2].preset==="todo" && st.localLists[2].finish==="opruimen" && D.querySelector("#title").textContent==="Klussen");
   const todoId=st.activeLocalId;
   add("lamp ophangen"); await wait(30);
-  const copy=W.duplicateLocalList(todoId);
+  const copy=W.duplicateLocalList(todoId); await wait(20);   // save() is gecoalesced (microtask)
   ok("Dupliceren: kopie zonder vinkjes, eigen id", !!copy && copy.id!==todoId && copy.items.length===1 && stored(W).localLists.length===4);
-  ok("Verwijderen: laatste lijst kan niet weg; andere wel", W.deleteLocalList(copy.id)===true && stored(W).localLists.length===3);
+  const delOk=W.deleteLocalList(copy.id); await wait(20);
+  ok("Verwijderen: laatste lijst kan niet weg; andere wel", delOk===true && stored(W).localLists.length===3);
   W.deleteLocalList(todoId); await wait(40);
   ok("Actieve lijst verwijderen schakelt naar de eerste lijst", stored(W).activeLocalId==="l_boodschappen" && D.querySelector("#title").textContent==="Boodschappen" && stored(W).localLists.length===2);
 
