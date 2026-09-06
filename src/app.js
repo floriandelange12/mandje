@@ -152,7 +152,7 @@ var NS = "mandje.v2";
 var CURRENT_STATE_VERSION = 3;
 var DEFAULTS = {
   version: CURRENT_STATE_VERSION,
-  settings:{ theme:"auto", textScale:1, shopHideDone:false, haptics:true, showPrices:false, seenIntro:false, categoryOrder:CATS.map(function(c){return c.id;}), minPurchases:3, cvThreshold:0.6, dueWindowDays:1, customCategories:[], customCatEmoji:{}, collapsedCats:{}, seenQtyHint:false, seenBulkHint:false, seenPriceNudge:false, pushOn:null },
+  settings:{ theme:"auto", textScale:1, shopHideDone:false, haptics:true, showPrices:false, seenIntro:false, categoryOrder:CATS.map(function(c){return c.id;}), minPurchases:3, cvThreshold:0.6, dueWindowDays:1, customCategories:[], customCatEmoji:{}, collapsedCats:{}, seenQtyHint:false, seenBulkHint:false, seenPriceNudge:false, pushOn:null, push:{op:true, shopping:true} },
   history:[],
   cloudCache:{},
   sync:{},
@@ -413,6 +413,53 @@ function _saveNow(){
   }catch(e){ if(isQuotaError(e)) onQuotaExceeded(); }
   if(!navigator.onLine && typeof refreshOfflineBadge === "function") refreshOfflineBadge();
   if(typeof Cloud!=="undefined" && Cloud && Cloud.ready && typeof Cloud.scheduleUserStatePush==="function") Cloud.scheduleUserStatePush();
+  syncBadge();
+}
+
+/* ===== Meldingen (Fase 5): voorkeuren, uitleg bij weigering, contextuele vraag, app-badge ===== */
+function pushPrefs(){ var p=(state && state.settings && isPlainObject(state.settings.push)) ? state.settings.push : {}; return { op:p.op!==false, shopping:p.shopping!==false }; }
+function pushReasonMessage(why){
+  return {
+    "no-cloud":   "Meldingen hebben verbinding met de cloud nodig — probeer het zo nog eens",
+    "denied":     "Meldingen zijn geblokkeerd voor Mandje. Zet ze aan bij Instellingen → Meldingen → Mandje",
+    "dismissed":  "Je hebt de vraag weggetikt — tik nog eens en kies 'Sta toe'",
+    "unsupported":"Dit toestel ondersteunt geen meldingen voor webapps",
+    "no-sw":      "De app is nog niet klaar op de achtergrond — herlaad en probeer het opnieuw",
+    "error":      "Aanzetten lukte niet — probeer het straks nog eens"
+  }[why||"error"] || "Aanzetten lukte niet";
+}
+/* Op een gedeelde lijst met huisgenoten, één keer: wil je een seintje? (niet in Meer verstopt) */
+function renderPushNudge(){
+  var wrap=$("#push-nudge"); if(!wrap) return; wrap.innerHTML="";
+  if(activeTab!=="lijst" || typeof Cloud==="undefined" || !Cloud || !Cloud.active || !Cloud.pushEnabled || !Cloud.pushEnabled()) return;
+  if(state.settings.pushOn===true || state.settings.pushNudgeDismissed) return;
+  if(typeof Notification!=="undefined" && Notification.permission==="denied") return;
+  var standalone = (navigator.standalone===true) || (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches);
+  if(isIOSDevice() && !standalone) return;
+  var l=Cloud.activeList(); var n=Math.max((l && l.member_count)||1, (Cloud.members||[]).length);
+  if(n<2) return;
+  var c=el("div","ritual push");
+  c.innerHTML='<button class="r-x" type="button" aria-label="Kaart verbergen">✕</button><h4>Seintje als iets op is?</h4><p>Krijg een melding als een huisgenoot iets als op meldt, of gaat winkelen. Bijvoorbeeld: "Lisa: melk is op".</p><div class="chips"><button class="chip" type="button" id="pn-go"><span>Zet aan</span><span class="plus">→</span></button></div>';
+  c.querySelector("#pn-go").addEventListener("click", function(){
+    var b=c.querySelector("#pn-go"); b.disabled=true;
+    Cloud.subscribeToPush().then(function(res){
+      var ok = res===true || (res && res.ok);
+      if(ok){ toast("Meldingen aan ✓", {duration:2500}); wrap.innerHTML=""; if(activeTab==="lijst") renderDueBanner(); return; }
+      b.disabled=false; toast(pushReasonMessage(res && res.reason), {duration:5000});
+    });
+  });
+  c.querySelector(".r-x").addEventListener("click", function(){ state.settings.pushNudgeDismissed=true; save(); wrap.innerHTML=""; });
+  wrap.appendChild(c);
+}
+/* App-badge = aantal open items op de geopende lijst (iOS 16.4+ beginscherm, Android, desktop) */
+var _badgeLast=-1;
+function syncBadge(){
+  try{
+    if(typeof navigator==="undefined" || typeof navigator.setAppBadge!=="function") return;
+    var n=(state && Array.isArray(state.list)) ? state.list.filter(function(i){ return !i.done; }).length : 0;
+    if(n===_badgeLast) return; _badgeLast=n;
+    if(n>0) navigator.setAppBadge(n).catch(function(){}); else if(typeof navigator.clearAppBadge==="function") navigator.clearAppBadge().catch(function(){});
+  }catch(e){}
 }
 
 /* Opslag vol (localStorage ±5 MB): ruimte maken en om een back-up vragen */
@@ -2324,6 +2371,7 @@ function renderDueBanner(){
   renderCloudCacheBar();
   renderOnboardCard();
   renderAccountNudge();
+  renderPushNudge();
   if(!T().cadence){ var wr=$("#week-ritual"); if(wr) wr.innerHTML=""; return; }
   renderWeekRitual();
   if(activeTab!=="lijst") return;
@@ -2392,6 +2440,7 @@ function openShoppingMode(){
   renderShopBody();
   requestWakeLock();
   if(typeof Cloud!=="undefined" && Cloud && typeof Cloud.setShopping==="function") Cloud.setShopping(true);
+  if(typeof Cloud!=="undefined" && Cloud && typeof Cloud.notifyShoppingStart==="function") Cloud.notifyShoppingStart();
 }
 function closeShoppingMode(){
   var scr=$("#shop-screen");
@@ -2819,30 +2868,34 @@ function renderMeer(){
       gP.appendChild(el("div","grow",'<div class="glabel">Herinneringen<div class="gsub">Zet Mandje eerst op je beginscherm (zie hieronder) om meldingen te kunnen krijgen.</div></div>'));
     } else {
       var remRow=el("div","grow");
-      remRow.innerHTML='<div class="glabel">Herinneringen<div class="gsub">Een dagelijkse herinnering om je lijst te checken.</div></div>';
+      remRow.innerHTML='<div class="glabel">Meldingen<div class="gsub">Een seintje van je huisgenoten: als iets op is, of als iemand gaat winkelen.</div></div>';
       // De eigen voorkeur is de bron van waarheid — niet de OS-permissie (die blijft 'granted' na uitzetten)
       var onP = !!(state.settings.pushOn) && (typeof Notification!=="undefined" && Notification.permission==="granted");
-      var rsw = switchBtn("Herinneringen", onP, function(){
-        if(rsw.classList.contains("on")){ Cloud.unsubscribePush(); rsw.classList.remove("on"); rsw.setAttribute("aria-checked","false"); toast("Herinneringen uit"); }
+      var rsw = switchBtn("Meldingen", onP, function(){
+        if(rsw.classList.contains("on")){ Cloud.unsubscribePush(); rsw.classList.remove("on"); rsw.setAttribute("aria-checked","false"); toast("Meldingen uit"); renderMeer(); }
         else {
           Cloud.subscribeToPush().then(function(res){
             var ok = res===true || (res && res.ok);
-            if(ok){ rsw.classList.add("on"); rsw.setAttribute("aria-checked","true"); toast("Herinneringen aan ✓"); return; }
-            var why = (res && res.reason) || "error";
-            var msg = {
-              "no-cloud":   "Meldingen hebben verbinding met de cloud nodig — probeer het zo nog eens",
-              "denied":     "Meldingen zijn geblokkeerd voor Mandje. Zet ze aan bij Instellingen → Meldingen → Mandje",
-              "dismissed":  "Je hebt de vraag weggetikt — tik nog eens en kies 'Sta toe'",
-              "unsupported":"Dit toestel ondersteunt geen meldingen voor webapps",
-              "no-sw":      "De app is nog niet klaar op de achtergrond — herlaad en probeer het opnieuw",
-              "error":      "Aanzetten lukte niet — probeer het straks nog eens"
-            }[why] || "Aanzetten lukte niet";
-            toast(msg, {duration:5000});
+            if(ok){ rsw.classList.add("on"); rsw.setAttribute("aria-checked","true"); toast("Meldingen aan ✓"); renderMeer(); return; }
+            toast(pushReasonMessage(res && res.reason), {duration:5000});
           });
         }
       });
       remRow.appendChild(rsw);
       gP.appendChild(remRow);
+      if(onP){
+        var pp = pushPrefs();
+        [["op","Iets is op","Als een huisgenoot meldt dat iets op is."],["shopping","Iemand gaat winkelen","Als een huisgenoot de winkelmodus opent — nog snel iets toevoegen?"]].forEach(function(row){
+          var r=el("div","grow sub"); r.innerHTML='<div class="glabel">'+row[1]+'<div class="gsub">'+row[2]+'</div></div>';
+          var sw=switchBtn(row[1], pp[row[0]]!==false, function(){
+            var now=!sw.classList.contains("on");
+            sw.classList.toggle("on", now); sw.setAttribute("aria-checked", now?"true":"false");
+            state.settings.push=Object.assign({}, pushPrefs()); state.settings.push[row[0]]=now; save();
+            if(Cloud.updatePushPrefs) Cloud.updatePushPrefs();
+          });
+          r.appendChild(sw); gP.appendChild(r);
+        });
+      }
     }
     wrap.appendChild(gP);
   }
@@ -4324,6 +4377,9 @@ function setupServiceWorker(){
     }).catch(function(){});
     // Eerste bezoek: clients.claim() vuurt óók controllerchange — dan NIET herladen
     // (dat kostte elke nieuwe bezoeker een dubbele download van de hele app).
+    navigator.serviceWorker.addEventListener("message", function(e){
+      if(e && e.data && e.data.type==="PUSH_RESUBSCRIBE" && typeof Cloud!=="undefined" && Cloud && Cloud.checkPushSubscription) Cloud.checkPushSubscription();
+    });
     var reloaded = false;
     navigator.serviceWorker.addEventListener("controllerchange", function(){
       if(!_userAskedUpdate || reloaded) return; reloaded = true; location.reload();
@@ -4684,6 +4740,8 @@ if(typeof window!=="undefined"){
   window.wipeDevice = wipeDevice;
   window.mirrorAuthSession = mirrorAuthSession;
   window.onQuotaExceeded = onQuotaExceeded;
+  window.pushPrefs = pushPrefs;
+  window.syncBadge = syncBadge;
   window.parseRecipeText = parseRecipeText;
   window.renderAssignFilter = renderAssignFilter;
   window.onboardSteps = onboardSteps;

@@ -3,8 +3,8 @@
    Strategie: stale-while-revalidate voor de shell (direct uit cache tonen, op de achtergrond
    verversen voor de volgende keer). Supabase (REST + realtime-WebSocket) en alle cross-origin
    verzoeken gaan ALTIJD rechtstreeks naar het netwerk — nooit cachen.
-   482dc55c wordt door build.js vervangen door de MANDJE_CONFIG.BUILD-waarde. */
-var CACHE = "mandje-482dc55c";
+   5c577d55 wordt door build.js vervangen door de MANDJE_CONFIG.BUILD-waarde. */
+var CACHE = "mandje-5c577d55";
 var SHELL = "./index.html";
 // Precache: de shell, het manifest en de kleine iconen (push-icoon + badge). App-navigaties worden in
 // de fetch-handler op SHELL gemapt, dus "./" apart cachen zou het 600 KB-document twee keer opslaan.
@@ -45,9 +45,16 @@ self.addEventListener("push", function(e){
     icon: data.icon || "./icon-192.png",
     badge: data.badge || "./badge-96.png",
     tag: data.tag || "mandje-due",
+    renotify: !!data.renotify,
     data: { url: data.url || "./" }
   };
   e.waitUntil(self.registration.showNotification(title, opts));
+});
+/* Abonnement door de browser vernieuwd: open vensters opnieuw laten abonneren (de app herstelt anders bij de volgende start) */
+self.addEventListener("pushsubscriptionchange", function(e){
+  e.waitUntil(self.clients.matchAll({type:"window", includeUncontrolled:true}).then(function(cs){
+    cs.forEach(function(c){ try{ c.postMessage({type:"PUSH_RESUBSCRIBE"}); }catch(x){} });
+  }).catch(function(){}));
 });
 self.addEventListener("notificationclick", function(e){
   e.notification.close();
@@ -64,7 +71,8 @@ self.addEventListener("notificationclick", function(e){
       // Alleen navigeren bij een expliciete doel-url naar een ánder pad (nooit een draaiende app herladen voor de root)
       var explicit = !!(e.notification.data && e.notification.data.url);
       var samePath = true; try{ samePath = new URL(client.url).pathname === new URL(url).pathname; }catch(x){}
-      if(explicit && !samePath && "navigate" in client){
+      var hasQuery = false; try{ hasQuery = !!new URL(url).search; }catch(x){}
+      if(explicit && (!samePath || hasQuery) && "navigate" in client){
         return client.navigate(url).then(function(c){ return c ? c.focus() : client.focus(); })
                                    .catch(function(){ return client.focus(); });
       }

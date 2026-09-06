@@ -94,6 +94,12 @@ ok("sw.js: precache bevat geen 512-iconen (te groot voor de installatie-download
 ok("sw.js: push-icoon en badge wijzen naar icon-192.png / badge-96.png", sw.indexOf("./icon-192.png")!==-1 && sw.indexOf("./badge-96.png")!==-1);
 ok("sw.js: alleen app-navigaties (/ of /index.html) krijgen de shell", sw.indexOf('p.slice(-11) === "/index.html"')!==-1 && sw.indexOf('p.slice(-1) === "/"')!==-1);
 ok("sw.js: precache bevat GEEN losse \"./\"", !!precache && precache.indexOf("./")===-1);
+ok("sw.js: pushsubscriptionchange-vangnet, renotify en deep link met query (Fase 5)", sw.indexOf("pushsubscriptionchange")!==-1 && sw.indexOf("renotify")!==-1 && sw.indexOf("hasQuery")!==-1);
+{
+  const m5 = fs.existsSync(path.join(root, "supabase/migrations/2026-09-06_m5_notify.sql")) ? fs.readFileSync(path.join(root, "supabase/migrations/2026-09-06_m5_notify.sql"), "utf8") : "";
+  const fn = fs.existsSync(path.join(root, "supabase/functions/push-events/index.ts")) ? fs.readFileSync(path.join(root, "supabase/functions/push-events/index.ts"), "utf8") : "";
+  ok("Fase 5: M5-migratie (notify_outbox, trigger, start_shopping, prefs, cron) en Edge Function push-events aanwezig", /notify_outbox/.test(m5) && /start_shopping/.test(m5) && /items_flag_notify/.test(m5) && /prefs/.test(m5) && /cron\.schedule/.test(m5) && /notify_outbox/.test(fn) && /webpush\.sendNotification/.test(fn) && /prefs\[prefKey\]/.test(fn));
+}
 
 console.log("\nt4: "+pass+" geslaagd, "+fail+" gefaald");
 process.exit(fail ? 1 : 0);

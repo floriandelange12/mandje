@@ -515,6 +515,52 @@ const stored=(W)=>JSON.parse(W.localStorage.getItem("mandje.v2"));
       ok("F4: klaar met winkelen → gewone 'kijkt mee'-balk", !bar.classList.contains("shopping") && /Florian kijkt mee/.test(bar.textContent));
       dO.window.close();
     }
+
+    // 16. Fase 5 — meldingen: schakelaar + voorkeuren per soort, contextuele vraag, start_shopping, app-badge
+    {
+      const seedP={version:3,settings:{theme:"light",showPrices:false,seenIntro:true,categoryOrder:null,minPurchases:3,cvThreshold:.6,dueWindowDays:1,onboardDismissed:true},list:[item("a1","appels","groente-fruit")],catalog:{},coBuy:{},meals:{},history:[],
+        localLists:[{id:"l_boodschappen",name:"Boodschappen",type:"grocery",preset:"grocery",glyph:"🧺",finish:"opruimen",items:[item("a1","appels","groente-fruit")]}],activeLocalId:"l_boodschappen"};
+      const sub={endpoint:"https://push.example/abc", toJSON:()=>({keys:{p256dh:"k",auth:"a"}}), unsubscribe:async()=>true};
+      const reg={pushManager:{getSubscription:async()=>sub, subscribe:async()=>sub}};
+      const badges=[];
+      const dP=new JSDOM(html,{url:"https://example.com/",runScripts:"dangerously",resources:"usable",pretendToBeVisual:true,beforeParse(w){
+        w.localStorage.setItem("mandje.v2", JSON.stringify(seedP));
+        w.PushManager=function(){}; w.Notification={permission:"granted", requestPermission:(cb)=>{ if(cb) cb("granted"); return Promise.resolve("granted"); }};
+        Object.defineProperty(w.navigator,"serviceWorker",{value:{ready:Promise.resolve(reg), register:()=>Promise.resolve(reg), addEventListener(){} , controller:null}});
+        Object.defineProperty(w.navigator,"setAppBadge",{value:(n)=>{ badges.push(n); return Promise.resolve(); }});
+        Object.defineProperty(w.navigator,"clearAppBadge",{value:()=>{ badges.push(0); return Promise.resolve(); }});
+      }});
+      await wait(200); const W=dP.window, D=W.document, C=W.Cloud;
+      const sb=mkStub2(); C.sb=sb; C.enabled=true; C.ready=true; C.mode="cloud"; C.userId="u1"; C.lists=[{id:"c1",name:"Gedeeld",owner_user_id:"u1",member_count:2}];
+      ok("F5: pushEnabled met VAPID-key + gestubde PushManager/Notification/serviceWorker", C.pushEnabled()===true);
+      // contextuele vraag op de gedeelde lijst
+      await C.open("c1").catch(()=>{}); await wait(80);
+      const nudge=D.querySelector("#push-nudge .ritual.push");
+      ok("F5: op een gedeelde lijst met huisgenoten verschijnt 'Seintje als iets op is?'", !!nudge && /Seintje/.test(nudge.textContent));
+      sb.calls.length=0; nudge.querySelector("#pn-go").click(); await wait(120);
+      const up=sb.calls.find(c=>c.table==="push_subscriptions" && c.ops[0][0]==="upsert");
+      ok("F5: 'Zet aan' → abonnement met prefs {op:true, shopping:true} naar push_subscriptions, pushOn=true, kaart weg", !!up && up.ops[0][1].endpoint===sub.endpoint && up.ops[0][1].prefs && up.ops[0][1].prefs.op===true && stored(W).settings.pushOn===true && !D.querySelector("#push-nudge .ritual.push"));
+      // Meer → Meldingen met sub-schakelaars
+      D.querySelector("#gear-btn").click(); await wait(60);
+      const sw=(label)=>D.querySelector('#meer-content .switch[aria-label="'+label+'"]');
+      ok("F5: Meer → Meldingen aan, met 'Iets is op' en 'Iemand gaat winkelen'", !!sw("Meldingen") && sw("Meldingen").classList.contains("on") && !!sw("Iets is op") && !!sw("Iemand gaat winkelen") && sw("Iets is op").classList.contains("on"));
+      sb.calls.length=0; sw("Iemand gaat winkelen").click(); await wait(80);
+      const updP=sb.calls.find(c=>c.table==="push_subscriptions" && c.ops[0][0]==="update");
+      ok("F5: voorkeur uit → settings.push.shopping=false en update prefs op het abonnement", stored(W).settings.push.shopping===false && !!updP && updP.ops[0][1].prefs.shopping===false && updP.ops.some(x=>x[0]==="eq"&&x[2]===sub.endpoint));
+      ok("F5: voorkeuren gaan mee in de sync (SYNC_SETTINGS bevat push)", W.buildUserStatePayload().settings.push && W.buildUserStatePayload().settings.push.shopping===false);
+      sw("Meldingen").click(); await wait(60);
+      ok("F5: hoofdschakelaar uit → pushOn=false, sub-schakelaars weg", stored(W).settings.pushOn===false && !sw("Iets is op"));
+      // start_shopping bij winkelmodus (gedeelde lijst met ≥2 leden)
+      D.querySelector("#gear-btn").click(); await wait(40);
+      sb.calls.length=0; W.openShoppingMode(); await wait(60);
+      ok("F5: winkelmodus openen → rpc start_shopping(p_list_id)", sb.calls.some(c=>c.table==="rpc:start_shopping" && c.args.p_list_id==="c1"));
+      W.closeShoppingMode(); sb.calls.length=0; W.openShoppingMode(); await wait(40); W.closeShoppingMode();
+      ok("F5: niet nog eens binnen 2 uur (client-throttle)", !sb.calls.some(c=>c.table==="rpc:start_shopping"));
+      // app-badge = open items
+      badges.length=0; W.addToList("peren", null, {silent:true}); await wait(40);
+      ok("F5: app-badge volgt het aantal open items van de geopende (gedeelde) lijst", badges.length>0 && badges[badges.length-1]===D.querySelectorAll("#open-list li.row").length && badges[badges.length-1]>=2);
+      dP.window.close();
+    }
   }
 
   console.log("\nt5: "+pass+" geslaagd, "+fail+" gefaald");

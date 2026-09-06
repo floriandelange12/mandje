@@ -294,15 +294,40 @@ var Cloud = {
       var sub=await reg.pushManager.getSubscription();
       if(!sub) sub=await reg.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey:urlB64ToUint8Array(key) });
       var j=sub.toJSON();
-      var r=await this.sb.from("push_subscriptions").upsert({
+      var row={
         user_id:this.userId, endpoint:sub.endpoint,
         p256dh:(j.keys&&j.keys.p256dh)||"", auth:(j.keys&&j.keys.auth)||"",
         updated_at:new Date().toISOString()
-      }, { onConflict:"endpoint" });
+      };
+      if(this._hasPrefs!==false) row.prefs=this._pushPrefs();
+      var r=await this.sb.from("push_subscriptions").upsert(row, { onConflict:"endpoint" });
+      if(r.error && this._isMissingCol(r.error, "prefs")){ this._hasPrefs=false; delete row.prefs; r=await this.sb.from("push_subscriptions").upsert(row, { onConflict:"endpoint" }); }
       if(r.error){ console.warn("Mandje: push_subscriptions upsert faalde", r.error); return {ok:false, reason:"error"}; }
+      this._hasPrefs=true;
       if(typeof state!=="undefined" && state && state.settings){ state.settings.pushOn = true; if(typeof save==="function") save(); }
       return {ok:true, reason:"ok"};
     }catch(e){ console.warn("Mandje: push aanzetten faalde", e); return {ok:false, reason:"error"}; }
+  },
+  _hasPrefs:undefined, _shopNotifiedFor:null, _shopNotifiedAt:0,
+  _pushPrefs:function(){ return (typeof pushPrefs==="function") ? pushPrefs() : {op:true, shopping:true}; },
+  /* Voorkeur per soort bijwerken op het bestaande abonnement */
+  updatePushPrefs:async function(){
+    if(!this.ready || !this.sb || this._hasPrefs===false) return false;
+    try{
+      var reg=await navigator.serviceWorker.ready; var sub=await reg.pushManager.getSubscription(); if(!sub) return false;
+      var r=await this.sb.from("push_subscriptions").update({prefs:this._pushPrefs(), updated_at:new Date().toISOString()}).eq("endpoint", sub.endpoint);
+      if(r.error){ if(this._isMissingCol(r.error,"prefs")) this._hasPrefs=false; return false; }
+      return true;
+    }catch(e){ return false; }
+  },
+  /* "Ik ga winkelen" → huisgenoten krijgen (hooguit 1× per 2 u per lijst, ook serverside) een seintje */
+  notifyShoppingStart:function(){
+    if(!this.ready || !this.sb || !this.active) return;
+    var l=this.activeList(); if(!l || ((l.member_count||1)<2 && (this.members||[]).length<2)) return;
+    var now=Date.now();
+    if(this._shopNotifiedFor===this.active && now-this._shopNotifiedAt<7200000) return;
+    this._shopNotifiedFor=this.active; this._shopNotifiedAt=now;
+    try{ this.sb.rpc("start_shopping",{p_list_id:this.active}).then(function(){},function(){}); }catch(e){}
   },
   unsubscribePush:async function(){
     // Voorkeur éérst uitzetten (vóór de await) zodat een parallelle init niet her-abonneert
@@ -481,6 +506,8 @@ var Cloud = {
           await ensureIdentity(function(){ Cloud.joinList(params.get("join")); });
         } else {
           var act=localStorage.getItem("mandje.activeList");
+          var wantList=params.get("list");
+          if(wantList){ try{ history.replaceState({}, "", location.pathname); }catch(e){} if(this.listById(wantList)) act=wantList; }
           if(act && act!=="local"){
           if(this.listById(act)){
             await this.open(act);
