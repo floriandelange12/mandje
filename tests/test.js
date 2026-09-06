@@ -92,7 +92,7 @@ async function run(){
     if(vasteTab){
       fire(vasteTab, "click"); await wait(20);
       const subVaste = (doc.querySelector("#subhead").textContent || "").toLowerCase();
-      ok("Subhead toont modus op vaste-tab", subVaste.includes("lokale modus") || subVaste.includes("cloud") || subVaste.includes("offline-modus"));
+      ok("Subhead op de Vaste-tab is mensentaal zonder modus-tekst", subVaste.includes("vaste boodschappen") && !subVaste.includes("modus"));
     } else {
       ok("Vaste-tab niet zichtbaar in minimale setup", true);
     }
@@ -212,7 +212,9 @@ async function run(){
 
     ok("lokale modus actief zonder Cloud", summary ? summary.mode === "local" : true);
     const subheadText = (doc.querySelector("#subhead").textContent || "").toLowerCase();
-    ok("subhead meldt lokale/Offline modus", subheadText.indexOf("lokale modus") !== -1 || subheadText.indexOf("offline-modus") !== -1 || subheadText.indexOf("cloud uitgeschakeld") !== -1);
+    const badgeEl = doc.querySelector("#offline-badge");
+    const badgeTxt = (badgeEl && badgeEl.textContent || "").toLowerCase();
+    ok("status-pil meldt Lokaal; subkop bevat geen modus- of fouttekst", subheadText.indexOf("modus") === -1 && subheadText.indexOf("cloud") === -1 && (!badgeEl || (badgeEl.classList.contains("show") && (badgeTxt.indexOf("lokaal") !== -1 || badgeTxt.indexOf("offline") !== -1))));
     ok("geen herhaaldelijke fallback-spam", warnLog.length < 5);
 
     const name = doc.querySelector("#add-name");

@@ -461,13 +461,13 @@ const ok=(n,c)=>{ if(c){pass++;console.log("  ✓ "+n);} else {fail++;console.lo
     await wait(40);
     const firstCard=docB.querySelector("#open-list .row"); firstCard.querySelector(".card").click(); await wait(30);
     const sheetHtml=docB.querySelector("#sheet").innerHTML;
-    ok("Review: toewijs-chips in het sheet bevatten geen geïnjecteerde attributen", sheetHtml.indexOf("onmouseover")===-1 && /background:#2F7A4F|cadchip/.test(sheetHtml));
+    ok("Review: toewijs-chips in het sheet bevatten geen geïnjecteerde attributen", sheetHtml.indexOf("onmouseover")===-1 && /background:#24593F|cadchip/.test(sheetHtml));
     // kies Mallory als 'wie haalt het' en sla op → itemRow rendert de sub-regel met haar kleur
     const chip=[...docB.querySelectorAll("#s-assign .cadchip")].find(b=>b.dataset.m==="m1"); if(chip) chip.click();
     docB.querySelector("#s-save").click(); await wait(40);
     const rowHtml=docB.querySelector("#open-list").innerHTML;
     ok("Review: rij met toegewezen lid bevat geen geïnjecteerde attributen", rowHtml.indexOf("onmouseover")===-1 && /→ Mallory/.test(docB.querySelector("#open-list").textContent));
-    ok("Review: onveilige kleur valt terug op de standaardkleur", /color:#2F7A4F/.test(rowHtml));
+    ok("Review: onveilige kleur valt terug op de standaardkleur", /color:#24593F/.test(rowHtml));
     ok("Review: geen script uitgevoerd", !Wb.__pwned);
     dom29b.window.close();
 
@@ -478,6 +478,84 @@ const ok=(n,c)=>{ if(c){pass++;console.log("  ✓ "+n);} else {fail++;console.lo
     ok("Review: schapnaam met HTML wordt geëscaped in de sectiekop", !docC.querySelector("#open-list .section img") && /<img src=x/.test(docC.querySelector("#open-list .section").textContent));
     ok("Review: geen script via schapnaam", !dom29c.window.__pwned2);
     dom29c.window.close();
+  }
+
+  // 30. Fase 1 — schap-wrappers, overlay-model, toetsenbord/autocomplete, start-parameters, Meer-tab
+  {
+    const now30=new Date().toISOString();
+    const seed30=JSON.stringify({version:3,settings:{theme:"light",showPrices:false,seenIntro:true,categoryOrder:null,minPurchases:3,cvThreshold:.6,dueWindowDays:1},list:[
+      {id:"a1",name:"appels",category:"groente-fruit",qty:3,unit:"",done:false,note:"",price:null,assigned_to:null,added_by_name:"",addedAt:now30},
+      {id:"b1",name:"brood",category:"brood-banket",qty:1,unit:"",done:false,note:"",price:null,assigned_to:null,added_by_name:"",addedAt:now30}
+    ],catalog:{},coBuy:{},meals:{}});
+    const mk30=(url)=>new JSDOM(html,{url:url||"https://example.com/",runScripts:"dangerously",resources:"usable",pretendToBeVisual:true,beforeParse(w){ w.localStorage.setItem("mandje.v2", seed30); }});
+
+    // a) schappen, sectiekoppen, iconen, subkop, manifest
+    const d30=mk30(); await wait(160); const W=d30.window, D=W.document;
+    const shelves=D.querySelectorAll("#open-list > .shelf");
+    ok("Fase 1: elk schap zit in een div.shelf (raster op tablet/desktop)", shelves.length===2 && !!shelves[0].querySelector("button.section") && !!shelves[0].querySelector("ul.list"));
+    const sec=D.querySelector("#open-list button.section");
+    ok("Fase 1: sectiekop is een knop met aria-expanded + aria-controls", !!sec && sec.getAttribute("aria-expanded")==="true" && !!D.getElementById(sec.getAttribute("aria-controls")||""));
+    if(sec){ sec.click(); await wait(30); }
+    ok("Fase 1: inklappen zet aria-expanded op false", !!D.querySelector("#open-list button.section") && D.querySelector("#open-list button.section").getAttribute("aria-expanded")==="false");
+    ok("Fase 1: geen .row-actions op een touch-toestel (jsdom: geen fine pointer)", !D.querySelector("#open-list .row-actions"));
+    ok("Fase 1: schap-iconen zijn SVG's in de schapkleur", D.querySelectorAll("#open-list .section .shelf-ico svg").length===2 && !!D.querySelector("#open-list .section .shelf-ico.shelf-vers"));
+    const sub30=D.querySelector("#subhead").textContent;
+    ok("Fase 1: subkop in mensentaal ('2 te halen', geen modus-tekst)", /2 te halen/.test(sub30) && !/modus|cloud/i.test(sub30));
+    ok("Fase 1: manifest als los bestand, geen base64-iconen in de head", !!D.querySelector('link[rel="manifest"]') && D.querySelector('link[rel="manifest"]').getAttribute("href")==="./manifest.webmanifest" && !D.querySelector('link[rel="apple-touch-icon"][href^="data:"]'));
+
+    // b) overlay-model: dialog-semantiek, inert, sluitknop, Escape, history-token + systeem-back
+    D.querySelector("#open-list .row .card").click(); await wait(40);
+    const sheet=D.querySelector("#sheet");
+    ok("Fase 1: geopend sheet is role=dialog + aria-modal", sheet.classList.contains("show") && sheet.getAttribute("role")==="dialog" && sheet.getAttribute("aria-modal")==="true");
+    ok("Fase 1: achtergrond is inert zolang het sheet open is", D.querySelector("#main").hasAttribute("inert") && D.querySelector("#addwrap").hasAttribute("inert"));
+    ok("Fase 1: sheet heeft een sluitknop (.sheet-x) met label", !!sheet.querySelector(".sheet-x[aria-label]"));
+    ok("Fase 1: history-token voor Android-back", !!(W.history.state && W.history.state.mandje==="modal"));
+    D.dispatchEvent(new W.KeyboardEvent("keydown",{key:"Escape",bubbles:true})); await wait(40);
+    ok("Fase 1: Escape sluit het sheet en heft inert op", !sheet.classList.contains("show") && !D.querySelector("#main").hasAttribute("inert"));
+    D.querySelector("#open-list .row .card").click(); await wait(40);
+    const openedAgain=D.querySelector("#sheet").classList.contains("show");
+    W.history.back(); await wait(80);
+    ok("Fase 1: systeem-back (popstate) sluit het sheet", openedAgain && !D.querySelector("#sheet").classList.contains("show"));
+
+    // c) autocomplete: combobox-semantiek, pijltjes + Enter
+    const inp=D.querySelector("#add-name");
+    ok("Fase 1: invoerveld is een combobox met listbox", inp.getAttribute("role")==="combobox" && D.querySelector("#ac-list").getAttribute("role")==="listbox");
+    inp.value="me"; inp.dispatchEvent(new W.Event("input",{bubbles:true})); await wait(60);
+    const opts=D.querySelectorAll("#ac-list .ac-item");
+    if(opts.length){
+      inp.dispatchEvent(new W.KeyboardEvent("keydown",{key:"ArrowDown",bubbles:true})); await wait(10);
+      ok("Fase 1: ↓ markeert de eerste optie (aria-activedescendant)", !!D.querySelector("#ac-list .ac-item.active") && inp.getAttribute("aria-activedescendant")==="ac-opt-0" && inp.getAttribute("aria-expanded")==="true");
+      inp.dispatchEvent(new W.KeyboardEvent("keydown",{key:"Enter",bubbles:true})); await wait(60);
+      ok("Fase 1: Enter kiest de gemarkeerde optie en sluit de lijst", !D.querySelector("#ac-list").classList.contains("show") && inp.getAttribute("aria-expanded")==="false");
+    } else {
+      ok("Fase 1: autocomplete toont suggesties voor 'me' (Melk)", false);
+    }
+    d30.window.close();
+
+    // d) start-parameters (manifest-shortcuts + Android share_target)
+    const d30b=mk30("https://example.com/?title=Boodschappen&text=melk%2C%20brood%0Aeieren"); await wait(220);
+    const Db=d30b.window.document, ta=Db.querySelector("#bulk-input");
+    ok("Fase 1: share_target → 'Plak meerdere' met de tekst regel-voor-regel", !!ta && ta.value.split("\n").length===4 && /melk/.test(ta.value) && /eieren/.test(ta.value));
+    ok("Fase 1: launch-parameters uit de adresbalk verwijderd", d30b.window.location.search==="");
+    d30b.window.close();
+    const d30c=mk30("https://example.com/?focus=add&source=pwa"); await wait(500);
+    ok("Fase 1: ?focus=add focust het invoerveld", !!d30c.window.document.activeElement && d30c.window.document.activeElement.id==="add-name");
+    d30c.window.close();
+
+    // e) Meer-tab: groepen, segment verborgen, Tekstgrootte, Diagnose
+    const d30d=mk30(); await wait(160); const Dd=d30d.window.document, Wd=d30d.window;
+    Dd.querySelector("#gear-btn").click(); await wait(40);
+    const secs=[...Dd.querySelectorAll("#meer-content .section")].map(x=>x.textContent.trim().toLowerCase());
+    ok("Fase 1: Meer-tab heeft de groepen Weergave · Op je beginscherm · Schappen · Back-up & privacy · Diagnose", ["weergave","op je beginscherm","schappen","back-up & privacy","diagnose"].every(g=>secs.some(x=>x.indexOf(g)===0)));
+    ok("Fase 1: Lijst/Vaste-segment verborgen op de Meer-tab (body.tab-meer)", Dd.body.classList.contains("tab-meer"));
+    const groot=[...Dd.querySelectorAll('#meer-content .seg[aria-label="Tekstgrootte"] button')].find(b=>/^groot$/i.test(b.textContent.trim()));
+    if(groot){ groot.click(); await wait(20); }
+    ok("Fase 1: Tekstgrootte 'Groot' zet --text-scale op 1.12 en bewaart de instelling", !!groot && Dd.documentElement.style.getPropertyValue("--text-scale")==="1.12" && JSON.parse(Wd.localStorage.getItem("mandje.v2")).settings.textScale===1.12);
+    const meerTxt=Dd.querySelector("#meer-content").textContent;
+    ok("Fase 1: Diagnose toont versie en cloud-status", /versie/i.test(meerTxt) && /cloud/i.test(meerTxt));
+    Dd.querySelectorAll("[data-tab]").forEach(b=>{ if(b.dataset.tab==="lijst") b.click(); }); await wait(20);
+    ok("Fase 1: terug naar Lijst haalt body.tab-meer weer weg", !Dd.body.classList.contains("tab-meer"));
+    d30d.window.close();
   }
 
   console.log("\nt3: "+pass+" geslaagd, "+fail+" gefaald");

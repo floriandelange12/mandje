@@ -5,11 +5,13 @@
 var SUPABASE_URL = (window.MANDJE_CONFIG && window.MANDJE_CONFIG.SUPABASE_URL) || "";
 var SUPABASE_ANON_KEY = (window.MANDJE_CONFIG && window.MANDJE_CONFIG.SUPABASE_ANON_KEY) || "";
 
-var MEMBER_COLORS = ["#2F7A4F","#3D8BFF","#E0772E","#9B5DE5","#E5446D","#1FB6A8","#C9A227","#E07A5F"];
+/* Lidkleuren: witte initialen ≥ 5,5:1 op elke kleur (tests/contrast.js). Oude kleuren uit de database worden via MEMBER_COLOR_MAP vertaald. */
+var MEMBER_COLORS = ["#24593F","#2F5FA8","#A8501A","#6D45A8","#B0325A","#1E6E6A","#7A5A0F","#B3432F"];
+var MEMBER_COLOR_MAP = {"#2F7A4F":"#24593F","#3D8BFF":"#2F5FA8","#E0772E":"#A8501A","#9B5DE5":"#6D45A8","#E5446D":"#B0325A","#1FB6A8":"#1E6E6A","#C9A227":"#7A5A0F","#E07A5F":"#B3432F"};
 function pickColor(){ return MEMBER_COLORS[Math.floor(Math.random()*MEMBER_COLORS.length)]; }
 /* Kleuren uit de database komen van andere gebruikers: alleen een 6-cijferige hex mag in een
    style-attribuut landen (anders is een gedeelde lijst een XSS-vector). */
-function safeColor(c){ c=String(c||""); return /^#[0-9A-Fa-f]{6}$/.test(c) ? c : "#2F7A4F"; }
+function safeColor(c){ c=String(c||"").toUpperCase(); if(MEMBER_COLOR_MAP[c]) c=MEMBER_COLOR_MAP[c]; return /^#[0-9A-F]{6}$/.test(c) ? c : "#24593F"; }
 function initials(name){
   name=(name||"").trim(); if(!name) return "?";
   var p=name.split(/\s+/);
@@ -159,6 +161,14 @@ var Cloud = {
         if(typeof toast==="function") toast("Gedeelde lijst offline — je werkt nu in je eigen lijst", {duration:3500});
       }
       if(!noLog) this._warned("offline", this.initError);
+      // Verbindingsprobleem (cloud wél geconfigureerd, wél online): eenmalig een toast met "Opnieuw" — niet in de subkop
+      var configured = (typeof this.cfg === "function") ? !!this.cfg() : false;
+      var isOnline = (typeof navigator === "undefined") || navigator.onLine !== false;
+      if(configured && isOnline && !wasActive && !this._offlineToasted && typeof toast === "function"){
+        this._offlineToasted = true;
+        var self2 = this;
+        toast("Cloud niet bereikbaar — je werkt in je eigen lijst", {duration:5000, action:"Opnieuw", onAction:function(){ self2._offlineToasted = false; if(!self2._initInProgress && !self2.ready) self2.init(); }});
+      }
       if(typeof refreshOfflineBadge === "function") refreshOfflineBadge();
       if(typeof window !== "undefined"){
         if(typeof window.refreshTopShareBtn === "function") window.refreshTopShareBtn();

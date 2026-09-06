@@ -1,0 +1,82 @@
+{
+  "id": "./",
+  "name": "Mandje",
+  "short_name": "Mandje",
+  "description": "Boodschappenlijst die je samen bijhoudt — offline, met winkelmodus en meldingen.",
+  "lang": "nl",
+  "dir": "ltr",
+  "start_url": "./?source=pwa",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": [
+    "standalone",
+    "minimal-ui"
+  ],
+  "orientation": "any",
+  "background_color": "#F3EDE3",
+  "theme_color": "#24593F",
+  "categories": [
+    "shopping",
+    "productivity",
+    "lifestyle"
+  ],
+  "prefer_related_applications": false,
+  "icons": [
+    {
+      "src": "./icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon-512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Nieuw item",
+      "short_name": "Nieuw",
+      "description": "Open Mandje met de cursor in het invoerveld",
+      "url": "./?focus=add",
+      "icons": [
+        {
+          "src": "./icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Winkelen",
+      "short_name": "Winkelen",
+      "description": "Open direct de winkelmodus",
+      "url": "./?mode=shop",
+      "icons": [
+        {
+          "src": "./icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    }
+  ],
+  "share_target": {
+    "action": "./",
+    "method": "GET",
+    "enctype": "application/x-www-form-urlencoded",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url"
+    }
+  }
+}

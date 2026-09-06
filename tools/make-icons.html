@@ -27,7 +27,8 @@
     { name: "ICON180",     svg: APP_ICON_SVG,     size: 180, mask: true  },   // apple-touch-icon (iOS rondt zelf)
     { name: "ICON192",     svg: APP_ICON_ANY_SVG, size: 192, mask: false },   // manifest 'any' 192 + push-icon
     { name: "ICON512",     svg: APP_ICON_ANY_SVG, size: 512, mask: false },   // manifest 'any' 512
-    { name: "ICON512MASK", svg: APP_ICON_SVG,     size: 512, mask: true  }    // manifest 'maskable' 512
+    { name: "ICON512MASK", svg: APP_ICON_SVG,     size: 512, mask: true  },   // manifest 'maskable' 512
+    { name: "ICON96BADGE", svg: APP_BADGE_SVG,    size: 96,  mask: false }    // push-badge (monochroom, Android)
   ];
   var out = [];
   var wrap = document.getElementById("previews");

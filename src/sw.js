@@ -6,9 +6,9 @@
    __BUILD__ wordt door build.js vervangen door de MANDJE_CONFIG.BUILD-waarde. */
 var CACHE = "mandje-__BUILD__";
 var SHELL = "./index.html";
-// Precache: alleen de shell + het meldingsicoon. Navigaties worden in de fetch-handler altijd
-// op SHELL gemapt, dus "./" apart cachen zou het 600 KB-document twee keer opslaan.
-var PRECACHE = ["./index.html", "./icon-512.png"];
+// Precache: de shell, het manifest en de kleine iconen (push-icoon + badge). App-navigaties worden in
+// de fetch-handler op SHELL gemapt, dus "./" apart cachen zou het 600 KB-document twee keer opslaan.
+var PRECACHE = ["./index.html", "./manifest.webmanifest", "./icon-192.png", "./badge-96.png"];
 
 self.addEventListener("install", function(e){
   // De shell is verplicht: mislukt die, dan faalt de install en blijft de oude SW + cache bedienen.
@@ -39,8 +39,8 @@ self.addEventListener("push", function(e){
   var title = data.title || "Mandje";
   var opts = {
     body: data.body || "Tijd om je vaste boodschappen te checken?",
-    icon: data.icon || "./icon-512.png",
-    badge: data.badge,
+    icon: data.icon || "./icon-192.png",
+    badge: data.badge || "./badge-96.png",
     tag: data.tag || "mandje-due",
     data: { url: data.url || "./" }
   };
@@ -77,7 +77,13 @@ self.addEventListener("fetch", function(e){
   var url = new URL(req.url);
   if(url.origin !== self.location.origin) return;          // Supabase / CDN / cross-origin → netwerk
   if(url.pathname.indexOf("/sw.js") !== -1) return;        // SW-script niet zelf cachen
-  if(req.mode === "navigate"){ e.respondWith(swr(SHELL, req)); return; }
+  if(req.mode === "navigate"){
+    // Alleen de app zelf (./ of ./index.html) krijgt de shell. Andere pagina's binnen de scope
+    // (tools/…, manifest-preview) gaan gewoon naar het netwerk — anders is elke URL "de app".
+    var p = url.pathname;
+    if(p.slice(-1) === "/" || p.slice(-11) === "/index.html") e.respondWith(swr(SHELL, req));
+    return;
+  }
   e.respondWith(swr(req, req));
 });
 

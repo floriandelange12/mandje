@@ -1,7 +1,7 @@
 /* Mandje — build
    Voegt src/ + assets/ samen tot één self-contained index.html (voor GitHub Pages) en
    schrijft daarnaast twee losse root-bestanden die niet inline kúnnen: sw.js (service worker)
-   en icon-512.png (icoon voor meldingen).
+   de PWA-metadata als losse root-bestanden: manifest.webmanifest, icon-180/192/512(-maskable).png, badge-96.png.
    Gebruik:  node build.js     (of: npm run build)
 */
 const fs = require("fs");
@@ -64,8 +64,10 @@ read("assets/icon_b64.txt").split(/\r?\n/).forEach(line => {
   if (i > 0) icons[line.slice(0, i)] = line.slice(i + 1).trim();
 });
 const font = read("assets/font_b64.txt").split(":").slice(1).join(":").trim();
-["ICON180", "ICON512"].forEach(k => {
-  if (!icons[k]) { console.error("✗ assets/icon_b64.txt mist regel " + k + ":<base64> — build gestopt."); process.exit(1); }
+// Iconen worden door tools/make-icons.js gerasterd uit src/icons.js (APP_ICON_SVG / APP_ICON_ANY_SVG / APP_BADGE_SVG)
+const ICON_FILES = { ICON180: "icon-180.png", ICON192: "icon-192.png", ICON512: "icon-512.png", ICON512MASK: "icon-512-maskable.png", ICON96BADGE: "badge-96.png" };
+Object.keys(ICON_FILES).forEach(k => {
+  if (!icons[k]) { console.error("✗ assets/icon_b64.txt mist regel " + k + ":<base64> (draai: node tools/make-icons.js) — build gestopt."); process.exit(1); }
 });
 
 // supabase SDK (ingebakken UMD-bundle — voorkomt runtime CDN-fetch)
@@ -80,9 +82,7 @@ if (!supabaseSdk) console.warn("! assets/supabase.js niet gevonden — Cloud val
 
 // shell vullen — vervangingen via functie, zodat "$&"/"$'" in de bron niet als patroon wordt gelezen
 let html = shell.replace("<!-- __SCRIPT__ -->", () => sdkScript + "<script>\n" + combined + "\n</script>");
-html = html.replace("__ICON180__", () => icons.ICON180)
-           .replace("__ICON512__", () => icons.ICON512)
-           .replace("__FONT__", () => font);
+html = html.replace("__FONT__", () => font);
 
 /* ---------- BUILD = inhoudshash ----------
    shell.html bevat  BUILD: "__BUILD__".  De hash wordt berekend over de complete HTML mét
@@ -105,7 +105,7 @@ const hash = crypto.createHash("sha1").update(html).update(swSrc).digest("hex").
 const buildId = hash;
 html = html.replace(/__BUILD__/g, buildId);
 
-["__ICON180__", "__ICON512__", "__FONT__", "__SCRIPT__", "__BUILD__"].forEach(t => {
+["__ICON180__", "__ICON512__", "__FONT__", "__SCRIPT__", "__BUILD__"].forEach(t => {   // oude icoon-tokens mogen ook nergens meer staan
   if (html.indexOf(t) !== -1) { console.error("✗ Token niet vervangen: " + t); process.exit(1); }
 });
 // Guard alleen over de eigen bronnen (shell + app + cloud), niet over de vendor-SDK/base64-assets
@@ -113,18 +113,51 @@ assertClean(shell + combined, "index.html (eigen bronnen)");
 
 // Alle harde controles vóór het eerste weggeschreven artefact, zodat index.html/sw.js/icoon nooit uit fase lopen
 const PNG_SIG = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
-const icon512 = Buffer.from(icons.ICON512, "base64");
-if (icon512.length < 8 || !icon512.subarray(0, 8).equals(PNG_SIG)) {
-  console.error("✗ ICON512 in assets/icon_b64.txt is geen geldige PNG — build gestopt.");
-  process.exit(1);
-}
+const iconBufs = {};
+Object.keys(ICON_FILES).forEach(k => {
+  const b = Buffer.from(icons[k], "base64");
+  if (b.length < 8 || !b.subarray(0, 8).equals(PNG_SIG)) { console.error("✗ " + k + " in assets/icon_b64.txt is geen geldige PNG — build gestopt."); process.exit(1); }
+  iconBufs[k] = b;
+});
+
+/* ---------- Web App Manifest (los bestand: als data-URI zijn start_url/scope onoplosbaar en installeert Android/desktop niet) */
+const manifest = {
+  id: "./",
+  name: "Mandje",
+  short_name: "Mandje",
+  description: "Boodschappenlijst die je samen bijhoudt — offline, met winkelmodus en meldingen.",
+  lang: "nl",
+  dir: "ltr",
+  start_url: "./?source=pwa",
+  scope: "./",
+  display: "standalone",
+  display_override: ["standalone", "minimal-ui"],
+  orientation: "any",
+  background_color: "#F3EDE3",
+  theme_color: "#24593F",
+  categories: ["shopping", "productivity", "lifestyle"],
+  prefer_related_applications: false,
+  icons: [
+    { src: "./icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
+    { src: "./icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
+    { src: "./icon-512-maskable.png", sizes: "512x512", type: "image/png", purpose: "maskable" }
+  ],
+  shortcuts: [
+    { name: "Nieuw item", short_name: "Nieuw", description: "Open Mandje met de cursor in het invoerveld", url: "./?focus=add", icons: [{ src: "./icon-192.png", sizes: "192x192", type: "image/png" }] },
+    { name: "Winkelen", short_name: "Winkelen", description: "Open direct de winkelmodus", url: "./?mode=shop", icons: [{ src: "./icon-192.png", sizes: "192x192", type: "image/png" }] }
+  ],
+  share_target: { action: "./", method: "GET", enctype: "application/x-www-form-urlencoded", params: { title: "title", text: "text", url: "url" } }
+};
+const manifestJson = JSON.stringify(manifest, null, 2) + "\n";
 
 fs.writeFileSync(path.join(root, "index.html"), html);
 console.log("✓ index.html gebouwd (" + Buffer.byteLength(html) + " bytes, BUILD " + buildId + ")");
 
-// Icoon als los PNG (voor push-meldingen: een notification-icon kan geen data-URI uit de shell zijn)
-fs.writeFileSync(path.join(root, "icon-512.png"), icon512);
-console.log("✓ icon-512.png geschreven (" + icon512.length + " bytes)");
+// Iconen als losse PNG's (manifest, apple-touch-icon, push-icoon/badge kunnen geen data-URI uit de shell zijn)
+Object.keys(ICON_FILES).forEach(k => { fs.writeFileSync(path.join(root, ICON_FILES[k]), iconBufs[k]); });
+console.log("✓ iconen geschreven: " + Object.keys(ICON_FILES).map(k => ICON_FILES[k] + " (" + Math.round(iconBufs[k].length / 1024) + " KB)").join(", "));
+fs.writeFileSync(path.join(root, "manifest.webmanifest"), manifestJson);
+console.log("✓ manifest.webmanifest geschreven");
 
 // Service worker: BUILD-waarde injecteren + naar repo-root schrijven (scope = /mandje/ op GitHub Pages)
 if (swSrc) {

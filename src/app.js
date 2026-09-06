@@ -140,7 +140,7 @@ var NS = "mandje.v2";
 var CURRENT_STATE_VERSION = 3;
 var DEFAULTS = {
   version: CURRENT_STATE_VERSION,
-  settings:{ theme:"auto", showPrices:false, seenIntro:false, categoryOrder:CATS.map(function(c){return c.id;}), minPurchases:3, cvThreshold:0.6, dueWindowDays:1, customCategories:[], customCatEmoji:{}, collapsedCats:{}, seenQtyHint:false, seenBulkHint:false, seenPriceNudge:false, pushOn:null },
+  settings:{ theme:"auto", textScale:1, showPrices:false, seenIntro:false, categoryOrder:CATS.map(function(c){return c.id;}), minPurchases:3, cvThreshold:0.6, dueWindowDays:1, customCategories:[], customCatEmoji:{}, collapsedCats:{}, seenQtyHint:false, seenBulkHint:false, seenPriceNudge:false, pushOn:null },
   syncQueue:[],
   lastSyncState:{ mode:"local", status:"not_started", ready:false, pendingMutations:0, offline:false, reason:null, lastError:null, lastUpdated:0 },
   offlinePendingFlags:{},
@@ -859,10 +859,12 @@ function renderLijst(){
       var sec=el("button","section collapsible"+(collapsed?" collapsed":""));
       sec.type="button"; sec.setAttribute("aria-expanded", collapsed?"false":"true"); sec.setAttribute("aria-controls","cat-"+cid);
       sec.innerHTML=shelfIcon(c)+'<span>'+escapeHtml(c.label)+'</span><span class="count">'+arr.length+'</span><svg class="sec-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>';
-      openFrag.appendChild(sec);
+      var shelf=el("div","shelf"); shelf.dataset.cat=cid;
+      shelf.appendChild(sec);
       var ul=el("ul","list"+(collapsed?" collapsed":"")); ul.id="cat-"+cid;
       arr.forEach(function(it){ ul.appendChild(itemRow(it)); });
-      openFrag.appendChild(ul);
+      shelf.appendChild(ul);
+      openFrag.appendChild(shelf);
       sec.addEventListener("click", function(){
         state.settings.collapsedCats = state.settings.collapsedCats || {};
         state.settings.collapsedCats[cid] = !state.settings.collapsedCats[cid];
@@ -923,8 +925,12 @@ function itemRow(it){
     '<button class="check" type="button" aria-label="'+(it.done?"Vinkje weghalen":"Afvinken")+'" aria-pressed="'+(it.done?"true":"false")+'">'+CHECK_SVG+'</button>'+
     '<div class="meta"><div class="nm"></div>'+(sub?'<div class="sub2">'+sub+'</div>':'')+'</div>'+
     '<div class="qty"><button class="q-minus" aria-label="minder">–</button><span>'+it.qty+'</span><button class="q-plus" aria-label="meer">+</button></div>'+
-    (state.settings.showPrices && it.price!=null ? '<div class="price">'+euro(it.price*it.qty)+'</div>' : '');
+    (state.settings.showPrices && it.price!=null ? '<div class="price">'+euro(it.price*it.qty)+'</div>' : '')+
+    ((typeof HAS_POINTER!=="undefined" && HAS_POINTER) ? '<div class="row-actions"><button class="ra-btn ra-opt" type="button" aria-label="Opties voor '+escapeAttr(it.name)+'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></svg></button><button class="ra-btn ra-del" type="button" aria-label="Verwijder '+escapeAttr(it.name)+'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg></button></div>' : '');
   card.querySelector(".nm").textContent=it.name;
+  var raOpt=card.querySelector(".ra-opt"), raDel=card.querySelector(".ra-del");
+  if(raOpt) raOpt.addEventListener("click",function(e){ e.stopPropagation(); openSheet(it.id); });
+  if(raDel) raDel.addEventListener("click",function(e){ e.stopPropagation(); removeFromList(it.id); });
 
   card.querySelector(".check").addEventListener("click",function(e){ e.stopPropagation(); toggleDone(it.id); });
   card.querySelector(".q-minus").addEventListener("click",function(e){ e.stopPropagation(); setQty(it.id,-1); });
@@ -1027,31 +1033,35 @@ function updateSubhead(){
       else waiting++;
     });
   }
-  var base = "Overzicht";
+  var parts = [];
   if(activeTab==="lijst"){
-    base = state.list.length===0 ? "Je mandje is leeg" : (waiting + " te halen " + bullet + doneCount + " in mandje");
+    if(state.list.length===0){ parts.push("Je mandje is leeg"); }
+    else {
+      parts.push(waiting===0 ? "Alles in het mandje" : waiting + " te halen");
+      if(doneCount>0 && waiting>0) parts.push(doneCount + " in mandje");
+    }
+    if(state.settings && state.settings.showPrices){
+      var total = 0; state.list.forEach(function(i){ total += (i.price||0) * (i.qty||1); });
+      if(total>0) parts.push(euro(total));
+    }
+    // gedeelde lijst: met wie
+    if(typeof Cloud !== "undefined" && Cloud && Cloud.active && Array.isArray(Cloud.members)){
+      var names = Cloud.members.filter(function(m){ return m && m.user_id !== Cloud.userId; })
+                               .map(function(m){ return String(m.display_name||"").trim().split(/\s+/)[0]; })
+                               .filter(Boolean);
+      if(names.length===1) parts.push("met " + names[0]);
+      else if(names.length===2) parts.push("met " + names[0] + " en " + names[1]);
+      else if(names.length>2) parts.push("met " + names[0] + " en " + (names.length-1) + " anderen");
+    }
+    if(typeof navigator !== "undefined" && navigator.onLine === false) parts.push("offline");
   } else if(activeTab==="vaste"){
-    base = "Vaste boodschappen";
+    parts.push("Vaste boodschappen");
   } else if(activeTab==="meer"){
-    base = "Meer opties";
+    parts.push("Instellingen en meer");
+  } else {
+    parts.push("Overzicht");
   }
-  var mode = "Lokale modus";
-  var extras = [];
-  if(typeof Cloud !== "undefined" && Cloud && typeof Cloud.getStateSummary === "function"){
-    var cs = Cloud.getStateSummary();
-    if(cs.ready && cs.mode === "cloud") mode = "Cloud actief";
-    else if(cs.mode === "local") mode = navigator.onLine === false ? "Offline-modus" : "Lokale modus";
-    if(cs.reason) extras.push(cs.reason);
-    if(cs.status === "connecting") extras.push("Cloud opstart");
-    if(!cs.ready && cs.mode === "cloud") extras.push("Cloud niet volledig beschikbaar");
-  } else if(typeof Cloud !== "undefined" && Cloud.mode === "cloud"){
-    mode = "Cloud actief";
-  } else if(typeof navigator !== "undefined" && navigator.onLine === false){
-    mode = "Offline-modus";
-  }
-  base += bullet + mode;
-  if(extras.length) base += bullet + extras.slice(0,1).join(" ");
-  $("#subhead").textContent = base;
+  $("#subhead").textContent = parts.join(bullet);
 }
 
 /* ---------- "Bijna op" banner ---------- */
@@ -1139,12 +1149,16 @@ function renderShoppingMode(){
   catBuckets(byCat).forEach(function(cid){
     var arr=byCat[cid]; if(!arr||!arr.length) return;
     var c=CAT_BY_ID[cid]||CAT_BY_ID["overig"];
-    body.appendChild(el("div","shop-sec",shelfIcon(c)+'<span>'+escapeHtml(c.label)+'</span>'));
-    arr.forEach(function(it){ body.appendChild(shopRow(it)); });
+    var shelf=el("div","shelf"); shelf.dataset.cat=cid;
+    shelf.appendChild(el("div","shop-sec",shelfIcon(c)+'<span>'+escapeHtml(c.label)+'</span>'));
+    arr.forEach(function(it){ shelf.appendChild(shopRow(it)); });
+    body.appendChild(shelf);
   });
   if(done.length){
-    body.appendChild(el("div","shop-sec done-sec",'<span>In mandje</span>'));
-    done.forEach(function(it){ body.appendChild(shopRow(it)); });
+    var dshelf=el("div","shelf done");
+    dshelf.appendChild(el("div","shop-sec done-sec",'<span>In mandje</span>'));
+    done.forEach(function(it){ dshelf.appendChild(shopRow(it)); });
+    body.appendChild(dshelf);
     var fin=el("button","shop-finish","Afronden ✓");
     fin.addEventListener("click", function(){
       finishShopping();
@@ -1323,48 +1337,71 @@ function vasteRow(r){
 /* ============================================================
    RENDER — Meer-tab
    ============================================================ */
+var TEXT_SCALES=[[1,"Normaal"],[1.12,"Groot"],[1.25,"Extra groot"]];
+function applyTextScale(){
+  var v=Number(state && state.settings && state.settings.textScale)||1;
+  if(!(v>=1 && v<=1.5)) v=1;
+  document.documentElement.style.setProperty("--text-scale", String(v));
+}
+/* iPadOS meldt zich als "MacIntel" — maxTouchPoints maakt het verschil */
+function isIOSDevice(){
+  var ua=navigator.userAgent||"", plat=navigator.platform||"";
+  return /iP(hone|ad|od)/.test(plat) || /iP(hone|ad|od)/.test(ua) || (plat==="MacIntel" && (navigator.maxTouchPoints||0)>1);
+}
+var _installPrompt=null;   // Chromium: uitgesteld beforeinstallprompt-event (Android/desktop)
+
 function renderMeer(){
   var wrap=$("#meer-content"); wrap.innerHTML="";
+  function section(label, extra){ wrap.appendChild(el("div","section",'<span>'+label+'</span>'+(extra||""))); }
+  function segGroup(label, options, current, onPick){
+    var seg=el("div","seg"); seg.setAttribute("role","group"); seg.setAttribute("aria-label",label);
+    options.forEach(function(o){
+      var on = String(o[0])===String(current);
+      var b=el("button",on?"on":"",o[1]); b.type="button"; b.setAttribute("aria-pressed", on?"true":"false");
+      b.addEventListener("click",function(){ onPick(o[0]); });
+      seg.appendChild(b);
+    });
+    return seg;
+  }
+  function switchBtn(label, on, onToggle){
+    var sw=el("button","switch"+(on?" on":"")); sw.type="button";
+    sw.setAttribute("role","switch"); sw.setAttribute("aria-label",label); sw.setAttribute("aria-checked", on?"true":"false");
+    sw.addEventListener("click", onToggle);
+    return sw;
+  }
 
-  // Weergave
+  // ---- Weergave
+  section("Weergave");
   var g1=el("div","group");
-  var themeRow=el("div","grow");
-  themeRow.innerHTML='<div class="glabel">Thema</div>';
-  var seg=el("div","seg");
-  [["auto","Auto"],["light","Licht"],["dark","Donker"]].forEach(function(o){
-    var b=el("button",state.settings.theme===o[0]?"on":"",o[1]);
-    b.addEventListener("click",function(){ state.settings.theme=o[0]; save(); applyTheme(); renderMeer(); });
-    seg.appendChild(b);
-  });
-  themeRow.appendChild(seg);
+  var themeRow=el("div","grow wrap"); themeRow.innerHTML='<div class="glabel">Thema</div>';
+  themeRow.appendChild(segGroup("Thema", [["auto","Auto"],["light","Licht"],["dark","Donker"]], state.settings.theme, function(v){ state.settings.theme=v; save(); applyTheme(); renderMeer(); }));
   g1.appendChild(themeRow);
-
+  var tsRow=el("div","grow wrap"); tsRow.innerHTML='<div class="glabel">Tekstgrootte</div>';
+  tsRow.appendChild(segGroup("Tekstgrootte", TEXT_SCALES, Number(state.settings.textScale)||1, function(v){ state.settings.textScale=Number(v); save(); applyTextScale(); renderMeer(); }));
+  g1.appendChild(tsRow);
   var priceRow=el("div","grow");
   priceRow.innerHTML='<div class="glabel">Prijzen bijhouden<div class="gsub">Toon een prijs per product en een lopend totaal</div></div>';
-  var sw=el("button","switch"+(state.settings.showPrices?" on":""));
-  sw.addEventListener("click",function(){ state.settings.showPrices=!state.settings.showPrices; save(); applyPriceVisibility(); renderLijst(); renderMeer(); });
-  priceRow.appendChild(sw);
+  priceRow.appendChild(switchBtn("Prijzen bijhouden", !!state.settings.showPrices, function(){ state.settings.showPrices=!state.settings.showPrices; save(); applyPriceVisibility(); renderLijst(); renderMeer(); }));
   g1.appendChild(priceRow);
   wrap.appendChild(g1);
 
-  // Herinneringen (web push) — alleen zichtbaar zodra push is geconfigureerd (VAPID-key + backend)
+  var standaloneP = (navigator.standalone===true) || (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches);
+  var isApple = isIOSDevice();
+
+  // ---- Meldingen (web push) — alleen zichtbaar zodra push is geconfigureerd (VAPID-key + backend)
   if(typeof Cloud!=="undefined" && Cloud.pushEnabled && Cloud.pushEnabled()){
-    var standaloneP = (navigator.standalone===true) || (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches);
-    var isIOSp = /iP(hone|ad|od)/.test(navigator.platform||navigator.userAgent||"");
+    section("Meldingen");
     var gP=el("div","group");
-    if(isIOSp && !standaloneP){
-      gP.appendChild(el("div","grow",'<div class="glabel">Herinneringen<div class="gsub">Zet Mandje eerst op je beginscherm (deel-icoon → “Zet op beginscherm”) om meldingen te kunnen krijgen.</div></div>'));
+    if(isApple && !standaloneP){
+      gP.appendChild(el("div","grow",'<div class="glabel">Herinneringen<div class="gsub">Zet Mandje eerst op je beginscherm (zie hieronder) om meldingen te kunnen krijgen.</div></div>'));
     } else {
       var remRow=el("div","grow");
       remRow.innerHTML='<div class="glabel">Herinneringen<div class="gsub">Een dagelijkse herinnering om je lijst te checken.</div></div>';
       // De eigen voorkeur is de bron van waarheid — niet de OS-permissie (die blijft 'granted' na uitzetten)
       var onP = !!(state.settings.pushOn) && (typeof Notification!=="undefined" && Notification.permission==="granted");
-      var rsw=el("button","switch"+(onP?" on":""));
-      rsw.setAttribute("aria-label","Herinneringen aan of uit");
-      rsw.setAttribute("aria-pressed", onP?"true":"false");
-      rsw.addEventListener("click", function(){
-        if(rsw.classList.contains("on")){ Cloud.unsubscribePush(); rsw.classList.remove("on"); rsw.setAttribute("aria-pressed","false"); toast("Herinneringen uit"); }
-        else { Cloud.subscribeToPush().then(function(ok){ if(ok){ rsw.classList.add("on"); rsw.setAttribute("aria-pressed","true"); toast("Herinneringen aan ✓"); } else { toast("Toestemming geweigerd"); } }); }
+      var rsw = switchBtn("Herinneringen", onP, function(){
+        if(rsw.classList.contains("on")){ Cloud.unsubscribePush(); rsw.classList.remove("on"); rsw.setAttribute("aria-checked","false"); toast("Herinneringen uit"); }
+        else { Cloud.subscribeToPush().then(function(ok){ if(ok){ rsw.classList.add("on"); rsw.setAttribute("aria-checked","true"); toast("Herinneringen aan ✓"); } else { toast("Toestemming geweigerd"); } }); }
       });
       remRow.appendChild(rsw);
       gP.appendChild(remRow);
@@ -1372,8 +1409,43 @@ function renderMeer(){
     wrap.appendChild(gP);
   }
 
-  // Schap-volgorde + eigen schappen
-  wrap.appendChild(el("div","section",'<span>Schap-volgorde</span><span class="count">'+state.settings.categoryOrder.length+'</span>'));
+  // ---- Op je beginscherm: Chromium-knop / iOS-uitleg / overig
+  section("Op je beginscherm");
+  var gI=el("div","group");
+  if(standaloneP){
+    gI.appendChild(el("div","grow",'<div class="glabel">Mandje staat op je beginscherm<div class="gsub">Opent als app, werkt offline en kan meldingen ontvangen.</div></div><span class="gval ok" aria-hidden="true">✓</span>'));
+  } else if(_installPrompt){
+    var iRow=el("div","grow");
+    iRow.innerHTML='<div class="glabel">Zet Mandje op je beginscherm<div class="gsub">Opent als app, werkt offline en laadt sneller.</div></div>';
+    var iBtn=el("button","mbtn inline","Installeren"); iBtn.type="button";
+    iBtn.addEventListener("click",function(){
+      var p=_installPrompt; if(!p) return;
+      try{ p.prompt(); }catch(e){}
+      (p.userChoice||Promise.resolve()).then(function(){ _installPrompt=null; if(activeTab==="meer") renderMeer(); }).catch(function(){});
+    });
+    iRow.appendChild(iBtn); gI.appendChild(iRow);
+  } else if(isApple){
+    gI.appendChild(el("div","grow",'<div class="glabel">Zet Mandje op je beginscherm<div class="gsub">Tik in Safari op <b>Delen</b> (het vierkant met de pijl omhoog) en kies <b>“Zet op beginscherm”</b>. Daarna opent Mandje als app en kan hij meldingen sturen.</div></div>'));
+  } else {
+    gI.appendChild(el("div","grow",'<div class="glabel">Zet Mandje op je beginscherm<div class="gsub">Kies in het menu van je browser <b>“App installeren”</b> of <b>“Toevoegen aan beginscherm”</b>.</div></div>'));
+  }
+  wrap.appendChild(gI);
+
+  // ---- Account beveiligen (alleen als e-mail-auth aan staat in Supabase)
+  if(window.MANDJE_CONFIG && window.MANDJE_CONFIG.EMAIL_AUTH && typeof Cloud!=="undefined" && Cloud.enabled){
+    section("Account");
+    wrap.appendChild(el("div","hint","Koppel een e-mail zodat je vrienden en lijsten bewaard blijven als je van telefoon wisselt. Optioneel — verder hoef je nooit in te loggen."));
+    var secure=el("button","mbtn","Beveilig je account met e-mail");
+    secure.addEventListener("click",function(){
+      var email=prompt("Je e-mailadres (we sturen een bevestigingslink):");
+      if(email===null) return;
+      Cloud.secureWithEmail(email);
+    });
+    wrap.appendChild(secure);
+  }
+
+  // ---- Schappen: volgorde + eigen schappen
+  section("Schappen", '<span class="count">'+state.settings.categoryOrder.length+'</span>');
   wrap.appendChild(el("div","hint","Sleep om de volgorde te wijzigen waarin schappen op de Lijst-tab verschijnen. Lege schappen worden vanzelf verborgen."));
   var sortWrap = el("div","sort-list");
   var sortItems = [];
@@ -1387,54 +1459,52 @@ function renderMeer(){
     if(activeTab==="lijst") renderLijst();
   });
   wrap.appendChild(sortWrap);
-
   var addCat = el("button","mbtn","+ Eigen schap toevoegen");
   addCat.style.marginTop = "10px";
   addCat.addEventListener("click", openAddCategorySheet);
   wrap.appendChild(addCat);
 
-  // Account beveiligen (alleen als e-mail-auth aan staat in Supabase)
-  if(window.MANDJE_CONFIG && window.MANDJE_CONFIG.EMAIL_AUTH && typeof Cloud!=="undefined" && Cloud.enabled){
-    wrap.appendChild(el("div","section",'<span>Account</span>'));
-    wrap.appendChild(el("div","hint","Koppel een e-mail zodat je vrienden en lijsten bewaard blijven als je van telefoon wisselt. Optioneel — verder hoef je nooit in te loggen."));
-    var secure=el("button","mbtn","Beveilig je account met e-mail");
-    secure.addEventListener("click",function(){
-      var email=prompt("Je e-mailadres (we sturen een bevestigingslink):");
-      if(email===null) return;
-      Cloud.secureWithEmail(email);
-    });
-    wrap.appendChild(secure);
-  }
-
-  // Back-up
-  wrap.appendChild(el("div","section",'<span>Back-up</span>'));
-  wrap.appendChild(el("div","hint","Gedeelde lijsten staan veilig online. Je persoonlijke lijst staat op dit toestel — exporteer 'm af en toe als back-up, of zet 'm terug op een nieuw toestel."));
+  // ---- Back-up & privacy
+  section("Back-up & privacy");
+  wrap.appendChild(el("div","hint","Je persoonlijke lijst, vaste boodschappen en geschiedenis staan alleen op dit toestel — exporteer ze af en toe als back-up, of zet ze terug op een nieuw toestel. Gedeelde lijsten staan veilig online. Geen tracking, geen advertenties."));
   var expf=el("button","mbtn","Exporteer mijn lijst (bestand)");
   expf.addEventListener("click",exportFile);
   wrap.appendChild(expf);
   var impf=el("button","mbtn","Importeer uit bestand");
   impf.addEventListener("click",importFromFile);
   wrap.appendChild(impf);
-
   var reset=el("button","mbtn danger","Alles wissen");
   reset.addEventListener("click",function(){
     if(confirm("Weet je zeker dat je alle lijsten, vaste boodschappen en geschiedenis wilt wissen?")){
-      state=deepClone(DEFAULTS); state.settings.seenIntro=true; save(); applyTheme(); applyPriceVisibility();
+      state=deepClone(DEFAULTS); state.settings.seenIntro=true; save(); applyTheme(); applyTextScale(); applyPriceVisibility();
       renderLijst(); renderDueBanner(); renderVaste(); renderMeer(); toast("Alles gewist");
     }
   });
   wrap.appendChild(reset);
 
-  // info
-  var n=Object.keys(state.catalog).length;
-  wrap.appendChild(el("div","hint","Mandje kent inmiddels "+n+" "+(n===1?"product":"producten")+" uit jouw geschiedenis. Hoe vaker je afrondt, hoe slimmer de vaste boodschappen worden."));
-
-  // build/verbinding-vingerafdruk (helpt cache-versie verifiëren)
+  // ---- Diagnose: build, opslag, wachtrij, cloud
+  section("Diagnose");
+  var gD=el("div","group");
   var cfg = window.MANDJE_CONFIG || {};
   var ref = (cfg.SUPABASE_URL || "").match(/\/\/([a-z0-9]+)\./);
-  var refStr = ref ? ref[1].slice(0, 8) : "(geen)";
-  var buildStr = cfg.BUILD || "dev";
-  wrap.appendChild(el("div","hint","Verbonden met "+refStr+" · build "+buildStr));
+  var refStr = ref ? ref[1].slice(0, 8) : "";
+  var bytes = 0; try{ bytes = (localStorage.getItem("mandje.v2") || "").length; }catch(e){}
+  var queued = Array.isArray(state.syncQueue) ? state.syncQueue.length : 0;
+  var known = Object.keys(state.catalog||{}).length;
+  var cloudTxt = "uit";
+  if(typeof Cloud!=="undefined" && Cloud){
+    if(Cloud.ready) cloudTxt = "verbonden" + (refStr ? " · " + refStr : "");
+    else if(cfg.SUPABASE_URL) cloudTxt = (typeof navigator!=="undefined" && navigator.onLine===false) ? "offline" : "niet verbonden";
+  }
+  [["Versie", cfg.BUILD || "dev"],
+   ["Cloud", cloudTxt],
+   ["Wachtende wijzigingen", String(queued)],
+   ["Opslag op dit toestel", (bytes/1024).toFixed(bytes>102400?0:1) + " KB"],
+   ["Bekende producten", String(known)]].forEach(function(r){
+    gD.appendChild(el("div","grow",'<div class="glabel">'+r[0]+'</div><span class="gval">'+escapeHtml(r[1])+'</span>'));
+  });
+  wrap.appendChild(gD);
+  wrap.appendChild(el("div","hint","Hoe vaker je afrondt, hoe beter Mandje je vaste boodschappen leert kennen."));
 }
 
 /* ---------- Export / import (bestand) ---------- */
@@ -1781,7 +1851,8 @@ function buildAC(q){
   var list=$("#ac-list");
   if(!results.length){ hideAC(); return; }
   list.innerHTML="";
-  results.forEach(function(r){
+  _acIdx=-1;
+  results.forEach(function(r, idx){
     var c=CAT_BY_ID[r.cat]||CAT_BY_ID["overig"];
     var row=el("div","ac-item",shelfIcon(c,{bubble:true})+'<span class="ac-name">'+escapeHtml(r.name)+'</span>'+(qmod?'<span class="ac-qmod">'+qmod+'</span>':'')+'<span class="ac-add">+</span>');
     row.addEventListener("click",function(){
@@ -1790,11 +1861,14 @@ function buildAC(q){
       addToList(r.name, null, {qty: pq.qty, unit: pq.unit});
       $("#add-name").value=""; hideAC(); $("#add-name").focus();
     });
+    row.setAttribute("role","option"); row.id="ac-opt-"+idx;
     list.appendChild(row);
   });
   list.classList.add("show");
+  $("#add-name").setAttribute("aria-expanded","true");
 }
-function hideAC(){ $("#ac-list").classList.remove("show"); $("#ac-list").innerHTML=""; }
+var _acIdx=-1;
+function hideAC(){ $("#ac-list").classList.remove("show"); $("#ac-list").innerHTML=""; _acIdx=-1; var i=$("#add-name"); if(i){ i.removeAttribute("aria-activedescendant"); i.setAttribute("aria-expanded","false"); } }
 
 /* ============================================================
    LONG-PRESS (touch + muis), SEARCH, BULK-PASTE
@@ -1845,7 +1919,7 @@ function applySearchFilter(q){
   if(!open) return;
   var emptyMsg = open.querySelector(".search-empty");
   if(!q){
-    open.querySelectorAll(".row, .section, ul.list").forEach(function(n){ n.style.display=""; });
+    open.querySelectorAll(".row, .section, ul.list, .shelf").forEach(function(n){ n.style.display=""; });
     if(done) done.style.display = "";
     if(emptyMsg) emptyMsg.style.display = "none";
     return;
@@ -1865,6 +1939,7 @@ function applySearchFilter(q){
     ul.style.display = any ? "flex" : "none";
     var sec = ul.previousElementSibling;
     if(sec && sec.classList.contains("section")) sec.style.display = any ? "" : "none";
+    var shelf = ul.closest(".shelf"); if(shelf) shelf.style.display = any ? "" : "none";   // anders blijft een lege raster-cel staan
     if(any) anyVisible = true;
   });
   if(!anyVisible){
@@ -2076,6 +2151,8 @@ var CLOSE_SVG='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke
 
 function switchTab(tab){
   activeTab=tab;
+  document.body.classList.toggle("tab-meer", tab==="meer");
+  document.body.classList.toggle("tab-vaste", tab==="vaste");
   document.querySelectorAll("[data-tab]").forEach(function(b){ b.classList.toggle("on",b.dataset.tab===tab); });
   $("#view-lijst").classList.toggle("active",tab==="lijst");
   $("#view-vaste").classList.toggle("active",tab==="vaste");
@@ -2615,6 +2692,7 @@ function init(){
 function initApp(){
   load();
   applyTheme();
+  applyTextScale();
   applyPriceVisibility();
 
   if(typeof Cloud !== "undefined"){
@@ -2642,7 +2720,19 @@ function initApp(){
   refreshTopShareBtn();
 
   $("#add-btn").addEventListener("click",doAdd);
-  $("#add-name").addEventListener("keydown",function(e){ if(e.key==="Enter") doAdd(); });
+  $("#add-name").addEventListener("keydown",function(e){
+    var list=$("#ac-list"), items=list.classList.contains("show") ? list.querySelectorAll(".ac-item") : [];
+    if(items.length && (e.key==="ArrowDown" || e.key==="ArrowUp")){
+      e.preventDefault();
+      // lijst opent naar boven: ↑ vanuit 'niets' kiest de optie het dichtst bij het veld (laatste), ↓ de eerste
+      _acIdx = e.key==="ArrowUp" ? (_acIdx<0 ? items.length-1 : (_acIdx-1+items.length)%items.length) : (_acIdx<0 ? 0 : (_acIdx+1)%items.length);
+      items.forEach(function(it,i){ it.classList.toggle("active", i===_acIdx); });
+      this.setAttribute("aria-activedescendant","ac-opt-"+_acIdx);
+      try{ items[_acIdx].scrollIntoView({block:"nearest"}); }catch(x){}
+      return;
+    }
+    if(e.key==="Enter"){ if(_acIdx>=0 && items[_acIdx]){ e.preventDefault(); items[_acIdx].click(); _acIdx=-1; return; } doAdd(); }
+  });
   document.addEventListener("keydown", onGlobalKey);   // Escape-hiërarchie, Tab-trap, sneltoetsen (src/overlays.js)
   $("#add-name").addEventListener("input",function(){ buildAC(this.value); });
   $("#add-name").addEventListener("blur",function(){ setTimeout(hideAC,180); });
@@ -2720,6 +2810,37 @@ function initApp(){
   maybeIntro();
   // 1× per dag: voeg autoAdd-vaste-items met "bijna op"-status automatisch toe
   try{ runAutoAddDueItems(); }catch(e){}
+  try{ handleLaunchParams(); }catch(e){}
+  // PWA-installatie (Chromium): event bewaren voor de knop op de Meer-tab
+  window.addEventListener("beforeinstallprompt", function(e){ e.preventDefault(); _installPrompt=e; if(activeTab==="meer") renderMeer(); });
+  window.addEventListener("appinstalled", function(){ _installPrompt=null; toast("Mandje staat op je beginscherm ✓"); if(activeTab==="meer") renderMeer(); });
+}
+
+/* Start-parameters uit het manifest: snelkoppelingen (?focus=add, ?mode=shop), Android-share_target
+   (?title=&text=&url= → "Plak meerdere"-sheet) en de PWA-start_url (?source=pwa). ?join/?send zijn van cloud.js.
+   Na afhandeling verdwijnen de parameters uit de adresbalk, zodat een herlaad niets opnieuw doet. */
+function handleLaunchParams(){
+  var p; try{ p = new URLSearchParams(location.search); }catch(e){ return; }
+  if(p.has("join") || p.has("send")) return;
+  var known = ["focus","mode","text","title","url","source"];
+  if(!known.some(function(k){ return p.has(k); })) return;
+  var shared = [p.get("title")||"", p.get("text")||"", p.get("url")||""].map(function(t){ return t.trim(); }).filter(Boolean).join("\n");
+  var focus = p.get("focus"), mode = p.get("mode");
+  try{ history.replaceState(history.state, "", location.pathname + location.hash); }catch(e){}
+  if(shared){
+    // Gedeelde tekst: komma's/puntkomma's als scheidingsteken toestaan ("melk, brood, eieren" → drie regels)
+    var lines = shared.split(/\r?\n|[;,]/).map(function(l){ return l.trim(); }).filter(Boolean).slice(0, 200);
+    if(document.body.classList.contains("sheet-open")) closeSheet();
+    openBulkPasteSheet();
+    var ta = $("#bulk-input"); if(ta) ta.value = lines.join("\n");
+    return;
+  }
+  if(mode==="shop"){
+    if(state.list.some(function(i){ return !i.done; })){ openShoppingMode(); }
+    else { toast("Je lijst is leeg — voeg eerst iets toe"); setTimeout(function(){ var i=$("#add-name"); if(i) i.focus(); }, 300); }
+    return;
+  }
+  if(focus==="add"){ setTimeout(function(){ var i=$("#add-name"); if(i){ i.focus(); try{ i.scrollIntoView({block:"nearest"}); }catch(x){} } }, 300); }
 }
 
 /* Tests: zorg dat pure helpers ook via window.* bereikbaar zijn (sommige

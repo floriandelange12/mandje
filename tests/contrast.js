@@ -59,5 +59,16 @@ function check(theme, t){
 if (!light.bg) { console.error("Geen :root-tokens gevonden in " + file); process.exit(2); }
 check("licht", light);
 check("donker", dark);
+
+// Lidkleuren (cloud.js MEMBER_COLORS): witte initialen in de avatar moeten op elke kleur leesbaar zijn
+console.log("\nLIDKLEUREN");
+const mcm = src.match(/var MEMBER_COLORS = \[([^\]]*)\]/);
+const memberColors = mcm ? (mcm[1].match(/#[0-9A-Fa-f]{6}/g) || []) : [];
+if (memberColors.length < 8) { console.log("  ✗ MEMBER_COLORS niet gevonden of te kort (" + memberColors.length + ")"); fail++; }
+memberColors.forEach(c => {
+  const r = ratio("#FFFFFF", c.toUpperCase());
+  const ok = r >= 4.5; ok ? pass++ : fail++;
+  console.log("  " + (ok ? "✓" : "✗") + " wit op lidkleur " + c.toUpperCase() + " = " + r.toFixed(2) + ":1 (min 4.5)");
+});
 console.log("\ncontrast: " + pass + " geslaagd, " + fail + " gefaald");
 process.exit(fail ? 1 : 0);

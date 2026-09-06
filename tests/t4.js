@@ -1,4 +1,4 @@
-/* t4 — bundel-hygiëne. Controles op de GEBOUWDE bestanden (index.html, sw.js, icon-512.png);
+/* t4 — bundel-hygiëne. Controles op de GEBOUWDE bestanden (index.html, sw.js, manifest.webmanifest, iconen);
    draait zonder jsdom. Groottes worden altijd gerapporteerd, ook als de budgetten gehaald worden. */
 const fs = require("fs"), path = require("path"), zlib = require("zlib");
 const root = path.join(__dirname, "..");
@@ -13,12 +13,12 @@ const CP1252_SPECIALS = "\u20AC\u201A\u0192\u201E\u2026\u2020\u2021\u02C6\u2030\
 const MOJIBAKE = new RegExp("[\u00C2\u00C3\u00E2\u00F0][\u0080-\u00BF" + CP1252_SPECIALS + "]");
 
 const GZIP_MAX = +(process.env.MANDJE_GZIP_MAX || 230*1024);   // budget: gzip van index.html (override: MANDJE_GZIP_MAX)
-const HEAD_MAX = +(process.env.MANDJE_HEAD_MAX || 180*1024);   // budget: bytes vóór <body (override: MANDJE_HEAD_MAX)
+const HEAD_MAX = +(process.env.MANDJE_HEAD_MAX || 120*1024);   // budget: bytes vóór <body (override: MANDJE_HEAD_MAX)
 const PNG_SIG  = Buffer.from([0x89,0x50,0x4E,0x47,0x0D,0x0A,0x1A,0x0A]);
 
 console.log("\nt4 — bundel-hygiëne (gebouwde bestanden)");
 
-const htmlPath = path.join(root,"index.html"), swPath = path.join(root,"sw.js"), iconPath = path.join(root,"icon-512.png");
+const htmlPath = path.join(root,"index.html"), swPath = path.join(root,"sw.js");
 ok("index.html bestaat in de root", fs.existsSync(htmlPath));
 ok("sw.js bestaat in de root", fs.existsSync(swPath));
 const htmlBuf = fs.existsSync(htmlPath) ? fs.readFileSync(htmlPath) : Buffer.alloc(0);
@@ -50,10 +50,24 @@ console.log("  · index.html: "+kb(htmlBuf.length)+" ruw · "+kb(gz)+" gzip (bud
 ok("index.html: gzip ≤ "+kb(GZIP_MAX)+" (gemeten "+kb(gz)+")", gz<=GZIP_MAX);
 ok("index.html: bytes vóór <body ≤ "+kb(HEAD_MAX)+" (gemeten "+kb(Math.max(bodyIdx,0))+")", bodyIdx>=0 && bodyIdx<=HEAD_MAX);
 
-// 5. icon-512.png: aanwezig en een echte PNG
-ok("icon-512.png bestaat in de root", fs.existsSync(iconPath));
-const icon = fs.existsSync(iconPath) ? fs.readFileSync(iconPath) : Buffer.alloc(0);
-ok("icon-512.png: begint met de PNG-signature ("+kb(icon.length)+")", icon.length>=8 && icon.subarray(0,8).equals(PNG_SIG));
+// 5. PWA-bestanden: iconen zijn echte PNG's, manifest is geldig en verwijst naar bestaande bestanden, <head> zonder base64-iconen
+const ICON_FILES = ["icon-180.png","icon-192.png","icon-512.png","icon-512-maskable.png","badge-96.png"];
+ICON_FILES.forEach(function(f){
+  const p = path.join(root, f);
+  const buf = fs.existsSync(p) ? fs.readFileSync(p) : Buffer.alloc(0);
+  ok(f+": aanwezig en een echte PNG ("+kb(buf.length)+")", buf.length>=8 && buf.subarray(0,8).equals(PNG_SIG));
+});
+const mfPath = path.join(root, "manifest.webmanifest");
+let mf = null; try{ mf = JSON.parse(fs.readFileSync(mfPath, "utf8")); }catch(e){}
+ok("manifest.webmanifest: aanwezig en geldige JSON", !!mf);
+ok("manifest: id/scope \"./\" en relatieve start_url", !!mf && mf.id==="./" && mf.scope==="./" && (mf.start_url||"").indexOf("./")===0);
+ok("manifest: iconen 192 any, 512 any, 512 maskable → bestaande bestanden", !!mf && Array.isArray(mf.icons)
+   && ["192x192","512x512"].every(function(sz){ return mf.icons.some(function(i){ return i.sizes===sz && i.purpose==="any"; }); })
+   && mf.icons.some(function(i){ return i.purpose==="maskable"; })
+   && mf.icons.every(function(i){ return fs.existsSync(path.join(root, i.src)); }));
+ok("manifest: shortcuts (≥2) en share_target (GET)", !!mf && Array.isArray(mf.shortcuts) && mf.shortcuts.length>=2 && !!mf.share_target && mf.share_target.method==="GET");
+ok("index.html: <link rel=\"manifest\" href=\"./manifest.webmanifest\"> (geen data-URI)", html.indexOf('<link rel="manifest" href="./manifest.webmanifest">')!==-1 && html.indexOf("data:application/manifest+json")===-1);
+ok("index.html: geen base64-iconen meer vóór <body", html.slice(0, Math.max(bodyIdx,0)).indexOf("data:image/png;base64")===-1);
 
 // 6. sw.js precache-lijst: ./index.html erin, "./" niet als losse entry
 const pm = sw.match(/PRECACHE\s*=\s*(\[[^\]]*\])/) || sw.match(/addAll\(\s*(\[[^\]]*\])/);
@@ -61,7 +75,10 @@ let precache = null;
 try{ precache = pm ? JSON.parse(pm[1]) : null; }catch(e){ precache = null; }
 ok("sw.js: precache-lijst gevonden en leesbaar"+(precache?" ("+precache.join(", ")+")":""), Array.isArray(precache));
 ok("sw.js: precache bevat ./index.html", !!precache && precache.indexOf("./index.html")!==-1);
-ok("sw.js: precache bevat ./icon-512.png", !!precache && precache.indexOf("./icon-512.png")!==-1);
+ok("sw.js: precache bevat ./manifest.webmanifest, ./icon-192.png en ./badge-96.png", !!precache && ["./manifest.webmanifest","./icon-192.png","./badge-96.png"].every(function(u){ return precache.indexOf(u)!==-1; }));
+ok("sw.js: precache bevat geen 512-iconen (te groot voor de installatie-download)", !!precache && !precache.some(function(u){ return /512/.test(u); }));
+ok("sw.js: push-icoon en badge wijzen naar icon-192.png / badge-96.png", sw.indexOf("./icon-192.png")!==-1 && sw.indexOf("./badge-96.png")!==-1);
+ok("sw.js: alleen app-navigaties (/ of /index.html) krijgen de shell", sw.indexOf('p.slice(-11) === "/index.html"')!==-1 && sw.indexOf('p.slice(-1) === "/"')!==-1);
 ok("sw.js: precache bevat GEEN losse \"./\"", !!precache && precache.indexOf("./")===-1);
 
 console.log("\nt4: "+pass+" geslaagd, "+fail+" gefaald");
