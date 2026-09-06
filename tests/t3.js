@@ -339,6 +339,87 @@ const ok=(n,c)=>{ if(c){pass++;console.log("  ✓ "+n);} else {fail++;console.lo
   ok("Winkelmodus: voortgang 1 / 3", /1 \/ 3/.test(doc23.querySelector("#shop-screen .shop-count").textContent));
   dom23.window.close();
 
+
+  // 28. Fase 0 — regressies: onbekend schap, zoekfilter, toast-dode-zone, thema-meta, offline-regressie
+  {
+    const seed=(list,extra)=>JSON.stringify(Object.assign({version:3,settings:Object.assign({theme:"light",showPrices:false,seenIntro:true,categoryOrder:null,minPurchases:3,cvThreshold:.6,dueWindowDays:1},extra||{}),list:list,catalog:{},coBuy:{},meals:{}}));
+    // a) item met een schap dat niet in categoryOrder staat (bv. eigen schap van een ander lid) blijft zichtbaar
+    const dom28=new JSDOM(html,{url:"https://example.com/",runScripts:"dangerously",resources:"usable",pretendToBeVisual:true,
+      beforeParse(w){ w.localStorage.setItem("mandje.v2", seed([{id:"u1",name:"Geheim product",category:"cust_onbekend_x",qty:1,price:null,note:"",done:false,addedAt:""}])); }});
+    await wait(150); const doc28=dom28.window.document;
+    ok("Fase0: item met onbekend schap wordt gerenderd", doc28.querySelectorAll("#open-list .row").length===1);
+    ok("Fase0: onbekend schap valt onder 'Overig'", /Overig/i.test(doc28.querySelector("#open-list .section")?.textContent||""));
+    ok("Fase0: subhead telt 1 te halen", /1 te halen/.test(doc28.querySelector("#subhead").textContent));
+    // thema-meta: precies één theme-color en die volgt het thema
+    ok("Fase0: precies één theme-color-meta", doc28.querySelectorAll('meta[name="theme-color"]').length===1);
+    ok("Fase0: theme-color volgt licht thema", doc28.querySelector('meta[name="theme-color"]').getAttribute("content")==="#F6F4EF");
+    // statische CSS-invarianten in de gebouwde bundel
+    ok("Fase0: rode swipe-laag alleen tijdens vegen (.row.swiping .behind)", /\.row\.swiping \.behind\{\s*opacity:1/.test(html) && /\.row \.behind\{[^}]*opacity:0/.test(html));
+    const zi=(sel)=>{ const m=html.match(new RegExp(sel.replace(/[.\-]/g,"\\$&")+"\\{[^}]*z-index:(\\d+)")); return m?+m[1]:-1; };
+    ok("Fase0: toast ligt boven winkelmodus (z-index)", zi(".toast")>zi(".shop-screen") && zi(".confetti-layer")>zi(".shop-screen"));
+    ok("Fase0: offline-badge is een live region", /id="offline-badge" role="status"/.test(html));
+    dom28.window.close();
+
+    // b) thema donker → meta donker
+    const dom28b=new JSDOM(html,{url:"https://example.com/",runScripts:"dangerously",resources:"usable",pretendToBeVisual:true,
+      beforeParse(w){ w.localStorage.setItem("mandje.v2", seed([],{theme:"dark"})); }});
+    await wait(120);
+    ok("Fase0: theme-color volgt donker thema", dom28b.window.document.querySelector('meta[name="theme-color"]').getAttribute("content")==="#141410");
+    dom28b.window.close();
+
+    // c) zoekfilter overleeft een re-render + toast-dode-zone
+    const names=["Melk","Brood","Kaas","Appels","Bananen","Rijst","Pasta","Koffie","Thee","Boter"];
+    const dom28c=new JSDOM(html,{url:"https://example.com/",runScripts:"dangerously",resources:"usable",pretendToBeVisual:true,
+      beforeParse(w){ w.localStorage.setItem("mandje.v2", seed(names.map((n,i)=>({id:"s"+i,name:n,category:"overig",qty:1,price:null,note:"",done:false,addedAt:""})))); }});
+    await wait(150); const W=dom28c.window, docC=W.document;
+    ok("Fase0: zoekbalk zichtbaar bij 10 items", !docC.querySelector("#search-bar").classList.contains("collapsed"));
+    const si=docC.querySelector("#search-input"); si.value="melk"; si.dispatchEvent(new W.Event("input",{bubbles:true}));
+    const visible=()=>[...docC.querySelectorAll("#open-list .row")].filter(r=>r.style.display!=="none").length;
+    ok("Fase0: filter toont 1 van 10", visible()===1);
+    docC.querySelector("#add-name").value="Hagelslag"; docC.querySelector("#add-name").dispatchEvent(new W.KeyboardEvent("keydown",{key:"Enter",bubbles:true}));
+    await wait(40);
+    ok("Fase0: filter blijft actief na re-render (11 items, 1 zichtbaar)", docC.querySelectorAll("#open-list .row").length===11 && visible()===1);
+    si.value=""; si.dispatchEvent(new W.Event("input",{bubbles:true}));
+    ok("Fase0: filter leeg → alles zichtbaar", visible()===11);
+    const firstId=JSON.parse(W.localStorage.getItem("mandje.v2")).list[0].id;
+    W.removeFromList(firstId); await wait(30);
+    const toastEl=docC.querySelector("#toast");
+    ok("Fase0: undo-toast heeft actie", toastEl.classList.contains("show") && toastEl.classList.contains("has-action"));
+    toastEl.querySelector(".toast-action").click(); await wait(30);
+    ok("Fase0: na actie is has-action weg (geen onzichtbare tap-dode-zone)", !toastEl.classList.contains("has-action") && !toastEl.classList.contains("show"));
+    ok("Fase0: undo zette het item terug", docC.querySelectorAll("#open-list .row").length===11);
+    dom28c.window.close();
+
+    // d) offline-regressie: een open gedeelde lijst mag bij een offline-event nooit als persoonlijke lijst worden weggeschreven
+    const dom28d=new JSDOM(html,{url:"https://example.com/",runScripts:"dangerously",resources:"usable",pretendToBeVisual:true,
+      beforeParse(w){ w.localStorage.setItem("mandje.v2", seed([{id:"p1",name:"Eigen melk",category:"zuivel-eieren",qty:1,price:null,note:"",done:false,addedAt:""},{id:"p2",name:"Eigen brood",category:"brood-banket",qty:1,price:null,note:"",done:false,addedAt:""}])); }});
+    await wait(180); const Wd=dom28d.window, docD=Wd.document; const cloud=Wd.Cloud||Wd.__cloudRef;
+    ok("Fase0: start met 2 persoonlijke items", docD.querySelectorAll("#open-list .row").length===2);
+    // simuleer een geopende gedeelde lijst (open() bewaart de persoonlijke snapshot; Supabase ontbreekt in jsdom)
+    // minimale Supabase-stub: elke query-keten is thenable en levert lege data (update levert 1 rij → heartbeat sluit de lijst niet)
+    const q=(upd)=>{ const o={}; ["select","eq","in","order","insert","update","delete","upsert","single","limit"].forEach(m=>{ o[m]=function(){ if(m==="update") upd=true; return o; }; }); o.then=(res)=>Promise.resolve({data:upd?[{}]:[],error:null}).then(res); return o; };
+    cloud.sb={ from:()=>q(false), rpc:()=>q(false), removeChannel(){}, channel(){ const c={}; c.on=()=>c; c.subscribe=()=>c; c.track=()=>{}; c.presenceState=()=>({}); return c; } };
+    cloud.enabled=true; cloud.ready=true; cloud.mode="cloud";
+    await cloud.open("c1").catch(()=>{});
+    await wait(30);
+    ok("Fase0: gedeelde lijst actief", cloud.active==="c1");
+    // een cloud-item in de zichtbare lijst (optimistische rij via Cloud.addItem)
+    docD.querySelector("#add-name").value="Cloudkaas"; docD.querySelector("#add-name").dispatchEvent(new Wd.KeyboardEvent("keydown",{key:"Enter",bubbles:true}));
+    await wait(30);
+    cloud.ready=true;
+    Wd.dispatchEvent(new Wd.Event("offline"));
+    await wait(60);
+    // de oude bug sloeg pas toe bij de eerstvolgende save(): daarom nu een lokale mutatie forceren
+    docD.querySelector("#add-name").value="Na offline"; docD.querySelector("#add-name").dispatchEvent(new Wd.KeyboardEvent("keydown",{key:"Enter",bubbles:true}));
+    await wait(40);
+    const stored=JSON.parse(Wd.localStorage.getItem("mandje.v2")).list.map(i=>i.name).sort().join(",");
+    ok("Fase0: offline-event laat de persoonlijke lijst intact (+ nieuwe mutatie)", stored==="Eigen brood,Eigen melk,Na offline");
+    ok("Fase0: cloud-item is NIET in de persoonlijke lijst gelekt", !/Cloudkaas/.test(stored));
+    ok("Fase0: na offline staat de persoonlijke lijst weer in beeld", docD.querySelectorAll("#open-list .row").length===3 && /Eigen melk/.test(docD.querySelector("#open-list").textContent));
+    ok("Fase0: actieve lijst blijft bewaard voor reconnect", Wd.localStorage.getItem("mandje.activeList")==="c1");
+    dom28d.window.close();
+  }
+
   console.log("\nt3: "+pass+" geslaagd, "+fail+" gefaald");
   process.exit(fail?1:0);
 })().catch(e=>{console.error("t3 TESTFOUT:",e);process.exit(2)});

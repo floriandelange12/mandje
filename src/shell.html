@@ -11,8 +11,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Mandje">
-<meta name="theme-color" content="#F6F4EF" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#14140F" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#F6F4EF">
 <meta name="format-detection" content="telephone=no">
 <link rel="apple-touch-icon" href="data:image/png;base64,__ICON180__">
 <link rel="manifest" href='data:application/manifest+json,{"name":"Mandje","short_name":"Mandje","start_url":".","scope":".","display":"standalone","background_color":"%23F6F4EF","theme_color":"%232F7A4F","icons":[{"src":"data:image/png;base64,__ICON512__","sizes":"512x512","type":"image/png","purpose":"any maskable"}]}'>
@@ -147,7 +146,7 @@
     right:0;
     transform:none;
   }
-  .totals{ left:50%; right:auto; transform:translateX(-50%); }
+  .totals{ left:0; right:0; transform:none; }   /* centrering komt van .totals-inner (width + margin-inline:auto) */
   body::before{ content:""; position:fixed; inset:0; pointer-events:none; z-index:0;
     background:
       radial-gradient(130% 70% at 50% -15%, color-mix(in srgb, var(--green) 9%, transparent), transparent 58%),
@@ -276,7 +275,10 @@
 
   ul.list{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:8px; }
   .row{ position:relative; border-radius:var(--r-card); overflow:hidden; }
-  .row .behind{ position:absolute; inset:0; background:var(--red); display:flex; align-items:center; justify-content:flex-end; gap:8px; padding-right:22px; color:#fff; font-weight:700; font-size:15px; }
+  /* Verwijder-laag: alleen zichtbaar tijdens de veeg (in rust schijnt hij anders als roze halo
+     door de anti-aliased hoeken van de kaart); 1px naar binnen zodat hij nooit buiten de kaartrand komt */
+  .row .behind{ position:absolute; inset:1px; border-radius:calc(var(--r-card) - 1px); background:var(--red); opacity:0; display:flex; align-items:center; justify-content:flex-end; gap:8px; padding-right:22px; color:#fff; font-weight:700; font-size:15px; transition:opacity .12s linear; }
+  .row.swiping .behind{ opacity:1; }
   .row .behind svg{ width:20px; height:20px; }
   .card{ position:relative; display:flex; align-items:center; gap:13px; background:var(--surface); border:1px solid var(--line); border-radius:var(--r-card); padding:clamp(10px, 2.5vw, 12px) clamp(12px, 2.8vw, 14px); box-shadow:var(--shadow-sm); transition:transform .26s var(--ease); touch-action:pan-y; }
 
@@ -375,6 +377,7 @@
   .group{ background:var(--surface); border:1px solid var(--line); border-radius:var(--r-card); overflow:hidden; box-shadow:var(--shadow-sm); margin-bottom:18px; }
   .grow{ display:flex; align-items:center; gap:12px; padding:14px 16px; border-bottom:1px solid var(--line); }
   .grow:last-child{ border-bottom:0; }
+  .grow > :first-child{ flex:1; min-width:0; }   /* label-blok vult altijd de rij, ongeacht de markup-vorm (schakelaars op één lijn) */
   .grow .glabel{ flex:1; font-size:16px; font-weight:500; }
   .grow .gsub{ font-size:13px; color:var(--ink-soft); margin-top:2px; }
   .seg{ display:flex; background:var(--surface-3); border-radius:10px; padding:2px; }
@@ -433,9 +436,12 @@
   .intro-pt b{ color:var(--ink); font-weight:700; }
 
   /* ---------- Toast ---------- */
-  .toast{ position:absolute; left:50%; bottom:calc(var(--safe-b) + 92px); transform:translateX(-50%) translateY(16px); background:var(--ink); color:var(--bg); padding:11px 18px; border-radius:14px; font-size:14px; font-weight:600; opacity:0; z-index:60; pointer-events:none; box-shadow:var(--shadow-lg); transition:opacity .25s var(--ease), transform .25s var(--ease); max-width:min(var(--app-max-width), calc(100vw - 32px)); white-space:normal; text-align:center; line-height:1.35; }
-  .toast.show{ opacity:1; transform:translateX(-50%) translateY(0); pointer-events:auto; }
-  .toast.has-action{ pointer-events:auto; }
+  .toast{ position:absolute; left:50%; bottom:calc(var(--safe-b) + 92px); transform:translateX(-50%) translateY(16px); background:var(--ink); color:var(--bg); padding:11px 18px; border-radius:14px; font-size:14px; font-weight:600; opacity:0; z-index:95; pointer-events:none; box-shadow:var(--shadow-lg); transition:opacity .25s var(--ease), transform .25s var(--ease); max-width:min(var(--app-max-width), calc(100vw - 32px)); white-space:normal; text-align:center; line-height:1.35; }
+  /* De toast zelf vangt geen taps (anders een onzichtbare dode zone boven de add-balk); alleen de actieknop */
+  .toast.show{ opacity:1; transform:translateX(-50%) translateY(0); pointer-events:none; }
+  .toast.show .toast-action{ pointer-events:auto; }
+  /* In winkelmodus/stuur-pagina (full-screen overlays) staat de toast lager: geen add-balk om boven te blijven */
+  .shop-screen.show ~ .toast, .send-screen.show ~ .toast{ bottom:calc(var(--safe-b) + 24px); }
 
   /* ---------- Cloud: list switch, members, share, send ---------- */
   .list-switch{ display:inline-flex; align-items:center; gap:7px; margin-top:8px; background:var(--surface); border:1px solid var(--line); border-radius:var(--r-pill); padding:6px 12px 6px 13px; box-shadow:var(--shadow-sm); font-size:14px; font-weight:600; max-width:100%; }
@@ -710,14 +716,14 @@
 
   /* ---------- Delight (Fase 3) ---------- */
   /* Confetti — subtiel, kort, brand-kleuren */
-  .confetti-layer{ position:absolute; inset:0; pointer-events:none; z-index:70; overflow:hidden; }
+  .confetti-layer{ position:absolute; inset:0; pointer-events:none; z-index:90; overflow:hidden; }
   .confetti-bit{ position:absolute; top:-12px; width:8px; height:10px; border-radius:2px; opacity:0; will-change:transform,opacity; animation:confetti-fall 900ms var(--ease) forwards; }
   @keyframes confetti-fall{
     0%{ opacity:1; transform:translateY(-10px) rotate(0deg); }
     100%{ opacity:0; transform:translateY(70vh) rotate(360deg); }
   }
   /* Fly-to-avatar — item vliegt naar de vriend-avatar bij versturen */
-  .fly-bit{ position:absolute; z-index:75; pointer-events:none; background:var(--green); color:var(--on-green); font-size:13px; font-weight:700; padding:6px 12px; border-radius:var(--r-pill); box-shadow:var(--shadow); white-space:nowrap; will-change:transform,opacity; }
+  .fly-bit{ position:absolute; z-index:96; pointer-events:none; background:var(--green); color:var(--on-green); font-size:13px; font-weight:700; padding:6px 12px; border-radius:var(--r-pill); box-shadow:var(--shadow); white-space:nowrap; will-change:transform,opacity; }
   /* Presence — "kijkt mee" pulserende stip op online leden */
   .av.live{ position:relative; }
   .av.live::after{ content:""; position:absolute; right:-1px; bottom:-1px; width:9px; height:9px; border-radius:50%; background:#34c759; border:2px solid var(--bg); animation:live-pulse 2s ease-in-out infinite; }
@@ -805,7 +811,7 @@
   window.MANDJE_CONFIG = {
     SUPABASE_URL:      "https://yctcpxgjpmhyohbsrygy.supabase.co",   /* ingevuld ✓ */
     SUPABASE_ANON_KEY: "sb_publishable_lT77Nkcrl6VsBIx-PFuMtw_mdJ6fyNj",   /* ingevuld ✓ (publishable key) */
-    BUILD:             "2026-06-21.10", /* alleen onderaan Meer-tab zichtbaar — handig om cache-versie te verifiëren */
+    BUILD:             "__BUILD__", /* wordt door build.js vervangen door datum + inhoudshash (nooit handmatig ophogen) */
     EMAIL_AUTH:        false, /* zet op true zodra e-mail magic-link aan staat in Supabase → toont "Beveilig je account" */
     VAPID_PUBLIC_KEY:  "BIkVm3JYB2t37GOXQlMTwSRipLcEvjrDY8Kb2mmNOIIrRY4zmR57RznHTJ2NQ5Z9h1fkp3if2OkDGmcmItLjy54"  /* public key (veilig in frontend). Privésleutel staat alleen als Supabase-secret. */
   };
@@ -813,7 +819,7 @@
 <!-- ===================================================================== -->
 <div class="app" id="app">
   <div class="topbar" id="topbar">
-    <div class="offline-badge" id="offline-badge" aria-hidden="true">Offline</div>
+    <div class="offline-badge" id="offline-badge" role="status" aria-live="polite" aria-atomic="true">Offline</div>
     <div class="ctitle" id="ctitle">Boodschappen</div>
     <button class="share-top" id="share-top-btn" aria-label="Delen" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5 8.6 10.5"/></svg></button>
     <button class="gear" id="gear-btn" aria-label="Instellingen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 8 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H2a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 3.6 8a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H8a1.65 1.65 0 0 0 1-1.51V2a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V8a1.65 1.65 0 0 0 1.51 1H22a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>

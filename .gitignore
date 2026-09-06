@@ -5,3 +5,4 @@ _combined.js
 # lokale QA-artefacten
 qa_shots/
 .playwright-cli/
+.claude/launch.json

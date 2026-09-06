@@ -7,6 +7,9 @@ var SUPABASE_ANON_KEY = (window.MANDJE_CONFIG && window.MANDJE_CONFIG.SUPABASE_A
 
 var MEMBER_COLORS = ["#2F7A4F","#3D8BFF","#E0772E","#9B5DE5","#E5446D","#1FB6A8","#C9A227","#E07A5F"];
 function pickColor(){ return MEMBER_COLORS[Math.floor(Math.random()*MEMBER_COLORS.length)]; }
+/* Kleuren uit de database komen van andere gebruikers: alleen een 6-cijferige hex mag in een
+   style-attribuut landen (anders is een gedeelde lijst een XSS-vector). */
+function safeColor(c){ c=String(c||""); return /^#[0-9A-Fa-f]{6}$/.test(c) ? c : "#2F7A4F"; }
 function initials(name){
   name=(name||"").trim(); if(!name) return "?";
   var p=name.split(/\s+/);
@@ -124,6 +127,7 @@ var Cloud = {
     };
   },
     _setOfflineMode:function(reason, noLog){
+      var wasActive = this.active;
       this.enabled = false;
       this.ready = false;
       this.mode = "local";
@@ -132,6 +136,13 @@ var Cloud = {
       this.lists = [];
       this.members = [];
       this.friends = [];
+      // Er stond een gedeelde lijst open: zet éérst de persoonlijke lijst terug in state.list,
+      // anders schreef save() de cloud-items als persoonlijke lijst weg (stil dataverlies +
+      // vervuiling). mandje.activeList blijft staan zodat reconnect de lijst weer opent.
+      if(wasActive){
+        if(typeof _personalList !== "undefined" && Array.isArray(_personalList)) state.list = _personalList.slice();
+        else state.list = [];
+      }
       this.active = null;
       this._initInProgress = false;
       this._notifiedEnabled = false;
@@ -141,6 +152,11 @@ var Cloud = {
       if(typeof renderListSwitch==="function") renderListSwitch();
       if(typeof renderMembersRow==="function") renderMembersRow();
       if(typeof renderShortcutsRow==="function") renderShortcutsRow();
+      if(wasActive){
+        if(typeof applyListHeader==="function") applyListHeader();
+        if(typeof renderLijst==="function" && typeof activeTab!=="undefined" && activeTab==="lijst"){ renderLijst(); if(typeof renderDueBanner==="function") renderDueBanner(); }
+        if(typeof toast==="function") toast("Gedeelde lijst offline — je werkt nu in je eigen lijst", {duration:3500});
+      }
       if(!noLog) this._warned("offline", this.initError);
       if(typeof refreshOfflineBadge === "function") refreshOfflineBadge();
       if(typeof window !== "undefined"){
@@ -243,10 +259,13 @@ var Cloud = {
         updated_at:new Date().toISOString()
       }, { onConflict:"endpoint" });
       if(r.error){ if(typeof toast==="function") toast("Herinneringen aanzetten lukte niet"); return false; }
+      if(typeof state!=="undefined" && state && state.settings){ state.settings.pushOn = true; if(typeof save==="function") save(); }
       return true;
     }catch(e){ return false; }
   },
   unsubscribePush:async function(){
+    // Voorkeur éérst uitzetten (vóór de await) zodat een parallelle init niet her-abonneert
+    if(typeof state!=="undefined" && state && state.settings){ state.settings.pushOn = false; if(typeof save==="function") save(); }
     try{
       var reg=await navigator.serviceWorker.ready;
       var sub=await reg.pushManager.getSubscription();
@@ -256,6 +275,7 @@ var Cloud = {
   },
   checkPushSubscription:async function(){
     if(!this.pushEnabled() || !this.ready) return;
+    if(!(typeof state!=="undefined" && state && state.settings && state.settings.pushOn)) return;   // uitgezet = uit
     try{
       if(Notification.permission!=="granted") return;        // alleen her-abonneren als eerder toegestaan
       var reg=await navigator.serviceWorker.ready;
@@ -518,7 +538,7 @@ var Cloud = {
           var fresh = {
             id:it.id, name:it.name, category:it.category||classify(it.name), qty:it.qty||1,
             price:(it.price==null?null:Number(it.price)), note:it.note||"", done:!!it.done,
-            unit:(old&&old.unit)||"", assigned_to:it.assigned_to||null, added_by_name:it.added_by_name||"", addedAt:it.created_at
+            unit:(it.unit!=null ? it.unit : ((old&&old.unit)||"")), assigned_to:it.assigned_to||null, added_by_name:it.added_by_name||"", addedAt:it.created_at
           };
           if(old && old.name===fresh.name && old.qty===fresh.qty && old.done===fresh.done && old.price===fresh.price && (old.note||"")===(fresh.note||"") && (old.unit||"")===(fresh.unit||"") && old.assigned_to===fresh.assigned_to){
             return old;
@@ -698,12 +718,14 @@ var Cloud = {
     if(existing){
       existing.qty += addQty;
       if(price!=null) existing.price = price;
+      if(opts.unit && opts.unit!==existing.unit) existing.unit = opts.unit;
       renderLijst();
       if(!opts.silent) toast(name + " → " + existing.qty + "×");
       var fields = {qty: existing.qty};
       if(price!=null) fields.price = price;
+      if(opts.unit && this._hasUnit!==false) fields.unit = opts.unit;
       var eid=existing.id;
-      this.sb.from("items").update(fields).eq("id", eid).then(function(r){ if(r&&r.error) self._queueUpdate(eid, fields); }, function(){ self._queueUpdate(eid, fields); });
+      this._writeItem("update", fields, eid);
       return;
     }
     var cat=(state.catalog[k]&&state.catalog[k].category)||classify(name);
@@ -713,8 +735,29 @@ var Cloud = {
     renderLijst();
     if(!opts.silent && addQty>1) toast(name + " ×" + addQty);
     var payload={list_id:this.active, name:name, category:cat, qty:addQty, price:(price==null?null:price), added_by_name:this.myName()};
+    if(opts.unit && this._hasUnit!==false) payload.unit = opts.unit;
     var fail=function(){ self._queueInsert(tmpId, payload); if(!opts.silent) toast("Offline — wordt verstuurd zodra je weer verbinding hebt"); };
-    this.sb.from("items").insert(payload).then(function(r){ if(r.error) fail(); }, fail);
+    this._writeItem("insert", payload, null, fail);
+  },
+  /* Schrijft een item weg en valt terug zonder 'unit' als de kolom (migratie M0) nog ontbreekt —
+     zo blijft de app werken vóór én na het draaien van de migratie. */
+  _hasUnit:undefined,
+  _isMissingUnit:function(err){ return !!(err && (err.code==="42703" || /column .*unit/i.test(err.message||"")) && this._hasUnit!==false); },
+  _writeItem:function(op, data, id, onFail){
+    var self=this;
+    var run=function(d){ return op==="insert" ? self.sb.from("items").insert(d) : self.sb.from("items").update(d).eq("id", id); };
+    var fail = onFail || function(){ self._queueUpdate(id, data); };
+    run(data).then(function(r){
+      if(r && r.error){
+        if("unit" in data && self._isMissingUnit(r.error)){
+          self._hasUnit=false; var d2={}; for(var k in data){ if(k!=="unit") d2[k]=data[k]; }
+          if(op==="insert") data=d2;
+          run(d2).then(function(r2){ if(r2&&r2.error) fail(); }, fail);
+          return;
+        }
+        fail();
+      } else if("unit" in data){ self._hasUnit=true; }
+    }, fail);
   },
   toggle:function(id){
     var it=state.list.find(function(i){return i.id===id;}); if(!it) return;
@@ -753,9 +796,9 @@ var Cloud = {
   },
   setFields:function(id, fields){
     var it=state.list.find(function(i){return i.id===id;});
-    if(it){ if("qty"in fields)it.qty=fields.qty; if("price"in fields)it.price=fields.price; if("note"in fields)it.note=fields.note; if("category"in fields)it.category=fields.category; if("assigned_to"in fields)it.assigned_to=fields.assigned_to; renderLijst(); }
-    var self=this;
-    this.sb.from("items").update(fields).eq("id",id).then(function(r){ if(r&&r.error) self._queueUpdate(id, fields); }, function(){ self._queueUpdate(id, fields); });
+    if(it){ if("qty"in fields)it.qty=fields.qty; if("price"in fields)it.price=fields.price; if("note"in fields)it.note=fields.note; if("unit"in fields)it.unit=fields.unit; if("category"in fields)it.category=fields.category; if("assigned_to"in fields)it.assigned_to=fields.assigned_to; renderLijst(); }
+    if("unit" in fields && this._hasUnit===false){ var f2={}; for(var k in fields){ if(k!=="unit") f2[k]=fields[k]; } fields=f2; }
+    this._writeItem("update", fields, id);
   },
   finish:function(){
     var done=state.list.filter(function(i){return i.done;}); if(!done.length||!this.active) return;
@@ -827,12 +870,16 @@ var Cloud = {
   kickMember:async function(listId, userId){
     var r=await this.sb.from("members").delete().eq("list_id",listId).eq("user_id",userId);
     if(r.error){ toast("Verwijderen lukte niet"); return false; }
+    // Uitnodig-code en stuur-token vernieuwen (RPC uit migratie M0); faalt stil als de RPC nog niet bestaat
+    var rotated=false;
+    try{ var rr=await this.sb.rpc("rotate_list_codes",{p_list_id:listId}); rotated=!(rr&&rr.error); }catch(e){}
     // FK ON DELETE SET NULL clearde assigned_to op zijn items, maar onze lokale state
     // ziet dat pas via realtime — forceer een refresh zodat de UI direct klopt.
     await this.refreshMembers();
     await this.refreshItems();
     await this.loadLists();
-    toast("Lid verwijderd");
+    if(typeof reRenderShareSheetIfOpen==="function") reRenderShareSheetIfOpen(listId);
+    toast(rotated ? "Lid verwijderd — uitnodig-link vernieuwd" : "Lid verwijderd");
     return true;
   },
   recentActivity:async function(listId){
@@ -945,7 +992,7 @@ function renderShortcutsRow(){
   });
   sorted.forEach(function(s){
     inner+='<button class="sc-chip" data-id="'+s.id+'">'+
-      '<span class="sc-dot" style="background:'+s.color+'"></span>'+
+      '<span class="sc-dot" style="background:'+safeColor(s.color)+'"></span>'+
       '<span class="sc-name">'+escapeHtml(prettyListName(s.name))+'</span>'+
     '</button>';
   });
@@ -1104,7 +1151,7 @@ function openSendSheet(scId){
   var sent=[];
   function renderSheet(displayName){
     return '<div class="grip"></div>'+
-      '<h3 style="display:flex;align-items:center;gap:10px"><span style="display:inline-block;width:14px;height:14px;border-radius:50%;background:'+s.color+';flex:0 0 auto"></span><span id="sc-title" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">Sturen naar '+escapeHtml(prettyListName(displayName))+'</span></h3>'+
+      '<h3 style="display:flex;align-items:center;gap:10px"><span style="display:inline-block;width:14px;height:14px;border-radius:50%;background:'+safeColor(s.color)+';flex:0 0 auto"></span><span id="sc-title" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">Sturen naar '+escapeHtml(prettyListName(displayName))+'</span></h3>'+
       '<div class="field" style="margin-bottom:6px">'+
         '<svg class="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>'+
         '<input class="name" id="sc-input" type="search" enterkeyhint="send" placeholder="Bijv. melk, brood…" autocapitalize="sentences" autocomplete="off" autocorrect="off" spellcheck="false">'+
@@ -1211,7 +1258,7 @@ function openAddShortcutSheet(prefilledToken){
 function openManageShortcutSheet(id){
   var s=Shortcuts.byId(id); if(!s) return;
   var html='<div class="grip"></div>'+
-    '<h3 style="display:flex;align-items:center;gap:10px"><span style="display:inline-block;width:14px;height:14px;border-radius:50%;background:'+s.color+';flex:0 0 auto"></span><span>'+escapeHtml(s.name)+'</span></h3>'+
+    '<h3 style="display:flex;align-items:center;gap:10px"><span style="display:inline-block;width:14px;height:14px;border-radius:50%;background:'+safeColor(s.color)+';flex:0 0 auto"></span><span>'+escapeHtml(s.name)+'</span></h3>'+
     '<div class="frow"><input class="txt" id="sc-rename" value="'+escapeAttr(s.name)+'" autocapitalize="words"></div>'+
     '<div class="sheet-actions"><button class="save" id="sc-save-name">Naam opslaan</button><button class="del" id="sc-delete">Verwijder</button></div>';
   var sh=openSheet2(html);
@@ -1246,7 +1293,8 @@ function listDisplayName(l){
   if(isInboxList(l)) return "Naar mij gestuurd";
   return prettyListName(l.name);
 }
-function ownerColor(l){
+function ownerColor(l){ return safeColor(ownerColorRaw(l)); }
+function ownerColorRaw(l){
   if(l && Cloud.members && l.owner_user_id){
     for(var i=0;i<Cloud.members.length;i++){
       if(Cloud.members[i].user_id===l.owner_user_id) return Cloud.members[i].color;
@@ -1316,7 +1364,7 @@ function renderMembersRow(){
   var avs=others.map(function(m){
     var live = !!liveIds[m.user_id];
     var online = live || (m.last_seen && (now-new Date(m.last_seen).getTime() < 120000));
-    return '<div class="av'+(online?'':' offline')+(live?' live':'')+'" title="'+escapeHtml(m.display_name)+(live?' · kijkt nu mee':'')+'" style="background:'+m.color+'">'+escapeHtml(initials(m.display_name).slice(0,1))+'</div>';
+    return '<div class="av'+(online?'':' offline')+(live?' live':'')+'" title="'+escapeHtml(m.display_name)+(live?' · kijkt nu mee':'')+'" style="background:'+safeColor(m.color)+'">'+escapeHtml(initials(m.display_name).slice(0,1))+'</div>';
   }).join("");
   var avBlock = others.length ? '<div class="avatars" aria-label="Leden">'+avs+'</div>' : '';
   row.innerHTML = avBlock +
@@ -1439,11 +1487,11 @@ function avatarHtml(name, color, emoji, size){
   if(emoji){
     // In dark mode meer kleur-mix zodat de stip niet verdwijnt
     var dark = (typeof effectiveTheme==="function" && effectiveTheme()==="dark");
-    inner = '<span class="emoji" style="font-size:'+Math.round(size*0.56)+'px">'+emoji+'</span>';
-    bg = "color-mix(in srgb, "+color+" "+(dark?28:18)+"%, var(--surface))";
+    inner = '<span class="emoji" style="font-size:'+Math.round(size*0.56)+'px">'+escapeHtml(String(emoji).slice(0,8))+'</span>';
+    bg = "color-mix(in srgb, "+safeColor(color)+" "+(dark?28:18)+"%, var(--surface))";
   } else {
     inner = '<span style="color:#fff;font-weight:700;font-size:'+Math.round(size*0.4)+'px;letter-spacing:.02em">'+escapeHtml(initials(name))+'</span>';
-    bg = color;
+    bg = safeColor(color);
   }
   return '<span class="avatar" style="width:'+size+'px;height:'+size+'px;background:'+bg+'">'+inner+'</span>';
 }
@@ -1729,7 +1777,7 @@ function openSendScreen(token){
       var nm=(nameI.value||"").trim(); if(!nm) return;
       var from=(scr.querySelector("#ss-from").value||"").trim();
       Cloud.sb.rpc("add_item_via_token",{p_token:token,p_name:nm,p_qty:1,p_note:"",p_from:from}).then(function(r){
-        if(r.error){ toast("Versturen lukte niet"); return; }
+        if(r.error){ toast(/rustig/i.test(r.error.message||"") ? "Even wachten — te veel tegelijk" : "Versturen lukte niet"); return; }
         added.unshift(nm); nameI.value="";
         scr.querySelector("#ss-chips").innerHTML=added.map(function(n){return '<span class="chip"><span class="emoji">✓</span>'+escapeHtml(n)+'</span>';}).join("");
         nameI.focus();

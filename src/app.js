@@ -140,7 +140,7 @@ var NS = "mandje.v2";
 var CURRENT_STATE_VERSION = 3;
 var DEFAULTS = {
   version: CURRENT_STATE_VERSION,
-  settings:{ theme:"auto", showPrices:false, seenIntro:false, categoryOrder:CATS.map(function(c){return c.id;}), minPurchases:3, cvThreshold:0.6, dueWindowDays:1, customCategories:[], customCatEmoji:{}, collapsedCats:{}, seenQtyHint:false, seenBulkHint:false, seenPriceNudge:false },
+  settings:{ theme:"auto", showPrices:false, seenIntro:false, categoryOrder:CATS.map(function(c){return c.id;}), minPurchases:3, cvThreshold:0.6, dueWindowDays:1, customCategories:[], customCatEmoji:{}, collapsedCats:{}, seenQtyHint:false, seenBulkHint:false, seenPriceNudge:false, pushOn:false },
   syncQueue:[],
   lastSyncState:{ mode:"local", status:"not_started", ready:false, pendingMutations:0, offline:false, reason:null, lastError:null, lastUpdated:0 },
   offlinePendingFlags:{},
@@ -428,7 +428,7 @@ function todayStr(){ var d=new Date(); return d.getFullYear()+"-"+pad(d.getMonth
 function pad(n){ return (n<10?"0":"")+n; }
 function parseDay(s){ return new Date(s+"T00:00:00"); }
 function dayDiff(a,b){ return Math.round((b-a)/86400000); }
-function addDays(d,n){ return new Date(d.getTime()+n*86400000); }
+function addDays(d,n){ return new Date(d.getFullYear(), d.getMonth(), d.getDate()+Math.round(n)); }
 function nowISO(){ return new Date().toISOString(); }
 function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
 
@@ -689,7 +689,7 @@ function toast(msg, opts){
   var duration = opts.duration || 1500;
   // Pause-on-hover/touch zodat user 'm niet mist tijdens lezen
   var paused = false, remaining = duration, startedAt = 0;
-  var hide = function(){ t.classList.remove("show"); };
+  var hide = function(){ t.classList.remove("show"); t.classList.remove("has-action"); };
   var schedule = function(ms){
     clearTimeout(toastT);
     startedAt = Date.now();
@@ -818,6 +818,15 @@ function finishShopping(){
 /* ============================================================
    RENDER — Lijst-tab
    ============================================================ */
+/* Schap-volgorde voor de render: eerst de ingestelde volgorde, daarna élk schap dat wél items
+   heeft maar niet in categoryOrder staat (bv. een eigen schap van een ander lid op een gedeelde
+   lijst). Zonder dit vangnet verdwenen die items geruisloos uit de lijst terwijl ze wél meetelden. */
+function catBuckets(byCat){
+  var seen={}, out=[];
+  (state.settings.categoryOrder||[]).forEach(function(cid){ seen[cid]=1; if(byCat[cid] && byCat[cid].length) out.push(cid); });
+  Object.keys(byCat).forEach(function(cid){ if(!seen[cid] && byCat[cid].length) out.push(cid); });
+  return out;
+}
 function renderLijst(){
   var open = state.list.filter(function(i){return !i.done;});
   var done = state.list.filter(function(i){return i.done;});
@@ -843,7 +852,7 @@ function renderLijst(){
   } else {
     // groepeer open per categorie volgens categoryOrder
     var byCat={}; open.forEach(function(it){ (byCat[it.category]=byCat[it.category]||[]).push(it); });
-    state.settings.categoryOrder.forEach(function(cid){
+    catBuckets(byCat).forEach(function(cid){
       var arr=byCat[cid]; if(!arr || !arr.length) return;
       var c=CAT_BY_ID[cid]||CAT_BY_ID["overig"];
       var collapsed = !!(state.settings.collapsedCats && state.settings.collapsedCats[cid]);
@@ -881,6 +890,7 @@ function renderLijst(){
   // Single append per wrap = minimum reflows
   openWrap.appendChild(openFrag);
   doneWrap.appendChild(doneFrag);
+  if(_searchQ) applySearchFilter(_searchQ);   // filter overleeft een re-render (was: term bleef staan, filter viel weg)
   updateTotals();
   updateSubhead();
   renderShopEntry();
@@ -897,7 +907,6 @@ function itemRow(it){
   li.appendChild(el("div","behind",'<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg><span>Verwijder</span>'));
   var card=el("div","card");
 
-  var a = state.catalog[norm(it.name)] ? analyse(state.catalog[norm(it.name)]) : null;
   var sub="";
   if(it.unit) sub+='<span>'+escapeHtml(it.unit)+'</span>';
   if(it.note) sub+=(sub?' · ':'')+'<span>'+escapeHtml(it.note)+'</span>';
@@ -1124,7 +1133,7 @@ function renderShoppingMode(){
   var body=scr.querySelector("#shop-body");
   if(!total){ body.innerHTML='<div class="shop-empty">Niks op je lijst — voeg eerst iets toe.</div>'; }
   var byCat={}; open.forEach(function(it){ (byCat[it.category]=byCat[it.category]||[]).push(it); });
-  state.settings.categoryOrder.forEach(function(cid){
+  catBuckets(byCat).forEach(function(cid){
     var arr=byCat[cid]; if(!arr||!arr.length) return;
     var c=CAT_BY_ID[cid]||CAT_BY_ID["overig"];
     body.appendChild(el("div","shop-sec",'<span class="cat-emoji emoji">'+c.glyph+'</span><span>'+escapeHtml(c.label)+'</span>'));
@@ -1317,7 +1326,7 @@ function renderMeer(){
   // Weergave
   var g1=el("div","group");
   var themeRow=el("div","grow");
-  themeRow.innerHTML='<div><div class="glabel">Thema</div></div><div class="spacer" style="flex:1"></div>';
+  themeRow.innerHTML='<div class="glabel">Thema</div>';
   var seg=el("div","seg");
   [["auto","Auto"],["light","Licht"],["dark","Donker"]].forEach(function(o){
     var b=el("button",state.settings.theme===o[0]?"on":"",o[1]);
@@ -1341,11 +1350,12 @@ function renderMeer(){
     var isIOSp = /iP(hone|ad|od)/.test(navigator.platform||navigator.userAgent||"");
     var gP=el("div","group");
     if(isIOSp && !standaloneP){
-      gP.appendChild(el("div","grow",'<div><div class="glabel">Herinneringen</div><div class="gsub">Zet Mandje eerst op je beginscherm (deel-icoon → “Zet op beginscherm”) om meldingen te kunnen krijgen.</div></div>'));
+      gP.appendChild(el("div","grow",'<div class="glabel">Herinneringen<div class="gsub">Zet Mandje eerst op je beginscherm (deel-icoon → “Zet op beginscherm”) om meldingen te kunnen krijgen.</div></div>'));
     } else {
       var remRow=el("div","grow");
-      remRow.innerHTML='<div><div class="glabel">Herinneringen</div><div class="gsub">Een melding wanneer je vaste boodschappen waarschijnlijk op zijn.</div></div>';
-      var onP = (typeof Notification!=="undefined" && Notification.permission==="granted");
+      remRow.innerHTML='<div class="glabel">Herinneringen<div class="gsub">Een dagelijkse herinnering om je lijst te checken.</div></div>';
+      // De eigen voorkeur is de bron van waarheid — niet de OS-permissie (die blijft 'granted' na uitzetten)
+      var onP = !!(state.settings.pushOn) && (typeof Notification!=="undefined" && Notification.permission==="granted");
       var rsw=el("button","switch"+(onP?" on":""));
       rsw.setAttribute("aria-label","Herinneringen aan of uit");
       rsw.setAttribute("aria-pressed", onP?"true":"false");
@@ -1706,12 +1716,12 @@ function attachSwipe(card,onDelete){
     if(!dragging) return;
     var dx=e.touches[0].clientX-startX, dy=e.touches[0].clientY-startY;
     if(!decided){ if(Math.abs(dx)>8||Math.abs(dy)>8){ decided=true; horiz=Math.abs(dx)>Math.abs(dy); } }
-    if(horiz){ e.preventDefault(); curX=Math.min(0,Math.max(-MAX,dx)); card.style.transform="translateX("+curX+"px)"; if(curX<-6) card._suppressClick=true; }
+    if(horiz){ e.preventDefault(); curX=Math.min(0,Math.max(-MAX,dx)); card.style.transform="translateX("+curX+"px)"; if(curX<-6) card._suppressClick=true; if(card.parentNode) card.parentNode.classList.add("swiping"); }
   },{passive:false});
   card.addEventListener("touchend",function(){
     if(!dragging) return; dragging=false; card.style.transition="";
     if(curX<=-THRESH){ card.style.transform="translateX(-100%)"; vibrate(10); setTimeout(onDelete,180); }
-    else{ card.style.transform="translateX(0)"; setTimeout(function(){ card._suppressClick=false; },60); }
+    else{ card.style.transform="translateX(0)"; setTimeout(function(){ card._suppressClick=false; if(card.parentNode) card.parentNode.classList.remove("swiping"); },280); }
   });
 }
 
@@ -1794,16 +1804,19 @@ function attachLongPress(elm, cb, ms){
   elm.addEventListener("contextmenu", function(e){ e.preventDefault(); });
 }
 
+var _searchQ = "";   // actieve zoekterm (bron van waarheid; renderLijst past 'm opnieuw toe)
 function setupSearchBar(){
   var input = $("#search-input"); if(!input) return;
   var bar = $("#search-bar"); var clear = $("#search-clear");
   input.addEventListener("input", function(){
     var q=(input.value||"").trim().toLowerCase();
     bar.classList.toggle("empty", !q);
+    _searchQ = q;
     applySearchFilter(q);
   });
   clear.addEventListener("click", function(){
     input.value=""; bar.classList.add("empty");
+    _searchQ = "";
     applySearchFilter(""); input.focus();
   });
 }
@@ -1813,7 +1826,7 @@ function toggleSearchBar(){
   bar.classList.toggle("collapsed", !visible);
   if(!visible){
     var input = $("#search-input");
-    if(input && input.value){ input.value=""; bar.classList.add("empty"); applySearchFilter(""); }
+    if(input && input.value){ input.value=""; bar.classList.add("empty"); _searchQ=""; applySearchFilter(""); }
   }
 }
 function applySearchFilter(q){
@@ -2087,11 +2100,11 @@ function effectiveTheme(){
 function applyTheme(){
   var eff=effectiveTheme();
   document.documentElement.setAttribute("data-theme",eff);
-  var meta=document.querySelector('meta[name="theme-color"]:not([media])');
   var color=eff==="dark"?"#141410":"#F6F4EF";
-  // forceer een enkele actuele theme-color
-  var m=document.querySelector('meta[name="theme-color"][data-active]');
-  if(!m){ m=document.createElement("meta"); m.name="theme-color"; m.setAttribute("data-active","1"); document.head.appendChild(m); }
+  // Eén theme-color-meta (zonder media-attribuut) die altijd het effectieve thema volgt —
+  // anders bleef de statusbalk crème bij handmatig 'Donker' op een licht systeem.
+  var m=document.querySelector('meta[name="theme-color"]');
+  if(!m){ m=document.createElement("meta"); m.name="theme-color"; document.head.appendChild(m); }
   m.content=color;
 }
 if(mq){ try{ mq.addEventListener("change",function(){ if(state.settings.theme==="auto") applyTheme(); }); }catch(e){ mq.addListener(function(){ if(state.settings.theme==="auto") applyTheme(); }); } }
@@ -2293,7 +2306,7 @@ function lookupBarcode(ean){
   }).catch(function(){ return {ean:ean, found:false, error:true}; });
 }
 
-var _bcScanner=null, _bcRunning=false, _bcLastEan="", _bcLastAt=0;
+var _bcScanner=null, _bcRunning=false, _bcLastEan="", _bcLastAt=0, _bcSession=0;
 var _bcStatusLast="", _bcStatusAt=0;
 function bcStatus(msg){
   var s=$("#bc-status"); if(!s) return;
@@ -2304,6 +2317,7 @@ function bcStatus(msg){
 }
 function openBarcodeScanScreen(){
   var scr=$("#barcode-screen"); if(!scr) return;
+  _bcSession++;
   scr.innerHTML =
     '<div class="ss-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 7v10M11 7v10M15 7v10"/></svg></div>'+
     '<div class="eyebrow">Scan een product</div>'+
@@ -2353,13 +2367,21 @@ function startBarcodeScanner(){
     if(!ok || !window.Html5Qrcode){ bcStatus("Scanner niet beschikbaar — typ de naam"); return; }
     if(!$("#barcode-screen").classList.contains("show")) return; // gebruiker sloot al
     bcStatus("Camera starten…");
+    var mySession=_bcSession;
     try{
       _bcScanner = new window.Html5Qrcode("bc-reader", { verbose:false });
+      var inst=_bcScanner;
       var F = window.Html5QrcodeSupportedFormats;
       var config = { fps:10, qrbox:{width:240,height:150} };
       if(F) config.formatsToSupport = [F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E];
       _bcScanner.start({facingMode:"environment"}, config, onBarcodeDecoded, function(){})
-        .then(function(){ _bcRunning=true; bcStatus(""); })
+        .then(function(){
+          if(mySession!==_bcSession){ // scherm is intussen gesloten → camera direct weer uit
+            try{ inst.stop().then(function(){ try{ inst.clear(); }catch(x){} }, function(){}); }catch(e){}
+            return;
+          }
+          _bcRunning=true; bcStatus("");
+        })
         .catch(function(){ bcStatus("Kan de camera niet openen — typ de naam"); });
     }catch(e){ bcStatus("Scanner niet beschikbaar — typ de naam"); }
   });
@@ -2369,6 +2391,7 @@ function stopBarcodeScanner(){
   _bcRunning=false;
 }
 function closeBarcodeScanScreen(){
+  _bcSession++;
   stopBarcodeScanner();
   var scr=$("#barcode-screen"); if(scr) scr.classList.remove("show");
 }
@@ -2400,6 +2423,7 @@ function setupBarcode(){
 
 /* Service worker: instant laden + offline-installeerbaar. Bij een nieuwe build wacht de
    nieuwe SW; we tonen dan een niet-opdringerige toast i.p.v. hard te herladen. */
+var _userAskedUpdate = false;
 function setupServiceWorker(){
   if(!("serviceWorker" in navigator)) return;
   try{
@@ -2407,6 +2431,7 @@ function setupServiceWorker(){
       var promptUpdate = function(){
         if(!reg.waiting) return;
         toast("Nieuwe versie beschikbaar", { action:"Ververs", duration:8000, onAction:function(){
+          _userAskedUpdate = true;
           if(reg.waiting) reg.waiting.postMessage("SKIP_WAITING");
         }});
       };
@@ -2418,9 +2443,11 @@ function setupServiceWorker(){
         });
       });
     }).catch(function(){});
+    // Eerste bezoek: clients.claim() vuurt óók controllerchange — dan NIET herladen
+    // (dat kostte elke nieuwe bezoeker een dubbele download van de hele app).
     var reloaded = false;
     navigator.serviceWorker.addEventListener("controllerchange", function(){
-      if(reloaded) return; reloaded = true; location.reload();
+      if(!_userAskedUpdate || reloaded) return; reloaded = true; location.reload();
     });
   }catch(e){}
 }

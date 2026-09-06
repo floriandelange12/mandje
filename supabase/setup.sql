@@ -59,12 +59,16 @@ create table if not exists public.items (
   qty           int not null default 1,
   price         numeric,
   note          text default '',
+  unit          text not null default '',   -- hoeveelheid/eenheid, bv. "500 g" (M0)
   done          boolean not null default false,
   assigned_to   uuid references public.members(id) on delete set null,
   added_by_name text,
   done_by_name  text,
   created_at    timestamptz not null default now()
 );
+
+-- Bestaande installaties van vóór M0 (2026-09-06): kolom alsnog toevoegen.
+alter table public.items add column if not exists unit text not null default '';
 
 create index if not exists idx_members_list on public.members(list_id);
 create index if not exists idx_members_user on public.members(user_id);
@@ -190,6 +194,52 @@ begin
 end;
 $$;
 
+-- Eigenaar vernieuwt join_code + send_token (M0), bv. na een gelekte link.
+-- Oude links vervallen; leden blijven lid. Voor de inbox-lijst van de
+-- eigenaar worden de gecachte inbox-tokens bij vrienden meegenomen.
+create or replace function public.rotate_list_codes(p_list_id uuid)
+returns public.lists
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+declare
+  v_list public.lists;
+begin
+  if auth.uid() is null then
+    raise exception 'Niet ingelogd';
+  end if;
+
+  update public.lists
+     set join_code  = public.generate_join_code(),
+         send_token = gen_random_uuid()
+   where id = p_list_id
+     and owner_user_id = auth.uid()
+  returning * into v_list;
+
+  -- Geen rij geraakt = lijst bestaat niet óf caller is niet de eigenaar.
+  if not found then
+    raise exception 'Alleen de eigenaar kan de codes vernieuwen';
+  end if;
+
+  -- Inbox-lijst van de eigenaar? Dan de gecachte tokens bij vrienden bijwerken.
+  if exists (
+    select 1 from public.profiles
+    where user_id = auth.uid() and inbox_list_id = v_list.id
+  ) then
+    update public.profiles
+       set inbox_token = v_list.send_token
+     where user_id = auth.uid();
+    update public.friendships
+       set to_inbox_token = v_list.send_token
+     where to_user_id = auth.uid();
+  end if;
+
+  return v_list;
+end;
+$$;
+
+-- Publieke stuur-link (anon mag dit aanroepen) — invoer begrensd + throttle (M0).
 create or replace function public.add_item_via_token(
   p_token uuid,
   p_name text,
@@ -205,18 +255,36 @@ as $$
 declare
   v_list_id uuid;
   v_item public.items;
+  v_name text;
+  v_recent int;
 begin
   select id into v_list_id from public.lists where send_token = p_token limit 1;
   if v_list_id is null then
     raise exception 'Ongeldige stuur-link';
   end if;
+
+  -- Invoer normaliseren en begrenzen
+  v_name := left(btrim(coalesce(p_name, ''), E' \t\r\n'), 80);
+  if v_name = '' then
+    raise exception 'Geen naam';
+  end if;
+
+  -- Throttle: max 30 nieuwe items per minuut per lijst
+  select count(*) into v_recent
+    from public.items
+   where list_id = v_list_id
+     and created_at > now() - interval '1 minute';
+  if v_recent >= 30 then
+    raise exception 'Even rustig aan — probeer het zo nog eens';
+  end if;
+
   insert into public.items (list_id, name, qty, note, added_by_name)
   values (
     v_list_id,
-    p_name,
-    greatest(1, coalesce(p_qty, 1)),
-    coalesce(p_note, ''),
-    nullif(trim(coalesce(p_from, '')), '')
+    v_name,
+    least(99, greatest(1, coalesce(p_qty, 1))),
+    left(coalesce(p_note, ''), 200),
+    nullif(left(btrim(coalesce(p_from, ''), E' \t\r\n'), 60), '')
   )
   returning * into v_item;
   return v_item;
@@ -237,6 +305,7 @@ grant execute on function public.add_item_via_token(uuid, text, int, text, text)
 grant execute on function public.list_name_by_token(uuid) to anon, authenticated;
 grant execute on function public.create_list(text, text, text) to authenticated;
 grant execute on function public.join_list(text, text, text) to authenticated;
+grant execute on function public.rotate_list_codes(uuid) to authenticated;
 
 -- ==========================================================
 -- RLS
@@ -264,9 +333,39 @@ drop policy if exists "members: zie leden van mijn lijsten" on public.members;
 create policy "members: zie leden van mijn lijsten" on public.members
   for select using (public.is_member(list_id, auth.uid()));
 
+-- M0 (2026-09-06): expliciete WITH CHECK + trigger hieronder. Zonder WITH CHECK
+-- kon een lid zijn eigen rij naar een andere list_id verplaatsen en zo lid worden
+-- van elke lijst waarvan hij de id kent (add_item_via_token geeft die terug).
 drop policy if exists "members: update eigen rij" on public.members;
 create policy "members: update eigen rij" on public.members
-  for update using (user_id = auth.uid());
+  for update
+  using (user_id = auth.uid())
+  with check (user_id = auth.uid());
+
+-- list_id en user_id van een lidmaatschap zijn onveranderlijk. Een trigger is
+-- robuuster dan een zelfverwijzende subquery in de policy (geen risico op
+-- "infinite recursion detected in policy") en geldt ook voor security-definer-
+-- RPC's en service_role. Geen bestaande RPC of client-call wijzigt deze kolommen.
+create or replace function public.members_block_identity_change()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  if new.list_id is distinct from old.list_id then
+    raise exception 'Een lidmaatschap kan niet naar een andere lijst verplaatst worden';
+  end if;
+  if new.user_id is distinct from old.user_id then
+    raise exception 'Een lidmaatschap kan niet aan een andere gebruiker overgedragen worden';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_members_block_identity_change on public.members;
+create trigger trg_members_block_identity_change
+  before update on public.members
+  for each row execute function public.members_block_identity_change();
 
 drop policy if exists "members: verlaat lijst (delete eigen rij)" on public.members;
 create policy "members: verlaat lijst (delete eigen rij)" on public.members

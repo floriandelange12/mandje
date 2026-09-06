@@ -3,12 +3,18 @@
    Strategie: stale-while-revalidate voor de shell (direct uit cache tonen, op de achtergrond
    verversen voor de volgende keer). Supabase (REST + realtime-WebSocket) en alle cross-origin
    verzoeken gaan ALTIJD rechtstreeks naar het netwerk — nooit cachen.
-   2026-06-21.10 wordt door build.js vervangen door de MANDJE_CONFIG.BUILD-waarde. */
-var CACHE = "mandje-2026-06-21.10";
+   2026-09-06.af1539d0 wordt door build.js vervangen door de MANDJE_CONFIG.BUILD-waarde. */
+var CACHE = "mandje-2026-09-06.af1539d0";
 var SHELL = "./index.html";
+// Precache: alleen de shell + het meldingsicoon. Navigaties worden in de fetch-handler altijd
+// op SHELL gemapt, dus "./" apart cachen zou het 600 KB-document twee keer opslaan.
+var PRECACHE = ["./index.html", "./icon-512.png"];
 
 self.addEventListener("install", function(e){
-  e.waitUntil(caches.open(CACHE).then(function(c){ return c.addAll(["./", SHELL]); }).catch(function(){}));
+  e.waitUntil(caches.open(CACHE).then(function(c){
+    // Per bestand, zodat een (tijdelijk) ontbrekend icoon de shell-precache niet blokkeert.
+    return Promise.all(PRECACHE.map(function(u){ return c.add(u).catch(function(){}); }));
+  }).catch(function(){}));
 });
 
 self.addEventListener("activate", function(e){
@@ -30,7 +36,7 @@ self.addEventListener("push", function(e){
   var title = data.title || "Mandje";
   var opts = {
     body: data.body || "Tijd om je vaste boodschappen te checken?",
-    icon: data.icon || "./index.html",
+    icon: data.icon || "./icon-512.png",
     badge: data.badge,
     tag: data.tag || "mandje-due",
     data: { url: data.url || "./" }
@@ -39,9 +45,23 @@ self.addEventListener("push", function(e){
 });
 self.addEventListener("notificationclick", function(e){
   e.notification.close();
-  var url = (e.notification.data && e.notification.data.url) || "./";
+  // Doel-url uit de payload, opgelost tegen de SW-scope (= /mandje/ op GitHub Pages).
+  var target = (e.notification.data && e.notification.data.url) || "./";
+  var url;
+  try{ url = new URL(target, self.registration.scope).href; }catch(x){ url = self.registration.scope; }
   e.waitUntil(self.clients.matchAll({type:"window", includeUncontrolled:true}).then(function(cs){
-    for(var i=0;i<cs.length;i++){ if(cs[i].url.indexOf(self.location.origin) === 0 && "focus" in cs[i]) return cs[i].focus(); }
+    var client = null;
+    for(var i=0;i<cs.length;i++){
+      if(cs[i].url.indexOf(self.location.origin) === 0 && "focus" in cs[i]){ client = cs[i]; break; }
+    }
+    if(client){
+      // Open venster op een andere url → daarheen navigeren en focussen; lukt dat niet, dan alleen focussen.
+      if("navigate" in client && client.url !== url){
+        return client.navigate(url).then(function(c){ return c ? c.focus() : client.focus(); })
+                                   .catch(function(){ return client.focus(); });
+      }
+      return client.focus();
+    }
     if(self.clients.openWindow) return self.clients.openWindow(url);
   }));
 });
@@ -56,15 +76,22 @@ self.addEventListener("fetch", function(e){
   e.respondWith(swr(req, req));
 });
 
-/* stale-while-revalidate: cache → direct terug, en op de achtergrond bijwerken. */
+/* stale-while-revalidate: cache → direct terug, en op de achtergrond bijwerken.
+   Netwerkfout zonder cache: navigaties krijgen de shell (offline-app), andere verzoeken
+   (icoon e.d.) krijgen een echte netwerkfout — nooit 600 KB HTML als "afbeelding". */
 function swr(cacheKey, req){
+  var isNav = req.mode === "navigate";
   return caches.open(CACHE).then(function(cache){
     return cache.match(cacheKey, {ignoreSearch:true}).then(function(cached){
       var net = fetch(req).then(function(res){
         if(res && res.ok && res.type === "basic"){ cache.put(cacheKey, res.clone()); }
         return res;
       }).catch(function(){ return null; });
-      return cached || net.then(function(r){ return r || (cacheKey !== SHELL ? cache.match(SHELL) : undefined); });
+      return cached || net.then(function(r){
+        if(r) return r;
+        if(isNav) return cache.match(SHELL).then(function(s){ return s || Response.error(); });
+        return Response.error();
+      });
     });
   });
 }
