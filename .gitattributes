@@ -1,0 +1,4 @@
+# Tekstbestanden altijd met LF in de repo en in de working tree
+* text=auto eol=lf
+*.png binary
+*.txt text eol=lf

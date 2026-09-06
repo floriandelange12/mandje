@@ -1,0 +1,12 @@
+# Voorkomt dat een editor de bronbestanden met een andere codering opslaat (zie Fase 0 van het plan)
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = false
+
+[*.{js,html,css,json,md,sql,ts}]
+indent_style = space
+indent_size = 2

@@ -55,9 +55,13 @@ function loadSupabaseSDK(){
 
 var Cloud = {
   enabled:false, sb:null, ready:false,
-  me:null, userId:null,
-  lists:[], active:null, members:[], channel:null, presenceTimer:null,
-  profile:null, friends:[],
+    me:null, userId:null,
+    lists:[], active:null, members:[], channel:null, presenceTimer:null,
+    profile:null, friends:[],
+    initError:null, mode:"local", _initInProgress:false, _initToken:0, _openToken:0, _activeRefreshToken:0, _stateSummaryAt:0, _lastLogAt:0, _warnedAt:{},
+    _initFailAt:0, _initFailReason:null, _canLogAt:0,
+    _openLocalEpoch:0, _openStartedAt:0, _openRefreshToken:0, _openGateUntil:0,
+    _notifiedEnabled:false, _notifiedError:false, _onlineBound:false, _onlineRecoverAt:0,
 
   cfg:function(){ return !!(SUPABASE_URL && SUPABASE_ANON_KEY); },
 
@@ -68,6 +72,113 @@ var Cloud = {
   saveMe:function(){ try{ localStorage.setItem("mandje.me", JSON.stringify(this.me)); }catch(e){} },
   myName:function(){ return (this.me && this.me.display_name) || "Ik"; },
   myEmoji:function(){ return (this.me && this.me.emoji) || ""; },
+  _log:function(msg, isError){
+    var now = (Date.now ? Date.now() : 0);
+    if(now - (this._lastLogAt || 0) < 8000) return;
+    this._lastLogAt = now;
+    if(isError) console.warn("Mandje: "+msg); else console.log("Mandje: "+msg);
+  },
+   _canInitError:function(){
+     try{
+      if(!this.cfg()) return "Cloud uitgeschakeld: geen configuratie";
+      if(typeof navigator !== "undefined" && navigator.onLine === false) return "Cloud uitgeschakeld: je bent offline";
+      if(typeof navigator !== "undefined" && navigator.connection && navigator.connection.effectiveType === "2g") return "Cloud tijdelijk uitgeschakeld: netwerk te traag";
+      if(!this._hasFetchLayer()) return "Cloud uitgeschakeld: netwerkservice niet beschikbaar";
+    }catch(e){
+      return "Cloud uitgeschakeld: technische fout";
+    }
+    return "";
+  },
+  _hasFetchLayer:function(){
+    try{
+      if(typeof fetch !== "function") return false;
+      if(typeof window === "undefined") return true;
+      return typeof window.fetch === "function";
+    }catch(e){
+      return false;
+    }
+  },
+  _warned:function(key, msg){
+    var now = (Date.now ? Date.now() : 0);
+    if(now - ((this._warnedAt && this._warnedAt[key]) || 0) < 9000) return false;
+    if(!this._warnedAt) this._warnedAt = {};
+    this._warnedAt[key] = now;
+    this._log(msg, true);
+    return true;
+  },
+  _nextInitToken:function(){ this._initToken = (this._initToken || 0) + 1; return this._initToken; },
+  _nextRefreshToken:function(){ this._activeRefreshToken = (this._activeRefreshToken || 0) + 1; return this._activeRefreshToken; },
+  _isCurrentInit:function(token){ return !!token && token === this._initToken; },
+  _isCurrentRefresh:function(token){ return !!token && token === this._activeRefreshToken; },
+  _suppressNow:function(){ var n = (Date.now ? Date.now() : 0); if(n - (this._canLogAt || 0) < 7000) return true; this._canLogAt = n; return false; },
+  getStateSummary:function(){
+    return {
+      mode:this.mode || "local",
+      status:this.ready ? "ready" : (this.enabled ? "connecting" : "not_started"),
+      ready:!!this.ready,
+      activeListId:this.active || null,
+      pendingMutations:Array.isArray((typeof state !== "undefined" && state && state.syncQueue) ? state.syncQueue : []) ? ((typeof state !== "undefined" && state && state.syncQueue) || []).length : 0,
+      offline: this.mode === "local",
+      reason:this.initError || null,
+      lastUpdated:this._stateSummaryAt || 0
+    };
+  },
+    _setOfflineMode:function(reason, noLog){
+      this.enabled = false;
+      this.ready = false;
+      this.mode = "local";
+      this.initError = reason || "Cloud niet beschikbaar";
+      this.sb = null; this.userId = null;
+      this.lists = [];
+      this.members = [];
+      this.friends = [];
+      this.active = null;
+      this._initInProgress = false;
+      this._notifiedEnabled = false;
+      this._notifiedError = false;
+      this._stateSummaryAt = Date.now ? Date.now() : 0;
+      if(typeof this.stop==="function"){ try{ this.stop(); }catch(e){} }
+      if(typeof renderListSwitch==="function") renderListSwitch();
+      if(typeof renderMembersRow==="function") renderMembersRow();
+      if(typeof renderShortcutsRow==="function") renderShortcutsRow();
+      if(!noLog) this._warned("offline", this.initError);
+      if(typeof refreshOfflineBadge === "function") refreshOfflineBadge();
+      if(typeof window !== "undefined"){
+        if(typeof window.refreshTopShareBtn === "function") window.refreshTopShareBtn();
+        if(typeof window.updateSubhead === "function") window.updateSubhead();
+      }
+    },
+  _scheduleOnlineRecovery:function(){
+    var self=this;
+    if(typeof window === "undefined" || this._onlineBound) return;
+    this._onlineBound=true;
+    window.addEventListener("online", function(){
+      if(typeof self.cfg === "function" && !self.cfg()) return;
+      if(typeof self._canInit === "function" && !self._canInit()) return;
+      if(self.ready){
+        if(typeof self.flushPending === "function"){ self.flushPending(); }
+        return;
+      }
+      var now = (Date.now ? Date.now() : 0);
+      if(self._onlineRecoverAt > now) return;
+      self._onlineRecoverAt = now + 1200;
+      if(!self._initInProgress && !self.ready){
+        self.init();
+      }
+    });
+    window.addEventListener("offline", function(){
+      if(self.ready){
+        self._setOfflineMode(typeof navigator !== "undefined" && navigator.onLine === false ? "Cloud uitgeschakeld: je bent offline" : "Cloud uitgeschakeld", true);
+      }
+    });
+  },
+  _canInit:function(){
+      if(!this.cfg()) return false;
+      if(typeof navigator !== "undefined" && navigator.onLine === false) return false;
+      if(typeof navigator !== "undefined" && navigator.connection && navigator.connection.effectiveType === "2g") return false;
+      try{ if(!this._hasFetchLayer()) return false; }catch(e){ return false; }
+      return true;
+    },
 
   /* ---- profiel + vrienden ---- */
   syncProfile:async function(){
@@ -196,41 +307,92 @@ var Cloud = {
   activeList:function(){ return this.active ? this.listById(this.active) : null; },
 
   init:async function(){
-    if(!this.cfg()) return;
-    this.enabled=true; this.loadMe();
-    Shortcuts.load();
-    var self=this;
-    window.addEventListener("online", function(){ self.flushPending(); });
-    var params=new URLSearchParams(location.search);
-    try{
-      var sdk = (typeof window!=="undefined" && window.supabase) ? window.supabase : null;
-      if(!sdk){ console.warn("Mandje: SDK niet ingebakken, val terug op CDN"); sdk = await loadSupabaseSDK(); }
-      this.sb=sdk.createClient(SUPABASE_URL, SUPABASE_ANON_KEY,
-        {auth:{persistSession:true, autoRefreshToken:true, storageKey:"mandje.sb.auth"}});
-      var s=await this.sb.auth.getSession();
-      if(!s.data || !s.data.session){
-        var r=await this.sb.auth.signInAnonymously();
-        if(r.error){
-          console.warn("Mandje: anonieme aanmelding faalde —", r.error);
-          this.initError = "Niet ingelogd kunnen krijgen — check je internet";
-          throw r.error;
-        }
+      var canMsg = this._canInitError();
+      if(canMsg){
+        this._setOfflineMode(canMsg, true);
+        return;
       }
-      var u=await this.sb.auth.getUser(); this.userId=(u.data&&u.data.user)?u.data.user.id:null;
-      this.ready=true;
+      if(this._initInProgress) return;
+      var initToken = this._nextInitToken();
+      this._initInProgress = true;
+      this.enabled = true;
+      this._notifiedEnabled = false;
+      this._notifiedError = false;
+      this._stateSummaryAt = Date.now ? Date.now() : 0;
+      this.initError = null;
+      this.loadMe();
+      Shortcuts.load();
+      var self=this;
+      var guard = function(allowLog){
+        if(!self._isCurrentInit(initToken)) return false;
+        if(!self._canInit()){
+          self._setOfflineMode(typeof navigator !== "undefined" && navigator.onLine === false ? "Cloud uitgeschakeld: je bent offline" : "Cloud niet beschikbaar op dit toestel", allowLog === false);
+          return false;
+        }
+        return true;
+      };
+      this._scheduleOnlineRecovery();
+    var params=new URLSearchParams(location.search);
+      try{
+        var sdk = (typeof window!=="undefined" && window.supabase) ? window.supabase : null;
+        if(!guard(true) || !this._canInit()){ 
+          return;
+        }
+        if(!sdk){ self._warned("sdk", "Mandje: SDK niet ingebakken, val terug op CDN"); sdk = await loadSupabaseSDK(); }
+        if(!sdk || typeof sdk.createClient !== "function"){ throw new Error("Supabase SDK niet beschikbaar"); }
+        this.sb=sdk.createClient(SUPABASE_URL, SUPABASE_ANON_KEY,
+          {auth:{persistSession:true, autoRefreshToken:true, storageKey:"mandje.sb.auth"}});
 
-      // Publieke stuur-pagina?
-      if(params.get("send")){ openSendScreen(params.get("send")); return; }
+        if(!guard(true)){
+          return;
+        }
 
-      await this.loadLists();
+        var s;
+        try{
+          s=await this.sb.auth.getSession();
+        }catch(e){
+          throw new Error("Cloud-sessie opvragen faalde");
+        }
+        if(!self._isCurrentInit(initToken)) return;
+        if(!s.data || !s.data.session){
+          if(!guard(true)) return;
+          var r;
+          try{
+            r=await this.sb.auth.signInAnonymously();
+          }catch(e){
+            throw new Error("Anoniem aanmelden niet mogelijk");
+          }
+          if(r.error){
+            console.warn("Mandje: anonieme aanmelding faalde", r.error);
+            this.initError = "Niet ingelogd kunnen krijgen — check je internet";
+            throw r.error;
+          }
+        }
+        if(!guard(true)) return;
+        var u=await this.sb.auth.getUser(); this.userId=(u.data&&u.data.user)?u.data.user.id:null;
+        this.ready=true;
+        this.mode="cloud";
+        this._stateSummaryAt = Date.now ? Date.now() : 0;
+        this._notifiedEnabled = false;
+        this._notifiedError = false;
+        if(typeof window !== "undefined"){
+          if(typeof window.refreshTopShareBtn === "function") window.refreshTopShareBtn();
+          if(typeof window.updateSubhead === "function") window.updateSubhead();
+        }
 
-      // Profiel + vrienden: alleen als er al een naam is (anders pas na ensureIdentity)
+        if(params.get("send")){
+          openSendScreen(params.get("send"));
+          return;
+        }
+  
+        await this.loadLists();
+        if(!self._isCurrentInit(initToken)) return;
+
       if(this.me && this.me.display_name){ await this.syncProfile(); }
       await this.loadFriends();
-      this.loadMeals();  // cross-device bundel-sync (stil no-op zonder 'meals'-tabel)
-      this.checkPushSubscription();  // her-abonneren als push eerder aan stond (dormant zonder VAPID-key)
+      this.loadMeals();
+      this.checkPushSubscription();
 
-      // Vriend-uitnodiging via ?friend=CODE
       if(params.get("friend")){
         var fcode = params.get("friend");
         try{ history.replaceState({}, "", location.pathname); }catch(e){}
@@ -239,27 +401,37 @@ var Cloud = {
         });
       }
 
-      if(params.get("join")){ await ensureIdentity(function(){ Cloud.joinList(params.get("join")); }); }
-      else{
-        var act=localStorage.getItem("mandje.activeList");
-        if(act && act!=="local"){
+        if(params.get("join")){
+          await ensureIdentity(function(){ Cloud.joinList(params.get("join")); });
+        } else {
+          var act=localStorage.getItem("mandje.activeList");
+          if(act && act!=="local"){
           if(this.listById(act)){
             await this.open(act);
           } else {
-            // Saved active-list bestaat niet meer (door owner verwijderd of jij gekickt) —
-            // val terug op persoonlijk en laat 't weten zodat de gebruiker niet verward raakt.
             try{ localStorage.setItem("mandje.activeList","local"); }catch(e){}
             setTimeout(function(){ toast("Vorige lijst is niet meer beschikbaar"); }, 600);
           }
         }
       }
-    }catch(e){
-      console.warn("Cloud init faalde:", e);
-      this.ready=false;
-      if(!this.initError) this.initError = (e && e.message) || String(e);
-    }
-    renderListSwitch(); renderMembersRow(); renderShortcutsRow();
-  },
+      }catch(e){
+        if(!self._isCurrentInit(initToken)) return;
+        this.initError = (e && (e.message || String(e))) || "Cloud init gefaald";
+        if(/Sign in|aanmelden|failed|network|networkerror|fetch|timeout/i.test(this.initError + "")){
+          this.initError = "Cloud niet bereikbaar — werk nu in lokale modus";
+        }
+        this._initFailReason = this.initError;
+        this._initFailAt = Date.now ? Date.now() : 0;
+        var shouldLog = !this._suppressNow();
+        if(shouldLog){ self._warned("init", "Cloud init faalde: "+this.initError); }
+        this._setOfflineMode(this.initError, !shouldLog);
+      }finally{
+        if(self._isCurrentInit(initToken)) this._initInProgress = false;
+      }
+      if(self._isCurrentInit(initToken)){
+        renderListSwitch(); renderMembersRow(); renderShortcutsRow();
+      }
+    },
 
   loadLists:async function(){
     var r=await this.sb.from("lists").select("*").order("created_at",{ascending:true});
@@ -282,19 +454,37 @@ var Cloud = {
     }
   },
 
-  open:async function(listId){
-    // Bewaar de persoonlijke lijst vóór we de cloud-items in state.list laden (alleen als we
-    // nu nog op Persoonlijk staan; bij cloud→cloud houden we de bestaande snapshot).
-    if(!this.active && typeof _personalList!=="undefined") _personalList = (state.list||[]).slice();
-    this.active=listId; try{ localStorage.setItem("mandje.activeList", listId); }catch(e){}
-    await this.refreshItems(); await this.refreshMembers();
-    this.subscribe(listId); this.startPresence();
-    applyListHeader(); renderListSwitch(); renderMembersRow();
-  },
-  openLocal:function(){
-    this.active=null; try{ localStorage.setItem("mandje.activeList","local"); }catch(e){}
-    this.stop();
-    load(); applyListHeader(); renderListSwitch(); renderMembersRow();
+    open:async function(listId){
+      // Bewaar de persoonlijke lijst vóór we de cloud-items in state.list laden (alleen als we
+      // nu nog op Persoonlijk staan; bij cloud→cloud houden we de bestaande snapshot).
+      var refreshToken = this._nextRefreshToken();
+      if(!this.active && typeof _personalList!=="undefined") _personalList = (state.list||[]).slice();
+      this._openRefreshToken = refreshToken;
+      this._openLocalEpoch = (typeof window !== "undefined" && typeof window.__mandjeLocalMutationEpoch === "number") ? window.__mandjeLocalMutationEpoch : 0;
+      this._openStartedAt = Date.now ? Date.now() : 0;
+      this._openGateUntil = this._openStartedAt + 1400;
+      if(typeof state === "object" && state._meta){
+        state._meta.lastCloudOpenAt = this._openStartedAt;
+        state._meta.restoreMode = "cloud";
+      }
+      this.active=listId; try{ localStorage.setItem("mandje.activeList", listId); }catch(e){}
+      await this.refreshItems(refreshToken); await this.refreshMembers(refreshToken);
+      this.subscribe(listId); this.startPresence();
+      applyListHeader(); renderListSwitch(); renderMembersRow();
+    },
+    openLocal:function(){
+      this._nextRefreshToken();
+      this._openRefreshToken = 0;
+      this._openLocalEpoch = 0;
+      this._openStartedAt = 0;
+      this._openGateUntil = 0;
+      if(typeof state === "object" && state._meta){
+        state._meta.restoreMode = "local";
+        state._meta.lastLocalOpenAt = Date.now ? Date.now() : 0;
+      }
+      this.active=null; try{ localStorage.setItem("mandje.activeList","local"); }catch(e){}
+      this.stop();
+      load(); applyListHeader(); renderListSwitch(); renderMembersRow();
     renderLijst(); renderDueBanner();
   },
   stop:function(){
@@ -302,60 +492,105 @@ var Cloud = {
     if(this.presenceTimer){ clearInterval(this.presenceTimer); this.presenceTimer=null; }
     this.present=[]; if(typeof renderPresence==="function") renderPresence();
   },
-
-  refreshItems:async function(){
-    if(!this.active) return;
-    var r=await this.sb.from("items").select("*").eq("list_id",this.active).order("created_at",{ascending:false});
-    if(r.error){
-      console.warn("refreshItems faalde:", r.error);
-      // Voorkom dat items van een vorige lijst blijven plakken — leeg de view
-      state.list=[];
-      if(activeTab==="lijst"){ renderLijst(); renderDueBanner(); }
-      toast("Items willen niet laden — probeer 't straks");
-      return;
-    }
-    // Diff-merge per ID — voorkomt onnodige scroll-jank/animation-reset bij realtime updates
-    var oldById = {}, self=this;
-    state.list.forEach(function(it){ oldById[it.id]=it; });
-    state.list = (r.data||[]).filter(function(it){ return !self._deletedIds[it.id]; }).map(function(it){
-      var old = oldById[it.id];
-      var fresh = {
-        id:it.id, name:it.name, category:it.category||classify(it.name), qty:it.qty||1,
-        price:(it.price==null?null:Number(it.price)), note:it.note||"", done:!!it.done,
-        unit:(old&&old.unit)||"",          // unit is lokaal (geen DB-kolom) → behouden over realtime-refresh
-        assigned_to:it.assigned_to||null, added_by_name:it.added_by_name||"", addedAt:it.created_at
-      };
-      // Hergebruik object-reference voor unchanged rows zodat itemRow-animaties niet opnieuw starten
-      if(old && old.name===fresh.name && old.qty===fresh.qty && old.done===fresh.done && old.price===fresh.price && old.note===fresh.note && (old.unit||"")===(fresh.unit||"") && old.assigned_to===fresh.assigned_to){
-        return old;
+    refreshItems:async function(token){
+      token = token || this._activeRefreshToken;
+      if(!token) return;
+      var listId = this.active;
+      if(!listId || !this._isCurrentRefresh(token)) return;
+      try{
+        var r=await this.sb.from("items").select("*").eq("list_id",listId).order("created_at",{ascending:false});
+        if(!this._isCurrentRefresh(token) || this.active!==listId) return;
+        var now = Date.now ? Date.now() : 0;
+        var localEpoch = (typeof window !== "undefined" && typeof window.__mandjeLocalMutationEpoch === "number") ? window.__mandjeLocalMutationEpoch : 0;
+        var openEpoch = Number(this._openLocalEpoch || 0);
+        var skipMerge = (localEpoch > openEpoch && this._openStartedAt && (now - Number(this._openStartedAt)) < 2600);
+        if(r.error){
+          state.list=[];
+          if(activeTab==="lijst"){ renderLijst(); renderDueBanner(); }
+          this._warned("refreshItems", "refreshItems faalde: "+((r.error && (r.error.message || r.error.code)) || "onbekend"));
+          toast("Items willen niet laden — probeer 't straks");
+          return;
+        }
+        var oldById = {}, self=this;
+        state.list.forEach(function(it){ oldById[it.id]=it; });
+        var mapped = (r.data||[]).filter(function(it){ return !self._deletedIds[it.id]; }).map(function(it){
+          var old = oldById[it.id];
+          var fresh = {
+            id:it.id, name:it.name, category:it.category||classify(it.name), qty:it.qty||1,
+            price:(it.price==null?null:Number(it.price)), note:it.note||"", done:!!it.done,
+            unit:(old&&old.unit)||"", assigned_to:it.assigned_to||null, added_by_name:it.added_by_name||"", addedAt:it.created_at
+          };
+          if(old && old.name===fresh.name && old.qty===fresh.qty && old.done===fresh.done && old.price===fresh.price && (old.note||"")===(fresh.note||"") && (old.unit||"")===(fresh.unit||"") && old.assigned_to===fresh.assigned_to){
+            return old;
+          }
+          return fresh;
+        });
+        var acceptCloudList = true;
+        if(typeof shouldAcceptCloudList === "function"){
+          acceptCloudList = shouldAcceptCloudList(mapped, {
+            openLocalEpoch: Number(this._openLocalEpoch || 0),
+            openStartedAt: Number(this._openStartedAt || 0)
+          });
+        }
+        if(!acceptCloudList){
+          this._warned("refreshItems", "Cloud-refresh genegeerd: lokale versie is nieuwer");
+          return;
+        }
+        if(skipMerge){
+          state.list.forEach(function(localRow){
+            if(!localRow || !localRow.id) return;
+            if(!mapped.some(function(remoteRow){ return remoteRow.id === localRow.id; })){
+              mapped.push(localRow);
+            }
+          });
+          mapped.sort(function(a,b){
+            var at = +new Date(a.addedAt || 0);
+            var bt = +new Date(b.addedAt || 0);
+            return bt - at;
+          });
+        }
+        state.list = mapped;
+        if(activeTab==="lijst"){ renderLijst(); renderDueBanner(); }
+        if(typeof renderShoppingMode==="function") renderShoppingMode();
+      }catch(e){
+        if(!this._isCurrentRefresh(token) || this.active!==listId) return;
+        this._warned("refreshItems", "refreshItems faalde: "+((e && (e.message || e.code)) || "onbekend"));
+        state.list=[];
+        if(activeTab==="lijst"){ renderLijst(); renderDueBanner(); }
+        toast("Items willen niet laden — probeer 't straks");
       }
-      return fresh;
-    });
-    if(activeTab==="lijst"){ renderLijst(); renderDueBanner(); }
-    if(typeof renderShoppingMode==="function") renderShoppingMode();  // houd winkelmodus live bij realtime
-  },
-  refreshMembers:async function(){
-    if(!this.active) return;
-    var r=await this.sb.from("members").select("*").eq("list_id",this.active).order("created_at",{ascending:true});
-    if(r.error){
-      console.warn("refreshMembers faalde:", r.error);
-      this.members=[];
-      renderMembersRow();
-      return;
-    }
-    this.members=r.data||[];
-    renderMembersRow();
-  },
+    },
+    refreshMembers:async function(token){
+      token = token || this._activeRefreshToken;
+      if(!token) return;
+      var listId = this.active;
+      if(!listId || !this._isCurrentRefresh(token)) return;
+      try{
+        var r=await this.sb.from("members").select("*").eq("list_id",listId).order("created_at",{ascending:true});
+        if(!this._isCurrentRefresh(token) || this.active!==listId) return;
+        if(r.error){
+          this._warned("refreshMembers", "refreshMembers faalde: "+((r.error && (r.error.message || r.error.code)) || "onbekend"));
+          this.members=[];
+          renderMembersRow();
+          return;
+        }
+        this.members=r.data||[];
+        renderMembersRow();
+      }catch(e){
+        if(!this._isCurrentRefresh(token) || this.active!==listId) return;
+        this._warned("refreshMembers", "refreshMembers faalde: "+((e && (e.message || e.code)) || "onbekend"));
+      }
+    },
 
   present:[],  // wie kijkt nu live mee op deze lijst
   subscribe:function(listId){
     if(this.channel){ try{ this.sb.removeChannel(this.channel); }catch(e){} }
     this.present=[];
     var self=this;
-    this.channel=this.sb.channel("list-"+listId, { config:{ presence:{ key: self.userId || ("u"+Math.random()) } } })
-      .on("postgres_changes",{event:"*",schema:"public",table:"items",filter:"list_id=eq."+listId}, function(){ self.refreshItems(); })
-      .on("postgres_changes",{event:"*",schema:"public",table:"members",filter:"list_id=eq."+listId}, function(){
-        self.refreshMembers().then(function(){
+      this.channel=this.sb.channel("list-"+listId, { config:{ presence:{ key: self.userId || ("u"+Math.random()) } } })
+        .on("postgres_changes",{event:"*",schema:"public",table:"items",filter:"list_id=eq."+listId}, function(){ self.refreshItems(self._activeRefreshToken); })
+        .on("postgres_changes",{event:"*",schema:"public",table:"members",filter:"list_id=eq."+listId}, function(){
+          self.refreshMembers(self._activeRefreshToken).then(function(){
           // Als jouw eigen member-rij weg is (gekickt of lijst gedeleted door owner met FK-cascade),
           // val dan netjes terug naar persoonlijk en zeg waarom.
           if(self.active === listId && (!self.members || !self.members.some(function(m){return m.user_id===self.userId;}))){
@@ -626,13 +861,39 @@ var Cloud = {
 
 function whenCloudReady(cb){
   if(Cloud.ready){ cb(); return; }
-  if(!Cloud.enabled){ toast("Delen is niet aangezet"); return; }
-  if(Cloud.initError){ toast(Cloud.initError); return; }
-  toast("Even ophalen…");
+  if(!Cloud.enabled){
+    if(!Cloud._notifiedEnabled){
+      Cloud._notifiedEnabled = true;
+      toast("Delen is niet aangezet");
+    }
+    return;
+  }
+  if(Cloud.initError){
+    if(!Cloud._notifiedError){
+      Cloud._notifiedError = true;
+      toast(Cloud.initError);
+    }
+    return;
+  }
+  if(!Cloud._notifiedEnabled){
+    Cloud._notifiedEnabled = true;
+    toast("Even ophalen…");
+  }
   Cloud.waitReady(28000).then(function(ok){
-    if(ok) cb();
-    else if(Cloud.initError) toast(Cloud.initError);
-    else toast("Geen verbinding — probeer 't straks");
+    if(ok){
+      Cloud._notifiedEnabled = false;
+      cb();
+      return;
+    }
+    if(Cloud.initError){
+      if(!Cloud._notifiedError){
+        Cloud._notifiedError = true;
+        toast(Cloud.initError);
+      }
+    } else if(!Cloud._notifiedError){
+      Cloud._notifiedError = true;
+      toast("Geen verbinding — probeer 't straks");
+    }
   });
 }
 
@@ -1389,15 +1650,45 @@ function wireShareSheet(s, l, isOwner, prettyName){
 }
 
 function copyText(txt,msg){
-  if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(txt).then(function(){toast(msg);},function(){ prompt("Kopieer:",txt); }); }
-  else prompt("Kopieer:",txt);
+  msg = msg || "Kopieer deze tekst";
+  if(typeof txt !== "string" && txt != null) txt = String(txt);
+  if(!txt){
+    if(typeof toast === "function") toast("Niets om te kopiëren");
+    return Promise.resolve(false);
+  }
+  if(typeof navigator !== "undefined" && navigator.clipboard && typeof navigator.clipboard.writeText==="function"){
+    return navigator.clipboard.writeText(txt).then(function(){
+      if(msg) toast(msg);
+      return true;
+    },function(){
+      try{
+        if(typeof window !== "undefined" && typeof window.prompt==="function"){
+          window.prompt("Kopieer handmatig:", txt);
+          if(typeof toast === "function") toast(msg);
+        } else if(typeof toast === "function"){
+          toast(msg + " — kopieer met Ctrl/Cmd + C");
+        }
+      }catch(e){ if(typeof toast === "function") toast(msg + " — kopieer met Ctrl/Cmd + C"); }
+      return false;
+    });
+  }
+  try{
+    if(typeof window !== "undefined" && typeof window.prompt==="function"){
+      window.prompt("Kopieer handmatig:", txt);
+      if(typeof toast === "function") toast(msg + " — niet automatisch gekopieerd");
+    } else if(typeof toast === "function"){
+      toast(msg + " — niet automatisch gekopieerd");
+    }
+  }catch(e){
+    if(typeof toast === "function") toast(msg + " — niet automatisch gekopieerd");
+  }
+  return Promise.resolve(false);
 }
 function shareNative(url, text, fallbackMsg){
-  if(navigator.share){
-    navigator.share({title:"Mandje", text:text, url:url}).then(function(){},function(){});
-  } else {
-    copyText(url, fallbackMsg);
+  if(typeof navigator !== "undefined" && navigator.share){
+    return navigator.share({title:"Mandje", text:text, url:url}).then(function(){ return true;},function(){ return copyText(url, fallbackMsg);});
   }
+  return copyText(url, fallbackMsg);
 }
 
 /* ---- publieke stuur-pagina (geen lidmaatschap) ---- */
@@ -1470,3 +1761,10 @@ function openSendScreen(token){
     },function(){ renderError("Geen verbinding — probeer 't later opnieuw."); });
   } else render(null);
 }
+
+/* Exposeer Cloud vroegtijdig als publieke property voor test- en diagnosepaden. */
+if(typeof window !== "undefined"){
+  window.Cloud = Cloud;
+  window.__cloudRef = Cloud;
+}
+

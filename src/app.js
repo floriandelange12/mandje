@@ -137,9 +137,13 @@ var COMMON = ["Melk","Brood","Eieren","Kaas","Boter","Yoghurt","Kwark","Karnemel
    STORE — localStorage + migratie
    ============================================================ */
 var NS = "mandje.v2";
+var CURRENT_STATE_VERSION = 3;
 var DEFAULTS = {
-  version:2,
+  version: CURRENT_STATE_VERSION,
   settings:{ theme:"auto", showPrices:false, seenIntro:false, categoryOrder:CATS.map(function(c){return c.id;}), minPurchases:3, cvThreshold:0.6, dueWindowDays:1, customCategories:[], customCatEmoji:{}, collapsedCats:{}, seenQtyHint:false, seenBulkHint:false, seenPriceNudge:false },
+  syncQueue:[],
+  lastSyncState:{ mode:"local", status:"not_started", ready:false, pendingMutations:0, offline:false, reason:null, lastError:null, lastUpdated:0 },
+  offlinePendingFlags:{},
   list:[],
   catalog:{},
   coBuy:{},
@@ -147,11 +151,78 @@ var DEFAULTS = {
 };
 
 var state = null;
+var _idbCheckpointAt = 0;
+var _localMutationEpoch = 0;
+var _cloudRestoreGuard = 0;
+if(typeof window !== "undefined") window.__mandjeLocalMutationEpoch = 0;
 /* Persoonlijke lijst bewaren terwijl een cloud-lijst actief is: state.list bevat dan de
    cloud-items, dus save() mag die NIET als persoonlijke lijst wegschrijven (BUG: contaminatie). */
 var _personalList = null;
 
 function deepClone(o){ return JSON.parse(JSON.stringify(o)); }
+function isPlainObject(o){ return !!o && typeof o==="object" && !Array.isArray(o); }
+function safeParse(raw){ if(typeof raw !== "string") return null; try{ return JSON.parse(raw); }catch(e){ return null; } }
+function normalizeState(raw){
+  var inState = isPlainObject(raw) ? raw : {};
+  var out = Object.assign({}, DEFAULTS, {
+    version: CURRENT_STATE_VERSION,
+    settings: Object.assign({}, DEFAULTS.settings, isPlainObject(inState.settings) ? inState.settings : {}),
+    syncQueue: Array.isArray(inState.syncQueue) ? inState.syncQueue.slice() : [],
+    lastSyncState: Object.assign({}, DEFAULTS.lastSyncState, isPlainObject(inState.lastSyncState) ? inState.lastSyncState : {}),
+    offlinePendingFlags: isPlainObject(inState.offlinePendingFlags) ? inState.offlinePendingFlags : {},
+    list: [],
+    catalog: isPlainObject(inState.catalog) ? inState.catalog : {},
+    coBuy: isPlainObject(inState.coBuy) ? inState.coBuy : {},
+    meals: isPlainObject(inState.meals) ? inState.meals : {}
+  });
+  out.localMutationEpoch = Number(inState.localMutationEpoch) || 0;
+  out._cloudOpenEpoch = Number(inState._cloudOpenEpoch) || 0;
+  if(Array.isArray(inState.list)){
+    for(var i=0;i<inState.list.length;i++){
+      var it = inState.list[i];
+      if(!isPlainObject(it)) continue;
+      out.list.push({
+        id: it.id,
+        name: (it.name||"").toString(),
+        category: it.category || "overig",
+        qty: Math.max(1, Number(it.qty) || 1),
+        price: (it.price == null ? null : Number(it.price)),
+        note: (it.note||"").toString(),
+        unit: (it.unit||"").toString(),
+        done: !!it.done,
+        assigned_to: it.assigned_to || null,
+        added_by_name: it.added_by_name || "",
+        addedAt: it.addedAt || nowISO()
+      });
+    }
+  }
+  if(!Array.isArray(out.settings.categoryOrder)) out.settings.categoryOrder = DEFAULTS.settings.categoryOrder.slice();
+  if(!Array.isArray(out.settings.customCategories)) out.settings.customCategories = [];
+  if(!isPlainObject(out.settings.customCatEmoji)) out.settings.customCatEmoji = {};
+  CATS.forEach(function(c){ if(out.settings.categoryOrder.indexOf(c.id)===-1) out.settings.categoryOrder.push(c.id); });
+  out.settings.customCategories.forEach(function(c){ if(c && c.id && out.settings.categoryOrder.indexOf(c.id)===-1) out.settings.categoryOrder.push(c.id); });
+  return out;
+}
+function getCloudStateSummary(){
+  if(typeof Cloud !== "undefined" && Cloud.getStateSummary){
+    return Cloud.getStateSummary();
+  }
+  return { mode:(typeof Cloud!=="undefined" && Cloud.active)?"cloud":"local", status: "not_started", ready:false, activeListId:null, pendingMutations:0, offline:true };
+}
+function shouldAcceptCloudList(items, opts){
+  opts = opts || {};
+  var itemEpoch = Number(opts.openLocalEpoch || 0);
+  var now = Date.now ? Date.now() : 0;
+  var openStartedAt = Number(opts.openStartedAt || 0);
+  var localEpoch = (typeof window !== "undefined" && typeof window.__mandjeLocalMutationEpoch === "number") ? window.__mandjeLocalMutationEpoch : _localMutationEpoch;
+  if(itemEpoch && localEpoch && localEpoch > itemEpoch && openStartedAt && now - openStartedAt < 2500){
+    return false;
+  }
+  if(Array.isArray(items) && state && items === state.list){
+    return true;
+  }
+  return true;
+}
 
 /* ---- IndexedDB-vangnet (onzichtbaar): checkpoint van de hele state, voor het geval
    localStorage wordt gewist/gepurged (iOS 7-dagen, quota, reset). Faalt stil. ---- */
@@ -178,10 +249,13 @@ function idbGet(key){
 function ensureRestore(){
   return new Promise(function(res){
     var raw=null; try{ raw=localStorage.getItem(NS); }catch(e){}
-    var valid=false; if(raw){ try{ var p=JSON.parse(raw); valid=!!(p&&typeof p==="object"); }catch(e){} }
-    if(valid){ res(); return; }
+    var parsed = safeParse(raw);
+    if(parsed && isPlainObject(parsed)){ res(); return; }
     idbGet(NS).then(function(backup){
-      if(backup){ try{ localStorage.setItem(NS, backup); }catch(e){} }
+      if(backup){
+        var restored = safeParse(backup);
+        if(restored && isPlainObject(restored)){ try{ localStorage.setItem(NS, JSON.stringify(restored)); }catch(e){} }
+      }
       res();
     });
   });
@@ -194,21 +268,32 @@ function load(){
     try{ parsed = JSON.parse(raw); }catch(e){ parsed = null; }
   }
   if(parsed && typeof parsed === "object"){
-    state = Object.assign(deepClone(DEFAULTS), parsed);
-    state.settings = Object.assign(deepClone(DEFAULTS.settings), state.settings||{});
-    if(!Array.isArray(state.list)) state.list=[];
-    if(!state.catalog || typeof state.catalog!=="object") state.catalog={};
-    if(!state.coBuy || typeof state.coBuy!=="object") state.coBuy={};
-    if(!state.meals || typeof state.meals!=="object") state.meals={};
-    if(!Array.isArray(state.settings.categoryOrder)) state.settings.categoryOrder = DEFAULTS.settings.categoryOrder.slice();
-    if(!Array.isArray(state.settings.customCategories)) state.settings.customCategories = [];
-    if(!state.settings.customCatEmoji || typeof state.settings.customCatEmoji!=="object") state.settings.customCatEmoji = {};
-    CATS.forEach(function(c){ if(state.settings.categoryOrder.indexOf(c.id)===-1) state.settings.categoryOrder.push(c.id); });
-    state.settings.customCategories.forEach(function(c){ if(state.settings.categoryOrder.indexOf(c.id)===-1) state.settings.categoryOrder.push(c.id); });
+    state = normalizeState(parsed);
+    var loadedAt = Date.now ? Date.now() : 0;
+    state._meta = Object.assign({}, state._meta || {}, {
+      lastLoadedAt: loadedAt,
+      restoreMode: typeof Cloud !== "undefined" && Cloud && Cloud.active ? "cloud-suspended" : "local"
+    });
+    var savedLocalMutation = Number(state._meta.localMutationEpoch) || 0;
+    _cloudRestoreGuard = Math.max(_cloudRestoreGuard, savedLocalMutation);
+    if(typeof state._meta.restoreMode === "string" && state._meta.restoreMode.indexOf("cloud") !== -1){
+      var safeWindow = (loadedAt - Number(state._meta.lastCloudOpenAt || 0)) < 9000;
+      if(safeWindow && Array.isArray(_personalList)){
+        state.list = _personalList.slice();
+      }
+    }
+    // Bescherming tegen init-race: bewaar een lokale snapshot wanneer cloud juist actief is.
+    if(state._meta.restoreMode === "cloud-suspended" && typeof Cloud !== "undefined" && Cloud && Cloud.active && Array.isArray(_personalList) && savedLocalMutation >= _cloudRestoreGuard){
+      state.list = _personalList.slice();
+    }
+    if(state._meta.localMutationEpoch){
+      _localMutationEpoch = state._meta.localMutationEpoch;
+      if(typeof window !== "undefined") window.__mandjeLocalMutationEpoch = _localMutationEpoch;
+    }
     rebuildCatIndex();
     return;
   }
-  // geen geldige v2-data → eenmalige migratie vanaf v1
+  // geen geldige v2-data -> eenmalige migratie vanaf v1
   state = deepClone(DEFAULTS);
   try{
     var oldItems = JSON.parse(localStorage.getItem("mandje.items.v1")||"null");
@@ -223,9 +308,21 @@ function load(){
   save();
 }
 
-var _idbCheckpointAt = 0;
 function save(){
   try{
+    if(typeof Cloud === "undefined" || !Cloud.active){
+      _localMutationEpoch += 1;
+      if(typeof window !== "undefined") window.__mandjeLocalMutationEpoch = _localMutationEpoch;
+      state._meta = Object.assign({}, state._meta || {}, {
+        localMutationEpoch: _localMutationEpoch,
+        lastLocalWriteAt: Date.now ? Date.now() : 0,
+        restoreMode: "local"
+      });
+    }else{
+      state._meta = Object.assign({}, state._meta || {}, {
+        restoreMode: "cloud"
+      });
+    }
     // Tijdens een actieve cloud-lijst staat de cloud-lijst in state.list → bewaar i.p.v.
     // daarvan de persoonlijke lijst, zodat terugschakelen naar Persoonlijk 'm intact houdt.
     var snap = state;
@@ -911,10 +1008,38 @@ function renderForgottenSuggest(doneItems){
 }
 
 function updateSubhead(){
-  if(activeTab!=="lijst") return;
-  var open=state.list.filter(function(i){return !i.done;}).length;
-  var done=state.list.filter(function(i){return i.done;}).length;
-  var base = state.list.length===0 ? "Je mandje is leeg" : (open+" te halen · "+done+" in mandje");
+  var bullet = " " + String.fromCharCode(0xb7) + " ";
+  var waiting = 0, doneCount = 0;
+  if(state && Array.isArray(state.list)){
+    state.list.forEach(function(i){
+      if(i && i.done) doneCount++;
+      else waiting++;
+    });
+  }
+  var base = "Overzicht";
+  if(activeTab==="lijst"){
+    base = state.list.length===0 ? "Je mandje is leeg" : (waiting + " te halen " + bullet + doneCount + " in mandje");
+  } else if(activeTab==="vaste"){
+    base = "Vaste boodschappen";
+  } else if(activeTab==="meer"){
+    base = "Meer opties";
+  }
+  var mode = "Lokale modus";
+  var extras = [];
+  if(typeof Cloud !== "undefined" && Cloud && typeof Cloud.getStateSummary === "function"){
+    var cs = Cloud.getStateSummary();
+    if(cs.ready && cs.mode === "cloud") mode = "Cloud actief";
+    else if(cs.mode === "local") mode = navigator.onLine === false ? "Offline-modus" : "Lokale modus";
+    if(cs.reason) extras.push(cs.reason);
+    if(cs.status === "connecting") extras.push("Cloud opstart");
+    if(!cs.ready && cs.mode === "cloud") extras.push("Cloud niet volledig beschikbaar");
+  } else if(typeof Cloud !== "undefined" && Cloud.mode === "cloud"){
+    mode = "Cloud actief";
+  } else if(typeof navigator !== "undefined" && navigator.onLine === false){
+    mode = "Offline-modus";
+  }
+  base += bullet + mode;
+  if(extras.length) base += bullet + extras.slice(0,1).join(" ");
   $("#subhead").textContent = base;
 }
 
@@ -1943,8 +2068,7 @@ function switchTab(tab){
   if(tab==="vaste") renderVaste();
   if(tab==="meer") renderMeer();
   if(tab==="lijst"){ renderLijst(); renderDueBanner(); applyListHeader(); }
-  if(tab==="vaste"){ var n=getRecurring().length; $("#subhead").textContent=n?(n+" "+(n===1?"vast product":"vaste producten")):""; }
-  if(tab==="meer"){ $("#subhead").textContent=""; }
+  updateSubhead();
   renderListSwitch(); renderMembersRow();
   if(typeof renderPresence==="function") renderPresence();
   if(typeof renderShortcutsRow==="function") renderShortcutsRow();
@@ -2060,10 +2184,19 @@ function setupRipples(){
    alsnog optimistisch — bij online weer doorgaan reconcilieert realtime. */
 function refreshOfflineBadge(){
   var badge = $("#offline-badge"); if(!badge) return;
-  if(navigator.onLine){ badge.classList.remove("show"); return; }
+  var cloudFallback = (typeof Cloud !== "undefined" && Cloud && Cloud.mode === "local" && !Cloud.ready && !!Cloud.initError);
+  if(navigator.onLine && !cloudFallback){
+    badge.classList.remove("show");
+    return;
+  }
+
   badge.classList.add("show");
-  var n = (typeof Cloud!=="undefined" && Cloud.active && Cloud._pending) ? Cloud._pending.length : 0;
-  badge.textContent = n>0 ? ("Offline · "+n+" wijziging"+(n===1?"":"en")) : "Offline";
+  if(!navigator.onLine){
+    var n = (typeof Cloud!=="undefined" && Cloud.active && Cloud._pending) ? Cloud._pending.length : 0;
+    badge.textContent = n>0 ? ("Offline · "+n+" wijziging"+(n===1?"":"en")) : "Offline";
+    return;
+  }
+  badge.textContent = "Lokaal";
 }
 function setupOfflineIndicator(){
   if(!$("#offline-badge")) return;
@@ -2075,10 +2208,42 @@ function setupOfflineIndicator(){
 function setupTopShareBtn(){
   var btn = $("#share-top-btn"); if(!btn) return;
   btn.addEventListener("click", function(){
-    if(typeof Cloud!=="undefined" && Cloud.active && typeof openShareSheet === "function"){
+    if(typeof Cloud !== "undefined" && Cloud.active && Cloud.ready && typeof openShareSheet === "function"){
       openShareSheet(Cloud.active);
+      return;
+    }
+    if(typeof Cloud !== "undefined" && Cloud.initError){
+      if(typeof toast === "function") toast(Cloud.initError);
+      return;
+    }
+    if(typeof Cloud !== "undefined" && Cloud.active){
+      if(typeof toast === "function"){
+        if(navigator.onLine === false) toast("Offline-modus — delen even uitgeschakeld");
+        else toast("Cloudstart bezig — probeer opnieuw over een ogenblik");
+      }
+      return;
+    }
+    if(typeof toast === "function"){
+      toast("Geen gedeelde lijst actief; deel werkt in Cloud-modus");
     }
   });
+}
+function refreshTopShareBtn(){
+  var btn = $("#share-top-btn"); if(!btn) return;
+  if(typeof Cloud === "undefined"){
+    btn.classList.remove("show");
+    btn.removeAttribute("title");
+    return;
+  }
+  if(Cloud.ready && Cloud.active){
+    btn.classList.add("show");
+    btn.title = "Lijst delen";
+    return;
+  }
+  btn.classList.remove("show");
+  if(!Cloud.enabled) btn.title = "Delen uitgeschakeld";
+  else if(!Cloud.ready && navigator.onLine === false) btn.title = "Offline";
+  else btn.title = "Delen niet actief";
 }
 
 /* ============================================================
@@ -2396,7 +2561,29 @@ function initApp(){
   applyTheme();
   applyPriceVisibility();
 
-  if(typeof Cloud!=="undefined" && Cloud.cfg && Cloud.cfg()){ Cloud.init(); }
+  if(typeof Cloud !== "undefined"){
+    if(typeof Cloud.cfg === "function" && Cloud.cfg() && typeof Cloud._scheduleOnlineRecovery === "function"){
+      Cloud._scheduleOnlineRecovery();
+    }
+    var canCloud = typeof Cloud._canInit === "function" ? Cloud._canInit() : ((typeof navigator === "undefined" || navigator.onLine !== false) && typeof fetch === "function");
+    var cfgOn = typeof Cloud.cfg === "function" ? Cloud.cfg() : false;
+    var canInitMessage = typeof Cloud._canInitError === "function" ? Cloud._canInitError() : "";
+    var safeModeGuard = !Cloud._initInProgress && !Cloud.ready && typeof Cloud._setOfflineMode === "function";
+    if(cfgOn && !canInitMessage && canCloud && !Cloud.ready && !Cloud._initInProgress){
+      Cloud.init();
+    } else if(safeModeGuard){
+      if(!cfgOn){
+        Cloud._setOfflineMode("Cloud uitgeschakeld: geen configuratie", true);
+      } else if(canInitMessage){
+        Cloud._setOfflineMode(canInitMessage, true);
+      } else if(!canCloud){
+        var offReason = (typeof navigator !== "undefined" && navigator.onLine === false) ? "Cloud uitgeschakeld: je bent offline" : "Cloud niet beschikbaar op dit toestel";
+        Cloud._setOfflineMode(offReason, true);
+      }
+    }
+  }
+  updateSubhead();
+  refreshTopShareBtn();
 
   $("#add-btn").addEventListener("click",doAdd);
   $("#add-name").addEventListener("keydown",function(e){ if(e.key==="Enter") doAdd(); });
@@ -2494,9 +2681,22 @@ if(typeof window!=="undefined"){
   window.lookupBarcode = lookupBarcode;
   window.openShoppingMode = openShoppingMode;
   window.shopToggle = shopToggle;
+  window.refreshTopShareBtn = refreshTopShareBtn;
+  window.getCloudRef = function(){
+    if(typeof window !== "undefined" && window.__cloudRef) return window.__cloudRef;
+    return (typeof Cloud !== "undefined") ? Cloud : null;
+  };
+  window.getCloudStateSummary = function(){ return getCloudStateSummary(); };
+  window.__shouldAcceptCloudList = shouldAcceptCloudList;
+  window.copyText = (typeof copyText==="function") ? copyText : null;
+  window.shareNative = (typeof shareNative==="function") ? shareNative : null;
+  if(typeof updateSubhead === "function"){ window.updateSubhead = updateSubhead; }
+  if(typeof Cloud !== "undefined") window.Cloud = Cloud;
   if(typeof avatarHtml==="function") window.avatarHtml = avatarHtml;
+  window.__getLocalMutationEpoch = function(){ return _localMutationEpoch; };
 }
 if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",init);
 else init();
 
 })();
+
