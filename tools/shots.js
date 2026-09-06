@@ -27,6 +27,7 @@ const STATES = {
   leeg:   { seed: seedEmpty, run: async () => {} },
   sheet:  { seed, run: async p => { await p.click(".row .nm >> text=appels"); await p.waitForTimeout(450); } },
   winkel: { seed, run: async p => { await p.click(".shop-enter-btn"); await p.waitForTimeout(450); } },
+  winkel2:{ seed, run: async p => { await p.click(".shop-enter-btn"); await p.waitForTimeout(450); const rows=await p.$$(".shop-row"); for(const r of rows.slice(0,3)){ await r.click(); await p.waitForTimeout(120); } await p.waitForTimeout(400); } },
   meer:   { seed, run: async p => { await p.click(".topbar .gear"); await p.waitForTimeout(450); } },
   vaste:  { seed, run: async p => { await p.click("text=Vaste"); await p.waitForTimeout(350); } }
 };

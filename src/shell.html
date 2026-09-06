@@ -367,7 +367,12 @@
 
   .meta{ flex:1; min-width:0; }
   .nm{ font-size:var(--fs-base); font-weight:var(--fw-medium); letter-spacing:-.01em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; transition:color var(--dur-fast) var(--ease-inout); }
-  .row.done .nm{ color:var(--ink-faint); text-decoration:line-through; }
+  .nm{ position:relative; width:fit-content; max-width:100%; }   /* doorstreep-lijn zo breed als de tekst */
+  .nm::after{ content:""; position:absolute; left:0; top:calc(50% + 1px); width:100%; height:1.5px; background:currentColor; transform:scaleX(0); transform-origin:left center; transition:transform var(--dur-base) var(--ease-out); pointer-events:none; }
+  .row.done .nm{ color:var(--ink-faint); }
+  .row.done .nm::after{ transform:scaleX(1); }
+  .row.flash .card{ animation:rowFlash 1.2s var(--ease-out); }
+  @keyframes rowFlash{ 0%{ box-shadow:0 0 0 0 var(--brand-2); background:var(--brand-2); } 100%{ box-shadow:0 0 0 12px transparent; background:var(--surface-1); } }
   .sub2{ font-size:var(--fs-sm); color:var(--ink-soft); margin-top:1px; display:flex; align-items:center; gap:6px; }
   .sub2 .pill-due{ color:var(--accent); font-weight:var(--fw-bold); }
 
@@ -530,7 +535,10 @@
   /* Alleen een ZICHTBARE toast vangt taps (pauze-op-aanraken); verborgen = pointer-events:none, ook met has-action */
   .toast.show{ opacity:1; transform:translateX(-50%) translateY(0); pointer-events:auto; }
   /* In winkelmodus/stuur-pagina (full-screen overlays) staat de toast lager: geen add-balk om boven te blijven */
-  .shop-screen.show ~ .toast, .send-screen.show ~ .toast{ bottom:calc(var(--safe-b) + 24px); }
+  .send-screen.show ~ .toast{ bottom:calc(var(--safe-b) + 24px); }
+  /* Winkelmodus: toast onder de voortgangsbalk, nooit over de voetbalk met invoer/Afronden */
+  .shop-screen.show ~ .toast{ bottom:auto; top:calc(var(--safe-t) + 74px); transform:translateX(-50%) translateY(-16px); }
+  .shop-screen.show ~ .toast.show{ transform:translateX(-50%) translateY(0); }
   /* Geen invoerbalk op Vaste/Meer → toast laag, niet midden over de inhoud */
   body.tab-meer .toast, body.tab-vaste .toast{ bottom:calc(var(--safe-b) + 24px); }
   /* Sheet open: toast bovenin, anders ligt hij midden over de sheet-inhoud */
@@ -657,6 +665,35 @@
   .shop-finish{ width:100%; border:0; background:var(--brand); color:var(--on-brand); font-weight:var(--fw-bold); font-size:var(--fs-lg); padding:16px; border-radius:var(--r-lg); box-shadow:var(--el-1); margin:18px 0 8px; }
   .shop-finish:active{ filter:brightness(.94); }
   .shop-empty{ text-align:center; color:var(--ink-soft); padding:48px 20px; }
+  .shop-row.done{ opacity:.62; }
+  .shop-row .shop-name{ position:relative; flex:0 1 auto; margin-right:auto; }
+  .shop-row .shop-name::after{ content:""; position:absolute; left:0; top:calc(50% + 1px); width:100%; height:1.5px; background:currentColor; transform:scaleX(0); transform-origin:left center; transition:transform var(--dur-base) var(--ease-out); }
+  .shop-row.done .shop-name{ text-decoration:none; }
+  .shop-row.done .shop-name::after{ transform:scaleX(1); }
+  .shop-row.flash{ animation:rowFlash 1.2s var(--ease-out); }
+  .shop-screen.hide-done .shop-row.done{ display:none; }
+  .shop-screen.hide-done .shelf.all-done{ display:none; }
+  .shop-sec .shop-sec-ok{ display:none; margin-left:auto; color:var(--brand); font-weight:var(--fw-bold); }
+  .shelf.all-done .shop-sec{ color:var(--brand); }
+  .shelf.all-done .shop-sec .shop-sec-ok{ display:inline; }
+  .shelf.celebrate .shop-sec{ animation:secPop var(--dur-celebrate) var(--ease-spring); }
+  @keyframes secPop{ 0%{ transform:scale(1); } 35%{ transform:scale(1.06); } 100%{ transform:scale(1); } }
+  .shop-alldone{ text-align:center; padding:28px 20px 12px; color:var(--ink-soft); }
+  .shop-alldone .sa-ico{ width:96px; margin:0 auto 6px; color:var(--brand); }
+  .shop-alldone .sa-ico svg{ width:100%; height:auto; }
+  .shop-alldone .sa-ico .hero-accent{ stroke:var(--accent); }
+  .shop-alldone h3{ font-family:var(--display); font-size:var(--fs-xl); font-weight:var(--fw-medium); margin:0 0 4px; color:var(--ink); }
+  .shop-alldone p{ margin:0; font-size:var(--fs-md); }
+  .shop-foot{ flex:0 0 auto; display:flex; flex-direction:column; gap:10px; padding-top:10px; border-top:1px solid var(--line); margin-top:6px; }
+  body.kb-open .shop-foot{ padding-bottom:var(--kb-lift, 0px); }
+  .shop-add{ display:flex; align-items:center; gap:8px; background:var(--surface-1); border-radius:var(--r-lg); padding:5px 5px 5px 14px; box-shadow:var(--el-1); }
+  .shop-add input{ flex:1; min-width:0; border:0; outline:0; background:transparent; font-size:var(--fs-input); padding:8px 0; -webkit-user-select:text; user-select:text; }
+  .shop-add .shop-add-btn{ flex:0 0 auto; width:var(--tap-size-sm); height:var(--tap-size-sm); border:0; border-radius:var(--r-md); background:var(--brand); color:var(--on-brand); font-size:var(--fs-xl); font-weight:var(--fw-bold); line-height:1; }
+  .shop-foot-row{ display:flex; align-items:center; gap:10px; }
+  .shop-hide{ flex:0 0 auto; border:0; background:var(--surface-3); color:var(--ink-soft); border-radius:var(--r-pill); padding:9px 14px; font-size:var(--fs-sm); font-weight:var(--fw-medium); min-height:var(--tap-size-sm); }
+  .shop-hide[aria-pressed="true"]{ background:var(--brand-2); color:var(--brand); }
+  .shop-foot-row .shop-finish{ flex:1; margin:0; }
+  .shop-finish:disabled{ opacity:.5; }
 
   /* ---------- Uniforme emoji-rendering ---------- */
   .emoji{ font-family:"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif; font-style:normal; font-weight:400; line-height:1; vertical-align:-1px; }
@@ -774,6 +811,7 @@
   .toast .toast-msg{ flex:1; }
   .toast .toast-action{ background:transparent; border:0; color:color-mix(in srgb, var(--brand) 80%, var(--bg)); font-weight:var(--fw-bold); padding:6px 12px; margin-left:10px; border-radius:var(--r-sm); font-size:var(--fs-md); letter-spacing:.01em; }
   .toast.has-action{ padding:9px 8px 9px 18px; }
+  .toast.has-tap{ cursor:pointer; }
   .toast .toast-action:active{ background:color-mix(in srgb, var(--brand) 22%, transparent); }
 
   /* ---------- Co-purchase suggestion (onder add-bar) ---------- */
@@ -877,7 +915,11 @@
     #open-list > .empty, #open-list > .search-empty{ grid-column:1 / -1; }
     #done-list ul.list{ display:grid; grid-template-columns:repeat(auto-fill, minmax(380px, 1fr)); gap:8px 24px; }
     .shop-body{ display:grid; grid-template-columns:repeat(auto-fill, minmax(340px, 1fr)); gap:0 20px; align-content:start; align-items:start; }
-    .shop-body > .shelf.done, .shop-body > .shop-finish, .shop-body > .shop-empty{ grid-column:1 / -1; }
+    .shop-body > .shop-empty, .shop-body > .shop-alldone{ grid-column:1 / -1; }
+    .shop-foot{ flex-direction:row; align-items:center; }
+    .shop-foot .shop-add{ flex:1; }
+    .shop-foot-row{ flex:0 0 auto; }
+    .shop-foot-row .shop-finish{ min-width:200px; }
     .emoji-picker{ grid-template-columns:repeat(auto-fill, minmax(44px, 1fr)); }
     .send-screen{ padding-inline:max(24px, calc((100% - 600px) / 2)); }
     .empty.hero, .banner{ max-width:560px; margin-inline:auto; }

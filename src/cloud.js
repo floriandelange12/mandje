@@ -787,17 +787,18 @@ var Cloud = {
       } else if("unit" in data){ self._hasUnit=true; }
     }, fail);
   },
-  toggle:function(id){
+  toggle:function(id, opts){
+    opts=opts||{};
     var it=state.list.find(function(i){return i.id===id;}); if(!it) return;
-    var nd=!it.done; it.done=nd; renderLijst();
+    var nd=!it.done; it.done=nd; if(typeof flipList==="function") flipList(renderLijst); else renderLijst();
     var self=this;
     var fields={done:nd, done_by_name:(nd?this.myName():null)};
     this.sb.from("items").update(fields).eq("id",id).then(function(r){ if(r&&r.error) self._queueUpdate(id, fields); }, function(){ self._queueUpdate(id, fields); });
     // Undo bij afvinken — gelijk aan de lokale lijst
-    if(nd && typeof undoToast==="function"){
+    if(nd && !opts.quiet && typeof undoToast==="function"){
       undoToast(it.name+" afgevinkt", function(){
         var i2=state.list.find(function(x){return x.id===id;});
-        if(i2){ i2.done=false; renderLijst(); }
+        if(i2){ i2.done=false; if(typeof flipList==="function") flipList(renderLijst); else renderLijst(); }
         var uf={done:false, done_by_name:null};
         self.sb.from("items").update(uf).eq("id",id).then(function(r){ if(r&&r.error) self._queueUpdate(id, uf); }, function(){ self._queueUpdate(id, uf); });
       });

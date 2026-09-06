@@ -140,7 +140,7 @@ var NS = "mandje.v2";
 var CURRENT_STATE_VERSION = 3;
 var DEFAULTS = {
   version: CURRENT_STATE_VERSION,
-  settings:{ theme:"auto", textScale:1, showPrices:false, seenIntro:false, categoryOrder:CATS.map(function(c){return c.id;}), minPurchases:3, cvThreshold:0.6, dueWindowDays:1, customCategories:[], customCatEmoji:{}, collapsedCats:{}, seenQtyHint:false, seenBulkHint:false, seenPriceNudge:false, pushOn:null },
+  settings:{ theme:"auto", textScale:1, shopHideDone:false, showPrices:false, seenIntro:false, categoryOrder:CATS.map(function(c){return c.id;}), minPurchases:3, cvThreshold:0.6, dueWindowDays:1, customCategories:[], customCatEmoji:{}, collapsedCats:{}, seenQtyHint:false, seenBulkHint:false, seenPriceNudge:false, pushOn:null },
   syncQueue:[],
   lastSyncState:{ mode:"local", status:"not_started", ready:false, pendingMutations:0, offline:false, reason:null, lastError:null, lastUpdated:0 },
   offlinePendingFlags:{},
@@ -695,6 +695,10 @@ function toast(msg, opts){
     startedAt = Date.now();
     toastT = setTimeout(hide, ms);
   };
+  if(typeof opts.onTap === "function"){
+    t.classList.add("has-tap");
+    t.onclick = function(e){ if(e.target && e.target.closest && e.target.closest(".toast-action")) return; try{ opts.onTap(); }catch(x){} hide(); clearTimeout(toastT); };
+  } else { t.onclick = null; }
   if(opts.action && typeof opts.onAction === "function"){
     t.classList.add("has-action");
     var btn = document.createElement("button");
@@ -755,8 +759,9 @@ function addToList(name, price, opts){
   } else{
     var cat = (state.catalog[k] && state.catalog[k].category) || classify(name);
     var defPrice = price!=null ? price : (state.catalog[k] ? state.catalog[k].defaultPrice : null);
-    state.list.unshift({ id:uid(), name:name, category:cat, qty:addQty, price:(state.settings.showPrices?defPrice:null), note:"", unit:unit, done:false, addedAt:nowISO() });
-    if(!silent && addQty>1) toast(name + " ×" + addQty);
+    var newId=uid();
+    state.list.unshift({ id:newId, name:name, category:cat, qty:addQty, price:(state.settings.showPrices?defPrice:null), note:"", unit:unit, done:false, addedAt:nowISO() });
+    if(!silent){ var cl=CAT_BY_ID[cat]||CAT_BY_ID["overig"]; toast((addQty>1 ? addQty+"× " : "") + name + " → " + cl.label, {duration:1600, onTap:function(){ scrollToRow(newId); }}); }
   }
   touchCatalog(name, price);
   save(); renderLijst(); renderDueBanner();
@@ -769,11 +774,11 @@ function toggleDone(id){
   var wasDone = it.done;
   it.done = !it.done;
   if(it.done) vibe("tick");
-  save(); renderLijst();
+  save(); flipList(renderLijst);
   if(!wasDone && it.done){
     undoToast(it.name + " afgevinkt", function(){
       var i2 = state.list.find(function(x){return x.id===id;});
-      if(i2){ i2.done = false; save(); renderLijst(); }
+      if(i2){ i2.done = false; save(); flipList(renderLijst); }
     });
   }
 }
@@ -900,8 +905,36 @@ function renderLijst(){
   renderShopEntry();
 }
 
+/* FLIP: rijen die door een re-render van plek veranderen (afvinken → "In mandje") glijden naar hun nieuwe plek */
+function flipList(renderFn){
+  var main=$("#main");
+  var reduced = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  if(reduced || !main || activeTab!=="lijst" || document.hidden || typeof main.getBoundingClientRect!=="function"){ renderFn(); return; }
+  var before={};
+  main.querySelectorAll("li.row[data-id]").forEach(function(li){ before[li.dataset.id]=li.getBoundingClientRect(); });
+  renderFn();
+  var moved=[];
+  main.querySelectorAll("li.row[data-id]").forEach(function(li){
+    var b=before[li.dataset.id]; if(!b) return;
+    var a=li.getBoundingClientRect(); var dx=b.left-a.left, dy=b.top-a.top;
+    if(Math.abs(dx)<2 && Math.abs(dy)<2) return;
+    li.style.transition="none"; li.style.transform="translate("+dx+"px,"+dy+"px)"; li.style.zIndex="3";
+    moved.push(li);
+  });
+  if(!moved.length) return;
+  requestAnimationFrame(function(){ requestAnimationFrame(function(){
+    moved.forEach(function(li){ li.style.transition="transform var(--dur-flip) var(--ease-spring)"; li.style.transform=""; });
+    setTimeout(function(){ moved.forEach(function(li){ li.style.transition=""; li.style.zIndex=""; }); }, 480);
+  }); });
+}
+function scrollToRow(id){
+  var li=document.querySelector('li.row[data-id="'+id+'"]'); if(!li) return;
+  try{ li.scrollIntoView({block:"center", behavior:"smooth"}); }catch(e){}
+  li.classList.add("flash"); setTimeout(function(){ li.classList.remove("flash"); }, 1200);
+}
+
 function itemRow(it){
-  var li=el("li","row"+(it.done?" done":""));
+  var li=el("li","row"+(it.done?" done":"")); li.dataset.id=it.id;
   // Slide-in als item < 600ms geleden toegevoegd
   var addedMs = it.addedAt ? new Date(it.addedAt).getTime() : 0;
   if(addedMs && (Date.now() - addedMs) < 600){
@@ -1107,68 +1140,154 @@ function renderShopEntry(){
   b.addEventListener("click", openShoppingMode);
   wrap.appendChild(b);
 }
+/* ---------- Winkelmodus: chrome (kop, balk, voet) wordt één keer gebouwd; afvinken wijzigt alleen de rij.
+   De rij blijft op zijn plek (gedimd, doorgestreept) zodat je duim blijft waar hij was. ---------- */
+var _wakeLock = null, _lijstDirty = false;
+function requestWakeLock(){
+  try{
+    if(!navigator.wakeLock || document.visibilityState!=="visible") return;
+    navigator.wakeLock.request("screen").then(function(l){ _wakeLock=l; l.addEventListener("release", function(){ _wakeLock=null; }); }).catch(function(){});
+  }catch(e){}
+}
+function releaseWakeLock(){ try{ if(_wakeLock){ _wakeLock.release().catch(function(){}); _wakeLock=null; } }catch(e){} }
+function shopIsOpen(){ var scr=$("#shop-screen"); return !!(scr && scr.classList.contains("show")); }
+
 function openShoppingMode(){
   var scr=$("#shop-screen"); if(!scr) return;
+  buildShopChrome(scr);
+  scr.classList.toggle("hide-done", !!(state.settings && state.settings.shopHideDone));
   scr.classList.add("show");
   modalOpen(scr, closeShoppingMode);
-  renderShoppingMode();
+  renderShopBody();
+  requestWakeLock();
 }
 function closeShoppingMode(){
-  var scr=$("#shop-screen"); if(scr){ scr.classList.remove("show"); modalClose(scr); }
+  var scr=$("#shop-screen");
+  if(scr && scr.classList.contains("show")){ scr.classList.remove("show"); modalClose(scr); }
+  releaseWakeLock();
+  if(_lijstDirty){ _lijstDirty=false; renderLijst(); renderDueBanner(); }
+}
+function buildShopChrome(scr){
+  if(scr.querySelector("#shop-body")) return;
+  scr.innerHTML =
+    '<div class="shop-head">'+
+      '<button class="shop-close" id="shop-close" type="button" aria-label="Sluiten">'+CLOSE_SVG+'</button>'+
+      '<div class="shop-title">Winkelen</div>'+
+      '<div class="shop-count" id="shop-count" aria-live="polite"></div>'+
+    '</div>'+
+    '<div class="shop-pbar" id="shop-pbar" role="progressbar" aria-label="Voortgang" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i></i></div>'+
+    '<div class="shop-body" id="shop-body"></div>'+
+    '<div class="shop-foot">'+
+      '<form class="shop-add" id="shop-add" autocomplete="off">'+
+        '<input id="shop-add-name" type="search" inputmode="text" placeholder="Nog iets? bijv. melk 2" enterkeyhint="done" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" aria-label="Product toevoegen">'+
+        '<button type="submit" class="shop-add-btn" aria-label="Toevoegen">+</button>'+
+      '</form>'+
+      '<div class="shop-foot-row">'+
+        '<button type="button" class="shop-hide" id="shop-hide" aria-pressed="false">Verberg afgevinkte</button>'+
+        '<button type="button" class="shop-finish" id="shop-finish">Afronden ✓</button>'+
+      '</div>'+
+    '</div>';
+  scr.querySelector("#shop-close").addEventListener("click", closeShoppingMode);
+  scr.querySelector("#shop-add").addEventListener("submit", function(e){
+    e.preventDefault();
+    var inp=scr.querySelector("#shop-add-name"); var p=parseQtyFromInput(inp.value||""); if(!p.name) return;
+    if(addToList(p.name, null, {qty:p.qty, unit:p.unit, silent:true})){
+      inp.value=""; vibe("tick");
+      renderShopBody();
+      var k=norm(p.name), row=null;
+      scr.querySelectorAll("#shop-body .shop-row").forEach(function(r){ if(!row && norm(r.dataset.name||"")===k) row=r; });
+      if(row){ row.classList.add("flash"); try{ row.scrollIntoView({block:"nearest", behavior:"smooth"}); }catch(x){} setTimeout(function(){ row.classList.remove("flash"); }, 1200); }
+      var it=state.list.find(function(i){ return !i.done && norm(i.name)===k; });
+      var c=it ? (CAT_BY_ID[it.category]||CAT_BY_ID["overig"]) : null;
+      toast(p.name+(c?" → "+c.label:""), {duration:1400});
+    }
+  });
+  scr.querySelector("#shop-hide").addEventListener("click", function(){
+    var on=!scr.classList.contains("hide-done");
+    scr.classList.toggle("hide-done", on);
+    this.setAttribute("aria-pressed", on?"true":"false");
+    this.textContent = on ? "Toon afgevinkte" : "Verberg afgevinkte";
+    state.settings.shopHideDone = on; save();
+  });
+  scr.querySelector("#shop-finish").addEventListener("click", function(){
+    finishShopping();
+    if(state.list.filter(function(i){return !i.done;}).length===0) closeShoppingMode();
+    else renderShopBody();
+  });
 }
 function shopRow(it){
   var row=el("button","shop-row"+(it.done?" done":"")); row.type="button";
-  row.innerHTML='<span class="shop-check">'+CHECK_SVG+'</span><span class="shop-name"></span>'+(it.qty>1?'<span class="shop-qty">'+it.qty+'</span>':'');
+  row.dataset.id=it.id; row.dataset.name=it.name;
+  row.setAttribute("role","checkbox"); row.setAttribute("aria-checked", it.done?"true":"false");
+  row.innerHTML='<span class="shop-check" aria-hidden="true">'+CHECK_SVG+'</span><span class="shop-name"></span>'+(it.qty>1?'<span class="shop-qty">'+it.qty+(it.unit?' '+escapeHtml(it.unit):'')+'</span>':(it.unit?'<span class="shop-qty">'+escapeHtml(it.unit)+'</span>':''));
   row.querySelector(".shop-name").textContent=it.name;
   row.addEventListener("click", function(){ shopToggle(it.id); });
   return row;
 }
 function shopToggle(id){
   var it=state.list.find(function(i){return i.id===id;}); if(!it) return;
-  if(typeof Cloud!=="undefined" && Cloud.active){ Cloud.toggle(id); }
-  else { it.done=!it.done; if(it.done) vibe("tick"); save(); renderLijst(); }
-  renderShoppingMode();
+  if(typeof Cloud!=="undefined" && Cloud.active){ Cloud.toggle(id, {quiet:true}); }
+  else { it.done=!it.done; if(it.done) vibe("tick"); save(); _lijstDirty=true; }
+  shopUpdateRow(id);
 }
-function renderShoppingMode(){
+/* Alleen de rij, het schap, de teller en de balk bijwerken — geen herbouw, geen scroll-sprong */
+function shopUpdateRow(id){
   var scr=$("#shop-screen"); if(!scr || !scr.classList.contains("show")) return;
-  var open=state.list.filter(function(i){return !i.done;});
-  var done=state.list.filter(function(i){return i.done;});
-  var total=state.list.length;
-  var pct = total ? Math.round(done.length/total*100) : 0;
-  scr.innerHTML =
-    '<div class="shop-head">'+
-      '<button class="shop-close" id="shop-close" type="button" aria-label="Sluiten">'+CLOSE_SVG+'</button>'+
-      '<div class="shop-title">Winkelen</div>'+
-      '<div class="shop-count">'+done.length+' / '+total+'</div>'+
-    '</div>'+
-    '<div class="shop-pbar"><i style="width:'+pct+'%"></i></div>'+
-    '<div class="shop-body" id="shop-body"></div>';
-  var body=scr.querySelector("#shop-body");
-  if(!total){ body.innerHTML='<div class="shop-empty">Niks op je lijst — voeg eerst iets toe.</div>'; }
-  var byCat={}; open.forEach(function(it){ var cid = CAT_BY_ID[it.category] ? it.category : "overig"; (byCat[cid]=byCat[cid]||[]).push(it); });
+  var it=state.list.find(function(i){return i.id===id;});
+  var row=scr.querySelector('.shop-row[data-id="'+id+'"]');
+  if(!it || !row){ renderShopBody(); return; }
+  row.classList.toggle("done", !!it.done);
+  row.setAttribute("aria-checked", it.done?"true":"false");
+  var shelf=row.closest(".shelf");
+  if(shelf){
+    var rows=shelf.querySelectorAll(".shop-row"), all=rows.length>0;
+    rows.forEach(function(r){ if(!r.classList.contains("done")) all=false; });
+    var was=shelf.classList.contains("all-done");
+    shelf.classList.toggle("all-done", all);
+    if(all && !was && it.done){ shelf.classList.add("celebrate"); setTimeout(function(){ shelf.classList.remove("celebrate"); }, 900); }
+  }
+  shopRefreshMeta();
+}
+function shopRefreshMeta(){
+  var scr=$("#shop-screen"); if(!scr) return;
+  var total=state.list.length, done=state.list.filter(function(i){return i.done;}).length;
+  var pct = total ? Math.round(done/total*100) : 0;
+  var cnt=scr.querySelector("#shop-count");
+  if(cnt){
+    var txt = total ? (done+" / "+total) : "";
+    if(state.settings.showPrices){ var cart=0; state.list.forEach(function(i){ if(i.done) cart+=(i.price||0)*(i.qty||1); }); if(cart>0) txt += " · "+euro(cart); }
+    cnt.textContent = txt;
+  }
+  var pbar=scr.querySelector("#shop-pbar"); if(pbar){ pbar.querySelector("i").style.width=pct+"%"; pbar.setAttribute("aria-valuenow", String(pct)); }
+  var fin=scr.querySelector("#shop-finish"); if(fin){ fin.textContent = done ? "Afronden ✓ · "+done : "Afronden ✓"; fin.disabled = !done; fin.classList.toggle("ready", done>0); }
+  var hide=scr.querySelector("#shop-hide"); if(hide){ var on=scr.classList.contains("hide-done"); hide.setAttribute("aria-pressed", on?"true":"false"); hide.textContent = on ? "Toon afgevinkte" : "Verberg afgevinkte"; hide.hidden = done===0 && !on; }
+  var body=scr.querySelector("#shop-body"), msg=scr.querySelector(".shop-alldone");
+  if(body && total && done===total){ if(!msg){ body.appendChild(el("div","shop-alldone",'<div class="sa-ico" aria-hidden="true">'+(typeof HERO_BASKET_SVG!=="undefined"?HERO_BASKET_SVG:"")+'</div><h3>Alles in het mandje!</h3><p>Tik op Afronden — dan onthoudt Mandje wat je kocht.</p>')); } }
+  else if(msg){ msg.remove(); }
+}
+/* Volledige herbouw van de body (openen, realtime-refresh, na toevoegen) — scrollpositie blijft bewaard */
+function renderShopBody(){
+  var scr=$("#shop-screen"); if(!scr || !scr.classList.contains("show")) return;
+  buildShopChrome(scr);
+  var body=scr.querySelector("#shop-body"); var keepScroll=body.scrollTop;
+  body.innerHTML="";
+  if(!state.list.length){ body.innerHTML='<div class="shop-empty">Niks op je lijst — typ hieronder wat je nodig hebt.</div>'; shopRefreshMeta(); return; }
+  var byCat={}; state.list.forEach(function(it){ var cid = CAT_BY_ID[it.category] ? it.category : "overig"; (byCat[cid]=byCat[cid]||[]).push(it); });
   catBuckets(byCat).forEach(function(cid){
     var arr=byCat[cid]; if(!arr||!arr.length) return;
     var c=CAT_BY_ID[cid]||CAT_BY_ID["overig"];
     var shelf=el("div","shelf"); shelf.dataset.cat=cid;
-    shelf.appendChild(el("div","shop-sec",shelfIcon(c)+'<span>'+escapeHtml(c.label)+'</span>'));
+    var allDone = arr.every(function(i){ return i.done; });
+    if(allDone) shelf.classList.add("all-done");
+    shelf.appendChild(el("div","shop-sec",shelfIcon(c)+'<span>'+escapeHtml(c.label)+'</span><span class="shop-sec-ok" aria-hidden="true">✓</span>'));
     arr.forEach(function(it){ shelf.appendChild(shopRow(it)); });
     body.appendChild(shelf);
   });
-  if(done.length){
-    var dshelf=el("div","shelf done");
-    dshelf.appendChild(el("div","shop-sec done-sec",'<span>In mandje</span>'));
-    done.forEach(function(it){ dshelf.appendChild(shopRow(it)); });
-    body.appendChild(dshelf);
-    var fin=el("button","shop-finish","Afronden ✓");
-    fin.addEventListener("click", function(){
-      finishShopping();
-      if(state.list.filter(function(i){return !i.done;}).length===0) closeShoppingMode();
-      else renderShoppingMode();
-    });
-    body.appendChild(fin);
-  }
-  scr.querySelector("#shop-close").addEventListener("click", closeShoppingMode);
+  shopRefreshMeta();
+  body.scrollTop=keepScroll;
 }
+function renderShoppingMode(){ renderShopBody(); }
+document.addEventListener("visibilitychange", function(){ if(document.visibilityState==="visible" && shopIsOpen()) requestWakeLock(); });
 
 /* ============================================================
    RENDER — Vaste-tab
@@ -2861,6 +2980,10 @@ if(typeof window!=="undefined"){
   window.lookupBarcode = lookupBarcode;
   window.openShoppingMode = openShoppingMode;
   window.shopToggle = shopToggle;
+  window.closeShoppingMode = closeShoppingMode;
+  window.renderShopBody = renderShopBody;
+  window.flipList = flipList;
+  window.scrollToRow = scrollToRow;
   window.refreshTopShareBtn = refreshTopShareBtn;
   window.getCloudRef = function(){
     if(typeof window !== "undefined" && window.__cloudRef) return window.__cloudRef;

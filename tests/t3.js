@@ -558,6 +558,52 @@ const ok=(n,c)=>{ if(c){pass++;console.log("  ✓ "+n);} else {fail++;console.lo
     d30d.window.close();
   }
 
+  // 31. Fase 2a — winkelmodus incrementeel, FLIP-rijen, toast bij toevoegen
+  {
+    const now31=new Date().toISOString();
+    const seed31=JSON.stringify({version:3,settings:{theme:"light",showPrices:false,seenIntro:true,categoryOrder:null,minPurchases:3,cvThreshold:.6,dueWindowDays:1},list:[
+      {id:"a1",name:"appels",category:"groente-fruit",qty:3,unit:"",done:false,note:"",price:null,assigned_to:null,added_by_name:"",addedAt:now31},
+      {id:"a2",name:"bananen",category:"groente-fruit",qty:1,unit:"",done:false,note:"",price:null,assigned_to:null,added_by_name:"",addedAt:now31},
+      {id:"b1",name:"brood",category:"brood-banket",qty:1,unit:"",done:false,note:"",price:null,assigned_to:null,added_by_name:"",addedAt:now31}
+    ],catalog:{},coBuy:{},meals:{}});
+    const d31=new JSDOM(html,{url:"https://example.com/",runScripts:"dangerously",resources:"usable",pretendToBeVisual:true,beforeParse(w){ w.localStorage.setItem("mandje.v2", seed31); }});
+    await wait(160); const W=d31.window, D=W.document;
+    ok("Fase 2a: lijstrijen dragen data-id (FLIP)", D.querySelectorAll("#open-list li.row[data-id]").length===3);
+    W.openShoppingMode(); await wait(40);
+    const scr=D.querySelector("#shop-screen");
+    ok("Fase 2a: winkelmodus heeft invoerveld en Afronden-knop in de voet", !!scr.querySelector("#shop-add-name") && !!scr.querySelector("#shop-finish"));
+    ok("Fase 2a: Afronden is uitgeschakeld zolang niets is afgevinkt", scr.querySelector("#shop-finish").disabled===true);
+    const rowsBefore=[...scr.querySelectorAll(".shop-row")];
+    const bodyBefore=scr.querySelector("#shop-body");
+    ok("Fase 2a: rijen zijn checkboxes met naam", rowsBefore.length===3 && rowsBefore[0].getAttribute("role")==="checkbox" && rowsBefore[0].dataset.name==="appels");
+    rowsBefore[0].click(); await wait(30);
+    const rowsAfter=[...scr.querySelectorAll(".shop-row")];
+    ok("Fase 2a: afvinken herbouwt niets — zelfde DOM-nodes, zelfde volgorde", rowsAfter.length===3 && rowsAfter[0]===rowsBefore[0] && rowsAfter[1]===rowsBefore[1] && scr.querySelector("#shop-body")===bodyBefore);
+    ok("Fase 2a: afgevinkte rij blijft op zijn plek met .done + aria-checked", rowsAfter[0].classList.contains("done") && rowsAfter[0].getAttribute("aria-checked")==="true" && !scr.querySelector(".shelf.done"));
+    ok("Fase 2a: teller en voortgangsbalk bijgewerkt", /1 \/ 3/.test(scr.querySelector("#shop-count").textContent) && scr.querySelector("#shop-pbar").getAttribute("aria-valuenow")==="33");
+    ok("Fase 2a: Afronden toont het aantal en is actief", /1/.test(scr.querySelector("#shop-finish").textContent) && scr.querySelector("#shop-finish").disabled===false);
+    rowsAfter[1].click(); await wait(30);
+    const shelfVers=scr.querySelector('.shelf[data-cat="groente-fruit"]');
+    ok("Fase 2a: schap krijgt .all-done zodra alles in het schap is afgevinkt", !!shelfVers && shelfVers.classList.contains("all-done") && !scr.querySelector('.shelf[data-cat="brood-banket"]').classList.contains("all-done"));
+    scr.querySelector("#shop-hide").click(); await wait(20);
+    ok("Fase 2a: 'Verberg afgevinkte' zet de klasse en bewaart de instelling", scr.classList.contains("hide-done") && JSON.parse(W.localStorage.getItem("mandje.v2")).settings.shopHideDone===true);
+    scr.querySelector("#shop-hide").click(); await wait(20);
+    // toevoegen vanuit de winkelmodus
+    scr.querySelector("#shop-add-name").value="melk 2";
+    scr.querySelector("#shop-add").dispatchEvent(new W.Event("submit",{bubbles:true,cancelable:true})); await wait(60);
+    const melkRow=[...scr.querySelectorAll(".shop-row")].find(r=>r.dataset.name==="melk");
+    ok("Fase 2a: toevoegen in de winkel zet de rij in het juiste schap met aantal", !!melkRow && melkRow.closest(".shelf").dataset.cat==="zuivel-eieren" && /2/.test((melkRow.querySelector(".shop-qty")||{}).textContent||""));
+    ok("Fase 2a: invoerveld leeg na toevoegen", scr.querySelector("#shop-add-name").value==="");
+    // sluiten rendert de Lijst-tab (dirty) — afgevinkte items staan in 'In mandje'
+    W.closeShoppingMode(); await wait(40);
+    ok("Fase 2a: na sluiten staan de 2 afgevinkte items in 'In mandje' en 2 open", D.querySelectorAll("#done-list li.row").length===2 && D.querySelectorAll("#open-list li.row").length===2);
+    // toast bij toevoegen op de Lijst-tab is informatief en tikbaar
+    D.querySelector("#add-name").value="wc papier"; D.querySelector("#add-name").dispatchEvent(new W.KeyboardEvent("keydown",{key:"Enter",bubbles:true})); await wait(40);
+    const toastEl=D.querySelector("#toast");
+    ok("Fase 2a: toast bij toevoegen noemt het schap en is tikbaar", toastEl.classList.contains("show") && /wc papier → Huishouden/.test(toastEl.textContent) && toastEl.classList.contains("has-tap"));
+    d31.window.close();
+  }
+
   console.log("\nt3: "+pass+" geslaagd, "+fail+" gefaald");
   process.exit(fail?1:0);
 })().catch(e=>{console.error("t3 TESTFOUT:",e);process.exit(2)});
