@@ -38,9 +38,11 @@ build.js            Voegt alles samen → index.html (repo-root) en schrijft daa
 deploy.js           `npm run deploy`: build → tests → scoped git add/commit/push; stopt bij rode tests.
 tests/*.js          test.js (kern) en t3.js (UX/prijs/cloud/Fase-blokken) draaien met jsdom over de
                     gebouwde index.html; t4.js = bundel-hygiëne (encoding, BUILD-pariteit, budgetten,
-                    manifest + iconen, sw-precache); t5.js = meerdere lijsten + lijsttypes (migratie,
-                    wisselen, plain-gates, sjablonen); contrast.js = WCAG-contrast van alle tokens en
-                    lidkleuren. Elke suite eindigt met "N geslaagd, M gefaald"; de eis is overal M = 0.
+                    manifest + iconen, sw-precache, M5/Edge Function aanwezig); t5.js = meerdere lijsten +
+                    lijsttypes én de cloud-blokken 11–16 (review-regressies, 3A soft-delete/wachtrij, 3B
+                    user_state-merge, 3C account, F4 "wat is op", F5 meldingen) met de Supabase-stub `mkStub2`
+                    (items/members/user_state/auth/presence, call-log, rpc); contrast.js = WCAG-contrast.
+                    Elke suite eindigt met "N geslaagd, M gefaald"; de eis is overal M = 0.
 tools/shots.js      Screenshot-matrix (viewports × licht/donker × staten) → qa_shots/ (genegeerd in git).
 ```
 
@@ -77,6 +79,28 @@ Na deploy: hard verversen op de telefoon (pagina sluiten/heropenen of "Herlaad z
 4. Meld de live-URL, de nieuwe BUILD-waarde en wat er veranderd is.
 
 ## Supabase
-- Project-URL en publishable key staan in `src/shell.html` (`window.MANDJE_CONFIG`).
-- SQL-setup (tabellen lists/members/items, RLS, RPC's, realtime) is al eenmalig gedraaid.
+- Project-URL en publishable key staan in `src/shell.html` (`window.MANDJE_CONFIG`); `EMAIL_AUTH:true` toont het Account-blok.
+- SQL: `supabase/setup.sql` + migraties in `supabase/migrations/` — M0 (security/unit), M3 (user_state, bought_at, RPC's
+  item_bump_qty/member_heartbeat/auto_add_slot/delete_my_account), M4 (flagged_at/flagged_by_name), M5 (notify_outbox,
+  trigger items_flag_notify, start_shopping, push_subscriptions.prefs, pg_cron → Edge Function push-events) en M6
+  (lists.type, items.sort_order, create_list met p_type) zijn op 2026-09-06 gedraaid. Nieuwe migratie = nieuw bestand,
+  pushen, in de SQL-editor draaien.
+- Edge Functions: `supabase/functions/push-due-items` (dagelijkse nudge) en `supabase/functions/push-events`
+  (bundelt "X is op"/"X is in de winkel" uit notify_outbox; deployen met Verify JWT UIT; secrets VAPID_PUBLIC_KEY,
+  VAPID_PRIVATE_KEY, VAPID_SUBJECT).
+- Auth: anonieme sessie; e-mailaccount via code (auth.updateUser → verifyOtp email_change; inloggen elders via
+  signInWithOtp shouldCreateUser:false → verifyOtp email). Site URL = https://floriandelange12.github.io/mandje/.
+  Codes per mail vereisen custom SMTP + templates met `{{ .Token }}`; zonder SMTP stuurt Supabase alleen naar teamleden.
 - Leeg laten van de config = app werkt lokaal-only (delen uit).
+
+## Sync, "wat is op" en meldingen (Fase 3–5) — vaste afspraken
+- Eigen gegevens (catalogus, vaak-samen, gesynchroniseerde instellingen `SYNC_SETTINGS`, bundels, geschiedenis,
+  lokale lijsten) gaan naar `public.user_state` via `buildUserStatePayload()` / `mergeUserState()` in app.js en
+  `Cloud.pushUserState/pullUserState` in cloud.js. Stempels (`catalog[k].u`, `settings`-tijden in `state.sync.settingsAt`,
+  `localLists[].updatedAt`) en grafstenen (`state.sync.tomb`) worden in `_saveNow` via `syncStamp()` afgeleid uit een
+  momentopname — writers hoeven niets te weten. Nieuwe velden op lokale lijsten ook in de `normalizeState`-whitelist zetten.
+- Nieuwe velden op items (zoals `flaggedAt`/`flaggedBy`) moeten op vijf plekken mee: `normalizeItems`, `rowSig`,
+  `Cloud.refreshItems` (mapping én de "ongewijzigd"-vergelijking), `Cloud.setFields` en de insert-payload in `Cloud.addItem`.
+- Afronden op een gedeelde lijst is een soft-delete (`items.bought_at`); `refreshItems` filtert op `bought_at is null`.
+- Toestel-eigen voorkeuren (thema, tekstgrootte, trilfeedback, pushOn, dismissals) blijven lokaal; alles wat de app
+  "slim" maakt synct. Ontbrekende kolommen/RPC's worden runtime gedetecteerd (`_isMissingCol`, `_isMissingFn`) met fallback.
