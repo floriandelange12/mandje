@@ -155,6 +155,7 @@ var DEFAULTS = {
   settings:{ theme:"auto", textScale:1, shopHideDone:false, haptics:true, showPrices:false, seenIntro:false, categoryOrder:CATS.map(function(c){return c.id;}), minPurchases:3, cvThreshold:0.6, dueWindowDays:1, customCategories:[], customCatEmoji:{}, collapsedCats:{}, seenQtyHint:false, seenBulkHint:false, seenPriceNudge:false, pushOn:null },
   history:[],
   cloudCache:{},
+  sync:{},
   syncQueue:[],
   lastSyncState:{ mode:"local", status:"not_started", ready:false, pendingMutations:0, offline:false, reason:null, lastError:null, lastUpdated:0 },
   offlinePendingFlags:{},
@@ -198,7 +199,8 @@ function normalizeState(raw){
     coBuy: isPlainObject(inState.coBuy) ? inState.coBuy : {},
     meals: isPlainObject(inState.meals) ? inState.meals : {},
     history: Array.isArray(inState.history) ? inState.history.filter(isPlainObject).slice(0, 200) : [],
-    cloudCache: isPlainObject(inState.cloudCache) ? inState.cloudCache : {}
+    cloudCache: isPlainObject(inState.cloudCache) ? inState.cloudCache : {},
+    sync: isPlainObject(inState.sync) ? inState.sync : {}
   });
   out.localMutationEpoch = Number(inState.localMutationEpoch) || 0;
   out._cloudOpenEpoch = Number(inState._cloudOpenEpoch) || 0;
@@ -229,7 +231,7 @@ function normalizeState(raw){
       preset:String(l.preset||(l.type==="plain"?"check":"grocery")), glyph:String(l.glyph||"🧺").slice(0,4),
       finish:(l.finish==="terugzetten"?"terugzetten":"opruimen"), placeholder:(l.placeholder==null?null:String(l.placeholder).slice(0,80)),
       open:(l.open?String(l.open).slice(0,30):null), done:(l.done?String(l.done).slice(0,30):null), doneTitle:(l.doneTitle?String(l.doneTitle).slice(0,30):null),
-      items:normalizeItems(l.items), createdAt:l.createdAt||nowISO() };
+      items:normalizeItems(l.items), createdAt:l.createdAt||nowISO(), updatedAt:(l.updatedAt?String(l.updatedAt):null) };
   });
   if(!out.localLists.length){
     out.localLists=[{ id:"l_boodschappen", name:"Boodschappen", type:"grocery", preset:"grocery", glyph:"🧺", finish:"opruimen", placeholder:null, open:null, done:null, doneTitle:null, items:[], createdAt:nowISO() }];
@@ -319,6 +321,7 @@ function load(){
   }
   if(parsed && typeof parsed === "object"){
     state = normalizeState(parsed);
+    syncSnapInit();
     var loadedAt = Date.now ? Date.now() : 0;
     state._meta = Object.assign({}, state._meta || {}, {
       lastLoadedAt: loadedAt,
@@ -387,6 +390,7 @@ function _saveNow(){
     // daarvan de persoonlijke lijst, zodat terugschakelen naar Persoonlijk 'm intact houdt.
     var actList = activeLocalList();
     if(actList) actList.items = (typeof Cloud!=="undefined" && Cloud.active) ? (_personalList || []) : state.list;
+    syncStamp();   // stempels + grafstenen voor de sync tussen toestellen (vóór het wegschrijven)
     var snap = state;
     if(typeof Cloud!=="undefined" && Cloud.active){
       snap = Object.assign({}, state, { list: _personalList || [] });
@@ -398,6 +402,223 @@ function _saveNow(){
     if(now - _idbCheckpointAt > 8000){ _idbCheckpointAt = now; idbSet(NS, str); }
   }catch(e){}
   if(!navigator.onLine && typeof refreshOfflineBadge === "function") refreshOfflineBadge();
+  if(typeof Cloud!=="undefined" && Cloud && Cloud.ready && typeof Cloud.scheduleUserStatePush==="function") Cloud.scheduleUserStatePush();
+}
+
+/* ============================================================
+   SYNC-BOEKHOUDING (Fase 3B) — stempels en grafstenen zodat toestellen hun staat kunnen samenvoegen
+   ============================================================ */
+var SYNC_SETTINGS=["showPrices","seenIntro","categoryOrder","minPurchases","cvThreshold","dueWindowDays","customCategories","customCatEmoji","stores","activeStoreId","shopHideDone","push"];
+var _syncSnap=null;
+/* JSON met gesorteerde sleutels: jsonb in Postgres herschikt sleutels, dus vergelijken kan alleen zo */
+function stableStr(v){
+  if(v===undefined) return "null";
+  if(v===null || typeof v!=="object") return JSON.stringify(v);
+  if(Array.isArray(v)) return "["+v.map(stableStr).join(",")+"]";
+  var ks=Object.keys(v).sort(), parts=[];
+  for(var i=0;i<ks.length;i++){ if(v[ks[i]]===undefined) continue; parts.push(JSON.stringify(ks[i])+":"+stableStr(v[ks[i]])); }
+  return "{"+parts.join(",")+"}";
+}
+function hashStr(s){ var h=5381; for(var i=0;i<s.length;i++){ h=((h<<5)+h+s.charCodeAt(i))|0; } return (h>>>0).toString(36)+"."+s.length; }
+function syncEnsure(){
+  if(!state) return null;
+  if(!isPlainObject(state.sync)) state.sync={};
+  var s=state.sync;
+  if(!isPlainObject(s.settingsAt)) s.settingsAt={};
+  if(!isPlainObject(s.tomb)) s.tomb={};
+  ["catalog","lists","meals","history"].forEach(function(k){ if(!isPlainObject(s.tomb[k])) s.tomb[k]={}; });
+  return s;
+}
+function catalogSig(e){ var c={}; for(var k in e){ if(k!=="u") c[k]=e[k]; } return stableStr(c); }
+function listSig(l){ var c={}; for(var k in l){ if(k!=="updatedAt") c[k]=l[k]; } return stableStr(c); }
+/* Momentopname zonder stempelen: wat er nu staat is de basis; alleen latere wijzigingen tellen als "hier gewijzigd" */
+function syncSnapInit(){
+  _syncSnap={catalog:{}, settings:{}, lists:{}, meals:{}, history:{}};
+  if(!state) return;
+  var cat=state.catalog||{}; Object.keys(cat).forEach(function(k){ if(isPlainObject(cat[k])) _syncSnap.catalog[k]=catalogSig(cat[k]); });
+  SYNC_SETTINGS.forEach(function(f){ _syncSnap.settings[f]=stableStr(state.settings ? state.settings[f] : null); });
+  localLists().forEach(function(l){ _syncSnap.lists[l.id]=listSig(l); });
+  Object.keys(state.meals||{}).forEach(function(id){ _syncSnap.meals[id]=1; });
+  (state.history||[]).forEach(function(h){ if(h && h.id) _syncSnap.history[h.id]=1; });
+}
+/* Bij elke save: wat sinds de vorige save veranderde krijgt een stempel; wat verdween krijgt een grafsteen */
+function syncStamp(){
+  if(!state) return;
+  if(!_syncSnap){ syncSnapInit(); return; }
+  var s=syncEnsure(), now=Date.now(), iso=nowISO();
+  var cat=state.catalog||{}, seen={};
+  Object.keys(cat).forEach(function(k){
+    var e=cat[k]; if(!isPlainObject(e)) return;
+    var sig=catalogSig(e); seen[k]=1;
+    if(_syncSnap.catalog[k]!==sig){ e.u=now; _syncSnap.catalog[k]=catalogSig(e); if(s.tomb.catalog[k]) delete s.tomb.catalog[k]; }
+  });
+  Object.keys(_syncSnap.catalog).forEach(function(k){ if(!seen[k]){ s.tomb.catalog[k]=now; delete _syncSnap.catalog[k]; } });
+  SYNC_SETTINGS.forEach(function(f){
+    var sig=stableStr(state.settings ? state.settings[f] : null);
+    if(_syncSnap.settings[f]!==sig){ s.settingsAt[f]=now; _syncSnap.settings[f]=sig; }
+  });
+  var seenL={};
+  localLists().forEach(function(l){
+    var sig=listSig(l); seenL[l.id]=1;
+    if(_syncSnap.lists[l.id]!==sig){ l.updatedAt=iso; _syncSnap.lists[l.id]=sig; if(s.tomb.lists[l.id]) delete s.tomb.lists[l.id]; }
+  });
+  Object.keys(_syncSnap.lists).forEach(function(id){ if(!seenL[id]){ s.tomb.lists[id]=now; delete _syncSnap.lists[id]; } });
+  var ms=state.meals||{}, seenM={};
+  Object.keys(ms).forEach(function(id){ seenM[id]=1; if(!_syncSnap.meals[id]){ _syncSnap.meals[id]=1; if(s.tomb.meals[id]) delete s.tomb.meals[id]; } });
+  Object.keys(_syncSnap.meals).forEach(function(id){ if(!seenM[id]){ s.tomb.meals[id]=now; delete _syncSnap.meals[id]; } });
+  var seenH={};
+  (state.history||[]).forEach(function(h){ if(!h||!h.id) return; seenH[h.id]=1; if(!_syncSnap.history[h.id]){ _syncSnap.history[h.id]=1; if(s.tomb.history[h.id]) delete s.tomb.history[h.id]; } });
+  Object.keys(_syncSnap.history).forEach(function(id){ if(!seenH[id]){ s.tomb.history[id]=now; delete _syncSnap.history[id]; } });
+  // grafstenen ouder dan 90 dagen mogen weg
+  var cutoff=now-90*86400000;
+  ["catalog","lists","meals","history"].forEach(function(k){ Object.keys(s.tomb[k]).forEach(function(id){ if(s.tomb[k][id]<cutoff) delete s.tomb[k][id]; }); });
+}
+function deviceLabel(){
+  var ua=(typeof navigator!=="undefined" && navigator.userAgent)||"", name="Toestel";
+  if(/iPad/.test(ua) || (/Macintosh/.test(ua) && (navigator.maxTouchPoints||0)>1)) name="iPad";
+  else if(/iPhone/.test(ua)) name="iPhone";
+  else if(/Android/.test(ua)) name="Android";
+  else if(/Windows/.test(ua)) name="Windows";
+  else if(/Macintosh/.test(ua)) name="Mac";
+  else if(/Linux/.test(ua)) name="Linux";
+  var id=""; try{ id=localStorage.getItem("mandje.device")||""; if(!id){ id=Math.random().toString(36).slice(2,6); localStorage.setItem("mandje.device", id); } }catch(e){}
+  return name+(id?" · "+id:"");
+}
+/* Wat naar de cloud gaat (de vorm van de user_state-rij, zonder user_id/device/updated_at) */
+function buildUserStatePayload(){
+  var s=syncEnsure()||{settingsAt:{}, tomb:{}};
+  var settings={};
+  SYNC_SETTINGS.forEach(function(f){ if(state.settings && state.settings[f]!==undefined) settings[f]=state.settings[f]; });
+  settings._sync={ settingsAt:s.settingsAt||{}, tomb:s.tomb||{} };
+  return {
+    catalog: state.catalog||{},
+    co_buy: state.coBuy||{},
+    settings: settings,
+    meals: state.meals||{},
+    history: (state.history||[]).slice(0,200),
+    local_lists: localLists().map(function(l){ return Object.assign({}, l, { items: localListItems(l) }); })
+  };
+}
+function _mergeCatalogEntry(a, b){   // a = lokaal, b = remote; geen winnaar op stempel → verenigen
+  var au=a.u||0, bu=b.u||0, w=(bu>au)?b:(au>bu?a:null), out={};
+  var base = w || a;
+  for(var k in base) out[k]=base[k];
+  if(!w){   // beide ongestempeld: het "meeste" bewaren
+    if(b.userOverrideCat && !a.userOverrideCat){ out.category=b.category; out.userOverrideCat=true; }
+    if((a.cadenceMode||"auto")==="auto" && b.cadenceMode && b.cadenceMode!=="auto"){ out.cadenceMode=b.cadenceMode; out.manualIntervalDays=b.manualIntervalDays; }
+    if(out.defaultPrice==null && b.defaultPrice!=null) out.defaultPrice=b.defaultPrice;
+    if(b.hidden) out.hidden=true;
+    if(b.autoAdd) out.autoAdd=true;
+    if(b.snoozeUntil && (!out.snoozeUntil || b.snoozeUntil>out.snoozeUntil)) out.snoozeUntil=b.snoozeUntil;
+  }
+  var seen={}; out.purchaseDates=(a.purchaseDates||[]).concat(b.purchaseDates||[]).filter(function(d){ if(!d||seen[d]) return false; seen[d]=1; return true; }).sort();
+  if(out.purchaseDates.length>120) out.purchaseDates.splice(0, out.purchaseDates.length-120);
+  out.timesAdded=Math.max(a.timesAdded||0, b.timesAdded||0);
+  if((b.lastAddedAt||"")>(out.lastAddedAt||"")) out.lastAddedAt=b.lastAddedAt;
+  if((b.lastAutoAddAt||"")>(out.lastAutoAddAt||"")) out.lastAutoAddAt=b.lastAutoAddAt;
+  out.u=Math.max(au,bu)||undefined; if(!out.u) delete out.u;
+  return out;
+}
+function _mergeListItems(winner, loser, loserPristine){
+  var byId={}; (winner.items||[]).forEach(function(i){ byId[i.id]=1; });
+  var extra=(loser.items||[]).filter(function(i){ return i && !byId[i.id] && (loserPristine || (i.addedAt && winner.updatedAt && i.addedAt>winner.updatedAt)); });
+  return (winner.items||[]).concat(extra);
+}
+/* Remote rij samenvoegen in de lokale staat. Geeft {changedLocal, differsFromRemote} terug. */
+function mergeUserState(row){
+  if(!row || !state) return {changedLocal:false, differsFromRemote:false};
+  var s=syncEnsure();
+  var rs=(isPlainObject(row.settings) && isPlainObject(row.settings._sync)) ? row.settings._sync : {settingsAt:{}, tomb:{}};
+  var rTomb=rs.tomb||{}, rAt=rs.settingsAt||{};
+  var before=stableStr(buildUserStatePayload());
+  // --- catalogus
+  var rc=isPlainObject(row.catalog)?row.catalog:{}, lc=state.catalog||{}, outC={};
+  var keys={}; Object.keys(lc).forEach(function(k){ keys[k]=1; }); Object.keys(rc).forEach(function(k){ keys[k]=1; });
+  Object.keys(keys).forEach(function(k){
+    var a=isPlainObject(lc[k])?lc[k]:null, b=isPlainObject(rc[k])?rc[k]:null;
+    var tomb=Math.max((s.tomb.catalog||{})[k]||0, (rTomb.catalog||{})[k]||0);
+    var au=a?(a.u||0):0, bu=b?(b.u||0):0;
+    if(tomb && tomb>au && tomb>bu){ s.tomb.catalog[k]=tomb; return; }
+    if(a && b) outC[k]=_mergeCatalogEntry(a,b); else outC[k]=a||b;
+  });
+  state.catalog=outC;
+  // --- vaak-samen: per paar het maximum
+  var rcb=isPlainObject(row.co_buy)?row.co_buy:{}; state.coBuy=state.coBuy||{};
+  Object.keys(rcb).forEach(function(a){ if(!isPlainObject(rcb[a])) return; state.coBuy[a]=state.coBuy[a]||{}; Object.keys(rcb[a]).forEach(function(b){ var v=Number(rcb[a][b])||0; if(v>(state.coBuy[a][b]||0)) state.coBuy[a][b]=v; }); });
+  // --- instellingen: per veld de nieuwste stempel; nooit hier gewijzigd → de cloud volgen
+  if(isPlainObject(row.settings)){
+    SYNC_SETTINGS.forEach(function(f){
+      if(!(f in row.settings)) return;
+      var la=s.settingsAt[f]||0, ra=rAt[f]||0;
+      if(ra>la || (la===0 && stableStr(state.settings[f])!==stableStr(row.settings[f]))){ state.settings[f]=deepClone(row.settings[f]); s.settingsAt[f]=Math.max(ra,la); }
+    });
+  }
+  // --- bundels: nieuwste updatedAt wint; grafstenen
+  var rm=isPlainObject(row.meals)?row.meals:{}; state.meals=state.meals||{};
+  var mk={}; Object.keys(state.meals).forEach(function(id){ mk[id]=1; }); Object.keys(rm).forEach(function(id){ mk[id]=1; });
+  Object.keys(mk).forEach(function(id){
+    var a=state.meals[id], b=isPlainObject(rm[id])?rm[id]:null;
+    var tomb=Math.max((s.tomb.meals||{})[id]||0, (rTomb.meals||{})[id]||0);
+    var at=a&&a.updatedAt?new Date(a.updatedAt).getTime():0, bt=b&&b.updatedAt?new Date(b.updatedAt).getTime():0;
+    if(tomb && tomb>at && tomb>bt){ if(a) delete state.meals[id]; s.tomb.meals[id]=tomb; return; }
+    if(b && (!a || bt>at)) state.meals[id]=deepClone(b);
+  });
+  // --- geschiedenis: vereniging op id, grafstenen, nieuwste eerst, 200
+  var rh=Array.isArray(row.history)?row.history:[], lh=state.history||[], byId={};
+  lh.forEach(function(h){ if(h&&h.id) byId[h.id]=h; });
+  rh.forEach(function(h){ if(!h||!h.id) return; var tomb=Math.max((s.tomb.history||{})[h.id]||0, (rTomb.history||{})[h.id]||0); if(tomb) return; if(!byId[h.id]) byId[h.id]=deepClone(h); else if(byId[h.id].paid==null && h.paid!=null) byId[h.id].paid=h.paid; });
+  Object.keys(rTomb.history||{}).forEach(function(id){ if(byId[id]){ delete byId[id]; } s.tomb.history[id]=Math.max(s.tomb.history[id]||0, rTomb.history[id]); });
+  state.history=Object.keys(byId).map(function(id){ return byId[id]; }).sort(function(a,b){ return String(b.at||"").localeCompare(String(a.at||"")); }).slice(0,200);
+  // --- lokale lijsten: per lijst LWW; ongerepte kant → items verenigen; grafstenen
+  var rl=Array.isArray(row.local_lists)?row.local_lists.filter(isPlainObject):[], ll=localLists();
+  var lById={}; ll.forEach(function(l){ lById[l.id]=l; });
+  var order=[]; ll.forEach(function(l){ order.push(l.id); }); rl.forEach(function(l){ if(l.id && order.indexOf(l.id)===-1) order.push(l.id); });
+  var outL=[];
+  order.forEach(function(id){
+    var a=lById[id], b=null; for(var i=0;i<rl.length;i++){ if(rl[i].id===id){ b=rl[i]; break; } }
+    var tomb=Math.max((s.tomb.lists||{})[id]||0, (rTomb.lists||{})[id]||0);
+    var at=a&&a.updatedAt?new Date(a.updatedAt).getTime():0, bt=b&&b.updatedAt?new Date(b.updatedAt).getTime():0;
+    if(tomb && tomb>at && tomb>bt){ s.tomb.lists[id]=tomb; return; }
+    if(a && !b){ outL.push(a); return; }
+    if(b && !a){ outL.push(normalizeState({localLists:[b]}).localLists[0]); return; }
+    var aP=!at, bP=!bt, win, lose, losePristine;
+    if(bt>at){ win=b; lose=a; losePristine=aP; } else { win=a; lose=b; losePristine=bP; }
+    var merged=Object.assign({}, win, { items:_mergeListItems(win, lose, losePristine) });
+    if(aP && bP) merged.updatedAt=nowISO();
+    outL.push(normalizeState({localLists:[merged]}).localLists[0]);
+  });
+  if(!outL.length) outL=normalizeState({}).localLists;
+  state.localLists=outL;
+  if(!localListById(state.activeLocalId)) state.activeLocalId=outL[0].id;
+  var act=activeLocalList();
+  if(act){ if(typeof Cloud!=="undefined" && Cloud && Cloud.active) _personalList=act.items.slice(); else state.list=act.items; }
+  // --- afronden: index bijwerken, momentopname verversen (de merge zelf is geen lokale wijziging)
+  if(!Array.isArray(state.settings.categoryOrder)) state.settings.categoryOrder=DEFAULTS.settings.categoryOrder.slice();
+  state.settings.categoryOrder=state.settings.categoryOrder.filter(function(cid){ return typeof cid==="string"; });
+  DEFAULTS.settings.categoryOrder.forEach(function(cid){ if(state.settings.categoryOrder.indexOf(cid)===-1) state.settings.categoryOrder.push(cid); });
+  rebuildCatIndex();
+  syncSnapInit();
+  var after=stableStr(buildUserStatePayload());
+  var remoteStr=stableStr({ catalog:row.catalog||{}, co_buy:row.co_buy||{}, settings:row.settings||{}, meals:row.meals||{}, history:row.history||[], local_lists:row.local_lists||[] });
+  return { changedLocal: before!==after, differsFromRemote: after!==remoteStr };
+}
+function syncStatusLabel(){
+  if(typeof Cloud==="undefined" || !Cloud || !Cloud.ready) return "uit (geen verbinding)";
+  if(Cloud._usHasTable===false) return "niet beschikbaar";
+  var s=state.sync||{}, t=Math.max(s.lastPushAt||0, s.lastPullAt||0);
+  if(!t) return "nog niet";
+  var min=Math.round((Date.now()-t)/60000);
+  return (min<1?"zojuist":(min<60?min+" min geleden":Math.round(min/60)+" uur geleden"));
+}
+function rerenderAfterSync(){
+  try{
+    applyPriceVisibility(); renderStorePick();
+    if(activeTab==="lijst"){ renderLijst(); renderDueBanner(); }
+    if(activeTab==="vaste") renderVaste();
+    if(activeTab==="meer") renderMeer();
+    if(typeof applyListHeader==="function") applyListHeader();
+    if(typeof renderListSwitch==="function") renderListSwitch();
+  }catch(e){}
 }
 
 /* ============================================================
@@ -2165,6 +2386,10 @@ function onAppResume(){
 }
 document.addEventListener("visibilitychange", function(){ if(document.visibilityState==="visible") onAppResume(); });
 window.addEventListener("pageshow", function(){ onAppResume(); });
+/* Weg uit de app (tab wisselen, sluiten): uitgestelde sync meteen versturen */
+function onAppHide(){ try{ if(typeof Cloud!=="undefined" && Cloud && typeof Cloud.flushUserStateNow==="function") Cloud.flushUserStateNow(); }catch(e){} }
+document.addEventListener("visibilitychange", function(){ if(document.visibilityState==="hidden") onAppHide(); });
+window.addEventListener("pagehide", onAppHide);
 
 /* ============================================================
    RENDER — Vaste-tab
@@ -2230,7 +2455,7 @@ function updateMeal(id, name, emoji, items){
 }
 function deleteMeal(id){
   if(!state.meals || !state.meals[id]) return;
-  delete state.meals[id]; save();
+  delete state.meals[id]; var _sm=syncEnsure(); if(_sm) _sm.tomb.meals[id]=Date.now(); save();
   if(typeof Cloud!=="undefined" && Cloud.deleteMeal) Cloud.deleteMeal(id);
 }
 function addMealToList(id){
@@ -2586,7 +2811,7 @@ function renderMeer(){
   var reset=el("button","mbtn danger","Alles wissen");
   reset.addEventListener("click",function(){
     if(confirm("Weet je zeker dat je alle lijsten, vaste boodschappen en geschiedenis wilt wissen?")){
-      state=deepClone(DEFAULTS); state.settings.seenIntro=true; save(); applyTheme(); applyTextScale(); applyPriceVisibility();
+      state=normalizeState(deepClone(DEFAULTS)); state.settings.seenIntro=true; rebuildCatIndex(); syncSnapInit(); save(); applyTheme(); applyTextScale(); applyPriceVisibility();
       renderLijst(); renderDueBanner(); renderVaste(); renderMeer(); toast("Alles gewist");
     }
   });
@@ -2611,10 +2836,19 @@ function renderMeer(){
    ["Wachtende wijzigingen", String(queued)],
    ["Opslag op dit toestel", (bytes/1024).toFixed(bytes>102400?0:1) + " KB"],
    ["Bekende producten", String(known)],
+   ["Sync tussen toestellen", syncStatusLabel()],
    ["Scanner", bcDiagLine() || "nog niet gebruikt"]].forEach(function(r){
     gD.appendChild(el("div","grow",'<div class="glabel">'+r[0]+'</div><span class="gval">'+escapeHtml(r[1])+'</span>'));
   });
   wrap.appendChild(gD);
+  if(typeof Cloud!=="undefined" && Cloud && Cloud.ready && Cloud._usHasTable!==false){
+    var syncBtn=el("button","mbtn","Nu synchroniseren"); syncBtn.type="button";
+    syncBtn.addEventListener("click", function(){
+      syncBtn.disabled=true;
+      Cloud.pullUserState().then(function(ok){ return ok ? Cloud.pushUserState(true) : false; }).then(function(ok){ syncBtn.disabled=false; toast(ok ? "Gesynchroniseerd ✓" : "Synchroniseren lukte niet — internet aan?"); if(activeTab==="meer") renderMeer(); });
+    });
+    wrap.appendChild(syncBtn);
+  }
   wrap.appendChild(el("div","hint","Hoe vaker je afrondt, hoe beter Mandje je vaste boodschappen leert kennen."));
   var intro=el("button","mbtn","Bekijk de uitleg opnieuw"); intro.type="button";
   intro.addEventListener("click", function(){ switchTab("lijst"); setTimeout(function(){ maybeIntro(true); }, 60); });
@@ -2679,9 +2913,10 @@ function importFromFile(){
       try{
         var data=JSON.parse(r.result);
         if(!data || typeof data!=="object" || !("catalog" in data)) throw new Error("ongeldig");
-        state=Object.assign(deepClone(DEFAULTS),data);
-        state.settings=Object.assign(deepClone(DEFAULTS.settings),data.settings||{});
-        save(); applyTheme(); applyPriceVisibility();
+        if(!confirm("Back-up terugzetten? Dit vervangt alles op dit toestel.")) return;
+        state=normalizeState(Object.assign(deepClone(DEFAULTS),data));
+        rebuildCatIndex(); syncSnapInit();
+        save(); applyTheme(); applyTextScale(); applyPriceVisibility();
         renderLijst(); renderDueBanner(); renderVaste(); renderMeer();
         toast("Back-up hersteld");
       }catch(e){ toast("Kon bestand niet lezen"); }
@@ -4200,6 +4435,10 @@ if(typeof window!=="undefined"){
   window.mergePurchaseDate = mergePurchaseDate;
   window.onAppResume = onAppResume;
   window.finishAfterCloud = finishAfterCloud;
+  window.buildUserStatePayload = buildUserStatePayload;
+  window.mergeUserState = mergeUserState;
+  window.syncStamp = syncStamp;
+  window.stableStr = stableStr;
   window.parseRecipeText = parseRecipeText;
   window.renderAssignFilter = renderAssignFilter;
   window.onboardSteps = onboardSteps;

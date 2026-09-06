@@ -445,6 +445,8 @@ var Cloud = {
         }
         if(!guard(true)) return;
         var u=await this.sb.auth.getUser(); this.userId=(u.data&&u.data.user)?u.data.user.id:null;
+        try{ var s2=await this.sb.auth.getSession(); this._accessToken=(s2.data&&s2.data.session&&s2.data.session.access_token)||null; }catch(e){}
+        this._bindAuth();
         this.ready=true;
         this.mode="cloud";
         this._stateSummaryAt = Date.now ? Date.now() : 0;
@@ -466,6 +468,7 @@ var Cloud = {
 
       if(this.me && this.me.display_name){ await this.syncProfile(); }
       await this.loadFriends();
+      await this.pullUserState();   // catalogus/instellingen/bundels/geschiedenis/lijsten van je andere toestellen
       this.loadMeals();
       this.checkPushSubscription();
 
@@ -517,6 +520,7 @@ var Cloud = {
     if(!this.ready || !this.sb) return;
     if(this.active){ this.refreshItems(this._activeRefreshToken); this.refreshMembers(this._activeRefreshToken); }
     this.flushPending();
+    if(now - (this._usLastPullAt||0) > 60000) this.pullUserState();
   },
 
   loadLists:async function(){
@@ -794,6 +798,94 @@ var Cloud = {
     for(var i=0;i<this._pending.length;i++){ var e=this._pending[i]; if(e.op==="insert"&&e.tmpId===tmpId) return e; }
     return null;
   },
+  /* ===== user_state: dezelfde slimme app op elk toestel (Fase 3B) ===== */
+  _usPushTimer:null, _usPushedHash:"", _usRemoteAt:null, _usPulling:false, _usPushing:false, _usLastPullAt:0, _usHasTable:undefined, _accessToken:null, _authBound:false,
+  _bindAuth:function(){
+    if(this._authBound || !this.sb || !this.sb.auth || typeof this.sb.auth.onAuthStateChange!=="function") return;
+    this._authBound=true; var self=this;
+    try{
+      this.sb.auth.onAuthStateChange(function(ev, session){
+        self._accessToken=(session && session.access_token)||null;
+        if(typeof self._onAuthEvent==="function") self._onAuthEvent(ev, session);
+      });
+    }catch(e){}
+  },
+  scheduleUserStatePush:function(delay){
+    if(!this.ready || !this.userId || !this.sb || this._usHasTable===false) return;
+    var self=this; clearTimeout(this._usPushTimer);
+    this._usPushTimer=setTimeout(function(){ self._usPushTimer=null; self.pushUserState(); }, delay||5000);
+  },
+  _userStateRow:function(){
+    if(typeof buildUserStatePayload!=="function") return null;
+    var p=buildUserStatePayload();
+    return Object.assign({ user_id:this.userId, device:(typeof deviceLabel==="function"?deviceLabel():""), updated_at:new Date().toISOString() }, p);
+  },
+  pushUserState:async function(force, _retry){
+    if(!this.ready || !this.userId || !this.sb || this._usHasTable===false) return false;
+    if(this._usPulling || this._usPushing){ this.scheduleUserStatePush(2500); return false; }
+    var row=this._userStateRow(); if(!row) return false;
+    var h=hashStr(stableStr({catalog:row.catalog, co_buy:row.co_buy, settings:row.settings, meals:row.meals, history:row.history, local_lists:row.local_lists}));
+    if(!force && h===this._usPushedHash) return true;
+    this._usPushing=true;
+    try{
+      var r;
+      if(this._usRemoteAt){
+        // alleen schrijven als niemand anders intussen schreef; anders eerst samenvoegen en nog één keer proberen
+        r=await this.sb.from("user_state").update(row).eq("user_id", this.userId).lte("updated_at", this._usRemoteAt).select("updated_at");
+        if(!r.error && (!r.data || !r.data.length)){
+          this._usPushing=false;
+          if(_retry) return false;
+          await this.pullUserState();
+          return this.pushUserState(true, true);
+        }
+      } else {
+        r=await this.sb.from("user_state").upsert(row, {onConflict:"user_id"}).select("updated_at");
+      }
+      if(r.error){ if(this._isMissingTable(r.error)) this._usHasTable=false; else this._warned("user_state", "user_state push faalde: "+(r.error.message||r.error.code)); return false; }
+      this._usPushedHash=h;
+      this._usRemoteAt=(r.data && r.data[0] && r.data[0].updated_at) || row.updated_at;
+      if(typeof state!=="undefined" && state){ var s=(typeof syncEnsure==="function")?syncEnsure():null; if(s){ s.lastPushAt=Date.now(); if(typeof save==="function") save(); } }
+      return true;
+    }catch(e){ return false; }
+    finally{ this._usPushing=false; }
+  },
+  pullUserState:async function(){
+    if(!this.ready || !this.userId || !this.sb || this._usHasTable===false) return false;
+    if(this._usPulling) return false;
+    this._usPulling=true;
+    try{
+      var r=await this.sb.from("user_state").select("*").eq("user_id", this.userId).maybeSingle();
+      if(r.error){ if(this._isMissingTable(r.error)) this._usHasTable=false; return false; }
+      this._usLastPullAt=Date.now();
+      var s=(typeof syncEnsure==="function")?syncEnsure():null;
+      if(!r.data){ this._usRemoteAt=null; this._usPushedHash=""; this.scheduleUserStatePush(600); if(s){ s.lastPullAt=Date.now(); } return true; }
+      this._usRemoteAt=r.data.updated_at;
+      var res=(typeof mergeUserState==="function") ? mergeUserState(r.data) : {changedLocal:false, differsFromRemote:false};
+      if(s) s.lastPullAt=Date.now();
+      var row=this._userStateRow();
+      var h=row ? hashStr(stableStr({catalog:row.catalog, co_buy:row.co_buy, settings:row.settings, meals:row.meals, history:row.history, local_lists:row.local_lists})) : "";
+      this._usPushedHash = res.differsFromRemote ? "" : h;
+      if(typeof save==="function") save();
+      if(res.changedLocal && typeof rerenderAfterSync==="function") rerenderAfterSync();
+      if(res.differsFromRemote) this.scheduleUserStatePush(1200);
+      return true;
+    }catch(e){ return false; }
+    finally{ this._usPulling=false; }
+  },
+  /* Bij verbergen/sluiten: als er nog een push wacht, meteen versturen (keepalive overleeft het sluiten van de pagina) */
+  flushUserStateNow:function(){
+    if(!this._usPushTimer || !this.ready || !this.userId || this._usHasTable===false) return;
+    clearTimeout(this._usPushTimer); this._usPushTimer=null;
+    var row=this._userStateRow(); if(!row) return;
+    var body=JSON.stringify(row);
+    if(!this._accessToken || body.length>60000 || typeof fetch!=="function"){ this.pushUserState(); return; }
+    var self=this;
+    try{
+      fetch(SUPABASE_URL+"/rest/v1/user_state?on_conflict=user_id", { method:"POST", keepalive:true, body:body,
+        headers:{ "apikey":SUPABASE_ANON_KEY, "Authorization":"Bearer "+this._accessToken, "Content-Type":"application/json", "Prefer":"resolution=merge-duplicates,return=minimal" } })
+        .then(function(resp){ if(resp && resp.ok){ self._usRemoteAt=row.updated_at; self._usPushedHash=hashStr(stableStr({catalog:row.catalog, co_buy:row.co_buy, settings:row.settings, meals:row.meals, history:row.history, local_lists:row.local_lists})); } }, function(){});
+    }catch(e){}
+  },
   _persistQueue:function(){ try{ if(typeof state!=="undefined" && state){ state.syncQueue = this._pending.slice(); if(typeof save==="function") save(); } }catch(e){} },
   _restoreQueue:function(){ try{ if(typeof state!=="undefined" && state && Array.isArray(state.syncQueue) && state.syncQueue.length && !this._pending.length){ this._pending = state.syncQueue.filter(function(e){ return e && e.op; }); } }catch(e){} },
   _queueInsert:function(tmpId, payload){ this._pending.push({op:"insert", tmpId:tmpId, payload:payload}); this._persistQueue(); },
@@ -875,6 +967,7 @@ var Cloud = {
     var m=String(err.message||"")+" "+String(err.details||"")+" "+String(err.hint||"");
     return (err.code==="42703" || err.code==="PGRST204" || /(column|schema cache)/i.test(m)) && new RegExp(col,"i").test(m);
   },
+  _isMissingTable:function(err){ return !!(err && (err.code==="PGRST205" || err.code==="42P01" || /could not find the table|relation .* does not exist/i.test(String(err.message||"")))); },
   _isMissingFn:function(err){ return !!(err && (err.code==="PGRST202" || /could not find the function/i.test(String(err.message||"")))); },
   _hasBoughtAt:undefined,
   /* Eén update-pad: zonder client (offline koude start) meteen in de wachtrij, anders schrijven en bij een fout in de wachtrij */

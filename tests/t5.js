@@ -204,9 +204,16 @@ const stored=(W)=>JSON.parse(W.localStorage.getItem("mandje.v2"));
             else if(o.ops[0][0]==="delete"){ const ids=(o.ops.find(x=>x[0]==="in")||[])[2]||[]; const id=(o.ops.find(x=>x[0]==="eq")||[])[2]; items=items.filter(i=>ids.indexOf(i.id)===-1 && i.id!==id); }
           }
           if(table==="members") data=[{id:"m1",list_id:"c1",user_id:"u1",display_name:"Ik",color:"#24593F"}];
+          if(table==="user_state"){
+            const op=o.ops[0][0];
+            if(op==="select"){ data = o.ops.some(x=>x[0]==="maybeSingle") ? (userState||null) : (userState?[userState]:[]); }
+            else if(op==="upsert"){ userState=JSON.parse(JSON.stringify(o.ops[0][1])); data=[{updated_at:userState.updated_at}]; }
+            else if(op==="update"){ const f=o.ops[0][1], lte=o.ops.find(x=>x[0]==="lte"); if(userState && (!lte || userState.updated_at<=lte[2])){ userState=JSON.parse(JSON.stringify(Object.assign({},userState,f))); data=[{updated_at:userState.updated_at}]; } else data=[]; }
+          }
           return Promise.resolve({data:data,error:error}).then(res,rej); };
         return o; };
-      const sb={ calls:calls, items:()=>items, from:(t)=>q(t), removeChannel(){}, channel(){ const c={}; c.on=()=>c; c.subscribe=()=>c; c.track=()=>{}; c.presenceState=()=>({}); c.unsubscribe=()=>{}; return c; },
+      let userState=opts.userState||null;
+      const sb={ calls:calls, items:()=>items, userState:()=>userState, from:(t)=>q(t), removeChannel(){}, channel(){ const c={}; c.on=()=>c; c.subscribe=()=>c; c.track=()=>{}; c.presenceState=()=>({}); c.unsubscribe=()=>{}; return c; },
         rpc:(name,args)=>{ const o={table:"rpc:"+name, args:args, ops:[]}; o.then=(res,rej)=>{ calls.push(o); let r={data:null,error:null};
           if(name==="item_bump_qty" && !opts.noRpc){ const it=items.find(i=>i.id===args.p_id); if(it){ it.qty=Math.max(1,it.qty+args.p_delta); r.data=it.qty; } }
           else if(name==="member_heartbeat" && !opts.noRpc){ r.data=true; }
@@ -297,6 +304,69 @@ const stored=(W)=>JSON.parse(W.localStorage.getItem("mandje.v2"));
     const sh=DC.querySelector("#sheet");
     ok("3A: 'Bekijk de lijst' opent een alleen-lezen blad met de gecachte items per schap", !!bar && sh.classList.contains("show") && /Cloudkaas/.test(sh.textContent) && /Cloudmelk/.test(sh.textContent) && /Alleen-lezen/.test(sh.textContent));
     dC.window.close();
+
+    // 13. Fase 3B — user_state: samenvoegen i.p.v. overschrijven, stempels/grafstenen, voorwaardelijke push
+    {
+      const day=(n)=>{ const d=new Date(Date.now()-n*86400000); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); };
+      const T0=Date.now()-3600000;
+      const remote={ user_id:"u1", device:"iPad · test", updated_at:new Date(T0).toISOString(),
+        catalog:{ "melk":{name:"melk",category:"zuivel-eieren",defaultPrice:null,purchaseDates:[day(9),day(2)],timesAdded:4,lastAddedAt:new Date(T0).toISOString(),cadenceMode:"manual",manualIntervalDays:7,u:T0},
+                  "kaas":{name:"kaas",category:"kaas-vleeswaren",defaultPrice:2.5,purchaseDates:[day(5)],timesAdded:2,lastAddedAt:null,cadenceMode:"auto",manualIntervalDays:null} },
+        co_buy:{ "melk":{"kaas":3}, "kaas":{"melk":3} },
+        settings:{ showPrices:true, seenIntro:true, activeStoreId:null, stores:[{id:"st_ipad",name:"Jumbo",order:[]}], _sync:{ settingsAt:{showPrices:T0, stores:T0}, tomb:{catalog:{"oud":T0}, lists:{}, meals:{}, history:{}} } },
+        meals:{ "meal_r":{id:"meal_r",name:"Pasta",emoji:"🍝",items:[{name:"pasta",qty:1,unit:""}],updatedAt:new Date(T0).toISOString()} },
+        history:[{id:"h_r",at:new Date(T0).toISOString(),count:2,total:null,paid:null,list:"local",items:[{name:"melk",qty:1,unit:"",price:null,category:"zuivel-eieren"}]}],
+        local_lists:[{id:"l_boodschappen",name:"Boodschappen",type:"grocery",preset:"grocery",glyph:"🧺",finish:"opruimen",items:[item("r1","brood","brood-bakkerij")],createdAt:new Date(T0).toISOString(),updatedAt:new Date(T0).toISOString()},
+                     {id:"l_ipad",name:"Vakantie",type:"plain",preset:"pack",glyph:"🧳",finish:"opruimen",items:[item("r2","paspoort","overig")],createdAt:new Date(T0).toISOString(),updatedAt:new Date(T0).toISOString()}] };
+      const seedU={version:3,settings:{theme:"dark",showPrices:false,seenIntro:true,categoryOrder:null,minPurchases:3,cvThreshold:.6,dueWindowDays:1},list:[item("a1","appels","groente-fruit")],
+        catalog:{ "melk":{name:"Melk",category:"zuivel-eieren",defaultPrice:1.2,purchaseDates:[day(9),day(1)],timesAdded:3,lastAddedAt:null,cadenceMode:"auto",manualIntervalDays:null}, "oud":{name:"oud",category:"overig",purchaseDates:[],timesAdded:1,cadenceMode:"auto"} },
+        coBuy:{},meals:{},history:[],localLists:[{id:"l_boodschappen",name:"Boodschappen",type:"grocery",preset:"grocery",glyph:"🧺",finish:"opruimen",items:[item("a1","appels","groente-fruit")]}],activeLocalId:"l_boodschappen"};
+      const dU=mk(seedU); await wait(160); const W=dU.window, D=W.document, C=W.Cloud;
+      const sb=mkStub2({userState:remote}); C.sb=sb; C.enabled=true; C.ready=true; C.mode="cloud"; C.userId="u1"; C.lists=[];
+      const okPull=await C.pullUserState(); await wait(40);
+      let st=stored(W);
+      ok("3B: pull haalt de user_state-rij op (maybeSingle) en meldt succes", okPull===true && sb.calls.some(c=>c.table==="user_state" && c.ops[0][0]==="select" && c.ops.some(x=>x[0]==="maybeSingle")));
+      const melk=st.catalog["melk"];
+      ok("3B: catalogus samengevoegd: koopdata verenigd, tellers max, remote wint op stempel (handmatig ritme), lokale prijs blijft niet leidend", !!melk && melk.purchaseDates.join()===[day(9),day(2),day(1)].sort().join() && melk.timesAdded===4 && melk.cadenceMode==="manual" && melk.manualIntervalDays===7);
+      ok("3B: grafsteen uit de cloud verwijdert 'oud' lokaal; nieuw product 'kaas' komt erbij", !st.catalog["oud"] && !!st.catalog["kaas"] && st.catalog["kaas"].defaultPrice===2.5);
+      ok("3B: instellingen per veld: showPrices en winkels volgen de cloud, thema (toestel-eigen) blijft", st.settings.showPrices===true && st.settings.stores.length===1 && st.settings.stores[0].name==="Jumbo" && st.settings.theme==="dark");
+      ok("3B: vaak-samen per paar het maximum, bundel en geschiedenis overgenomen", st.coBuy.melk && st.coBuy.melk.kaas===3 && !!st.meals.meal_r && st.history.length===1 && st.history[0].id==="h_r");
+      ok("3B: lijsten: remote Boodschappen (gestempeld) wint, maar ongerepte lokale items blijven; paklijst van de iPad erbij", st.localLists.length===2 && st.list.map(i=>i.name).sort().join()==="appels,brood" && st.localLists.some(l=>l.id==="l_ipad" && l.items.length===1));
+      ok("3B: samengevoegde staat verschilt van de cloud → push ingepland (lokale items erbij)", D.querySelector("#open-list").textContent.indexOf("brood")!==-1);
+      // push: stempel + voorwaardelijke update
+      sb.calls.length=0;
+      C._usPushTimer && W.clearTimeout(C._usPushTimer);
+      const okPush=await C.pushUserState(true); await wait(30);
+      const upd=sb.calls.find(c=>c.table==="user_state" && c.ops[0][0]==="update");
+      ok("3B: push = voorwaardelijke update (eq user_id, lte updated_at) met catalog/co_buy/settings/meals/history/local_lists + device", okPush===true && !!upd && upd.ops.some(x=>x[0]==="lte"&&x[1]==="updated_at") && ["catalog","co_buy","settings","meals","history","local_lists","device"].every(k=>k in upd.ops[0][1]));
+      const pushedSettings=upd.ops[0][1].settings;
+      ok("3B: toestel-eigen voorkeuren gaan niet mee (theme/textScale), _sync met settingsAt en grafstenen wel", !("theme" in pushedSettings) && !("textScale" in pushedSettings) && !!pushedSettings._sync && !!pushedSettings._sync.tomb && pushedSettings.showPrices===true);
+      ok("3B: local_lists in de push bevat de items van de actieve lijst (state.list) en updatedAt", upd.ops[0][1].local_lists.find(l=>l.id==="l_boodschappen").items.length===2 && !!upd.ops[0][1].local_lists.find(l=>l.id==="l_boodschappen").updatedAt);
+      // lokale wijziging → stempel u + settingsAt, en na 5 s automatisch een push
+      W.addToList("yoghurt", null, {silent:true}); await wait(30);
+      st=stored(W);
+      ok("3B: lokale wijziging stempelt het catalogusproduct (u) en de lijst (updatedAt)", !!st.catalog["yoghurt"] && typeof st.catalog["yoghurt"].u==="number" && !!st.localLists[0].updatedAt);
+      sb.calls.length=0; await wait(5400);
+      ok("3B: 5 s na de laatste save is de staat automatisch gepusht", sb.calls.some(c=>c.table==="user_state" && c.ops[0][0]==="update"));
+      // grafsteen bij verwijderen uit de catalogus: verdwijnt uit de push en herrijst niet bij een oudere cloud-kopie
+      W.renameCatalogEntry("yoghurt", "kwark"); await wait(30);
+      st=stored(W);
+      ok("3B: hernoemen = grafsteen voor de oude sleutel + nieuwe post", !!st.sync.tomb.catalog["yoghurt"] && !!st.catalog["kwark"] && !st.catalog["yoghurt"]);
+      const older=JSON.parse(JSON.stringify(sb.userState())); older.catalog["yoghurt"]={name:"yoghurt",category:"zuivel-eieren",purchaseDates:[],timesAdded:1,cadenceMode:"auto",u:T0}; older.updated_at=new Date(T0+1000).toISOString();
+      const sb2=mkStub2({userState:older}); C.sb=sb2; C._usRemoteAt=null;
+      await C.pullUserState(); await wait(30); st=stored(W);
+      ok("3B: oudere cloud-kopie laat een verwijderd product niet herrijzen (grafsteen nieuwer dan de stempel)", !st.catalog["yoghurt"] && !!st.catalog["kwark"]);
+      // conflict: iemand anders schreef intussen → update matcht niet → eerst pull, dan opnieuw
+      const sb3=mkStub2({userState:Object.assign(JSON.parse(JSON.stringify(sb2.userState())), {updated_at:new Date(Date.now()+5000).toISOString(), history:[{id:"h_other",at:new Date().toISOString(),count:1,total:null,paid:null,list:"local",items:[]}]})}); C.sb=sb3; C._usRemoteAt=new Date(T0).toISOString();
+      sb3.calls.length=0; const okC=await C.pushUserState(true); await wait(30); st=stored(W);
+      const updates=sb3.calls.filter(c=>c.table==="user_state"&&c.ops[0][0]==="update");
+      ok("3B: conflict → pull + merge + tweede push; de geschiedenis van het andere toestel is nu ook hier", okC===true && updates.length===2 && sb3.calls.some(c=>c.table==="user_state"&&c.ops[0][0]==="select") && st.history.some(h=>h.id==="h_other"));
+      // bundel verwijderen → grafsteen; meal_r komt niet terug uit een oudere rij
+      W.deleteMeal("meal_r"); await wait(30); st=stored(W);
+      ok("3B: bundel verwijderen zet een grafsteen", !st.meals.meal_r && !!st.sync.tomb.meals.meal_r);
+      ok("3B: Diagnose toont de sync-status", (()=>{ D.querySelector("#gear-btn").click(); return /Sync tussen toestellen/.test(D.querySelector("#meer-content").textContent) && /zojuist|geleden/.test(D.querySelector("#meer-content").textContent); })());
+      dU.window.close();
+    }
   }
 
   console.log("\nt5: "+pass+" geslaagd, "+fail+" gefaald");
