@@ -8,7 +8,7 @@ Premium boodschappenlijst-PWA voor iPhone, Android, iPad en desktop. Eén self-c
 ```bash
 npm install                    # eenmalig (jsdom voor tests)
 npm run build                  # src/ + assets/ -> index.html (+ sw.js, manifest.webmanifest, iconen)
-npm test                       # test.js + t3.js + t4.js + contrast.js — alles moet groen zijn
+npm test                       # test.js + t3.js + t4.js + t5.js + contrast.js — alles moet groen zijn
 npm run deploy -- "feat: …"    # build + tests + commit + push (Pages deployt vanzelf)
 ```
 

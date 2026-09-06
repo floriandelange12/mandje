@@ -7,7 +7,7 @@ Mandje is een premium boodschappenlijst-PWA voor iPhone: één self-contained `i
 (HTML + CSS + JS + ingebed icoon/font), met een Supabase-laag voor gedeelde, realtime lijsten.
 - **Live:** https://floriandelange12.github.io/mandje/
 - **Host:** GitHub Pages op repo `floriandelange12/mandje` (branch `main`, root `/`).
-- **Persoonlijke lijst:** localStorage. **Gedeelde lijsten + items:** Supabase (anonieme auth).
+- **Lokale lijsten:** localStorage (`state.localLists` = index met items; de geopende lijst leeft in `state.list`, `save()` synct terug). Lijsttypes: `grocery` (schappen, aantallen, cadans) en `plain` (paklijst/to-do/checklist/notities: vrije kopjes, handmatige volgorde, geen catalogus). **Gedeelde lijsten + items:** Supabase (anonieme auth).
 
 ## Architectuur
 ```
@@ -36,7 +36,8 @@ build.js            Voegt alles samen → index.html (repo-root) en schrijft daa
 deploy.js           `npm run deploy`: build → tests → scoped git add/commit/push; stopt bij rode tests.
 tests/*.js          test.js (kern) en t3.js (UX/prijs/cloud/Fase-blokken) draaien met jsdom over de
                     gebouwde index.html; t4.js = bundel-hygiëne (encoding, BUILD-pariteit, budgetten,
-                    manifest + iconen, sw-precache); contrast.js = WCAG-contrast van alle tokens en
+                    manifest + iconen, sw-precache); t5.js = meerdere lijsten + lijsttypes (migratie,
+                    wisselen, plain-gates, sjablonen); contrast.js = WCAG-contrast van alle tokens en
                     lidkleuren. Elke suite eindigt met "N geslaagd, M gefaald"; de eis is overal M = 0.
 tools/shots.js      Screenshot-matrix (viewports × licht/donker × staten) → qa_shots/ (genegeerd in git).
 ```
@@ -45,7 +46,7 @@ tools/shots.js      Screenshot-matrix (viewports × licht/donker × staten) → 
 ```bash
 npm install                     # eenmalig (installeert jsdom voor de tests)
 npm run build                   # src/ + assets/  ->  index.html + sw.js + manifest.webmanifest + iconen
-npm test                        # test.js + t3.js + t4.js + contrast.js; alles moet groen zijn (0 gefaald)
+npm test                        # test.js + t3.js + t4.js + t5.js + contrast.js; alles moet groen zijn (0 gefaald)
 node tools/shots.js             # optioneel: screenshots op alle viewports (vereist lokale http-server op :8765 + playwright)
 npm run deploy -- "feat: …"     # build + tests + git add -A + commit + push (Pages deployt automatisch, ~30-60s)
 npm run deploy                  # idem; commit-bericht wordt dan "deploy: build <buildId>"
