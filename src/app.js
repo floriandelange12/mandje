@@ -215,6 +215,13 @@ function normalizeState(raw){
   if(!isPlainObject(out.settings.customCatEmoji)) out.settings.customCatEmoji = {};
   CATS.forEach(function(c){ if(out.settings.categoryOrder.indexOf(c.id)===-1) out.settings.categoryOrder.push(c.id); });
   out.settings.customCategories.forEach(function(c){ if(c && c.id && out.settings.categoryOrder.indexOf(c.id)===-1) out.settings.categoryOrder.push(c.id); });
+  // winkels: geldige lijst, elke looproute bevat alle schappen (nieuwe schappen achteraan)
+  out.settings.stores = (Array.isArray(out.settings.stores) ? out.settings.stores : []).filter(function(s){ return isPlainObject(s) && s.id && s.name; }).map(function(s){
+    var order = Array.isArray(s.order) ? s.order.filter(function(cid){ return out.settings.categoryOrder.indexOf(cid)!==-1; }) : [];
+    out.settings.categoryOrder.forEach(function(cid){ if(order.indexOf(cid)===-1) order.push(cid); });
+    return { id:String(s.id), name:String(s.name).slice(0,40), order:order };
+  });
+  if(out.settings.activeStoreId && !out.settings.stores.some(function(s){ return s.id===out.settings.activeStoreId; })) out.settings.activeStoreId=null;
   return out;
 }
 function getCloudStateSummary(){
@@ -494,6 +501,7 @@ function getDueItems(){
     if(openKeys[k]) return;
     if(dismissed[k] === today) return; // vandaag weggetikt → niet tonen, morgen weer
     var e=state.catalog[k];
+    if(e.hidden) return;                                   // "niet meer voorstellen"
     if(e.snoozeUntil && e.snoozeUntil >= today) return;   // uitgesteld (lang indrukken op de chip)
     var a=analyse(e);
     if(isDue(a)) out.push({key:k, e:e, a:a});
@@ -561,7 +569,7 @@ function frequentItems(limit){
   var open={}; state.list.forEach(function(i){ if(!i.done) open[norm(i.name)]=1; });
   var now=Date.now(), out=[];
   Object.keys(state.catalog||{}).forEach(function(k){
-    var e=state.catalog[k]; if(!e || open[k]) return;
+    var e=state.catalog[k]; if(!e || e.hidden || open[k]) return;
     var times=(e.timesAdded||0) + (e.purchaseDates||[]).length;
     if(times < 2) return;
     var days = e.lastAddedAt ? (now - new Date(e.lastAddedAt).getTime())/86400000 : 365;
@@ -606,10 +614,82 @@ function repeatLastTrip(){
   last.items.forEach(function(i){ if(i && i.name && addToList(i.name, null, {qty:i.qty||1, unit:i.unit||"", silent:true})) n++; });
   toast(n+" items van je vorige lijst teruggezet");
 }
+/* ---------- Catalogusbeheer: hernoemen (met samenvoegen), verbergen, verwijderen ---------- */
+function renameCatalogEntry(oldKey, newName){
+  newName=(newName||"").trim(); if(!newName) return false;
+  var e=state.catalog[oldKey]; if(!e) return false;
+  var newKey=norm(newName);
+  if(newKey===oldKey){ e.name=newName; save(); return true; }
+  var t=state.catalog[newKey];
+  if(t){
+    var seen={}; t.purchaseDates=(t.purchaseDates||[]).concat(e.purchaseDates||[]).filter(function(d){ if(seen[d]) return false; seen[d]=1; return true; }).sort();
+    t.timesAdded=(t.timesAdded||0)+(e.timesAdded||0);
+    if(t.defaultPrice==null && e.defaultPrice!=null) t.defaultPrice=e.defaultPrice;
+    if(!t.lastAddedAt || (e.lastAddedAt && e.lastAddedAt>t.lastAddedAt)) t.lastAddedAt=e.lastAddedAt;
+    t.name=newName;
+  } else { e.name=newName; state.catalog[newKey]=e; }
+  delete state.catalog[oldKey];
+  if(state.coBuy && state.coBuy[oldKey]){ var co=state.coBuy[oldKey]; delete state.coBuy[oldKey]; state.coBuy[newKey]=Object.assign(state.coBuy[newKey]||{}, co); }
+  Object.keys(state.coBuy||{}).forEach(function(k){ var m=state.coBuy[k]; if(m && m[oldKey]!=null){ m[newKey]=(m[newKey]||0)+m[oldKey]; delete m[oldKey]; } });
+  state.list.forEach(function(i){ if(norm(i.name)===oldKey) i.name=newName; });
+  save();
+  if(activeTab==="lijst") renderLijst();
+  return true;
+}
+function renderCatalogSection(wrap){
+  var n=Object.keys(state.catalog||{}).length; if(!n) return;
+  var sec=el("div","section");
+  sec.innerHTML='<span class="cat-emoji emoji">📚</span><span>Alles wat Mandje kent</span><span class="count">'+n+'</span><span class="spacer"></span>';
+  var btn=el("button","more-link","Beheren"); btn.type="button"; btn.addEventListener("click", function(){ openCatalogSheet(); }); sec.appendChild(btn);
+  wrap.appendChild(sec);
+  wrap.appendChild(el("div","hint","Hernoem producten, voeg dubbele samen of verberg wat Mandje niet meer moet voorstellen."));
+}
+function openCatalogSheet(){
+  var sh=$("#sheet"); if(!sh) return;
+  sh.innerHTML='<div class="grip"></div><h3>Alles wat Mandje kent</h3>'+
+    '<div class="frow"><input class="txt" id="cm-q" type="search" placeholder="Zoek een product…" autocomplete="off" autocorrect="off" autocapitalize="none"></div>'+
+    '<div id="cm-list" class="cm-list"></div>'+
+    '<div class="sheet-actions"><button class="save" id="cm-close" type="button">Klaar</button></div>';
+  var list=sh.querySelector("#cm-list"), inp=sh.querySelector("#cm-q");
+  var openKey=null;
+  var render=function(){
+    list.innerHTML="";
+    var q=norm(inp.value||"");
+    var keys=Object.keys(state.catalog||{}).filter(function(k){ return !q || k.indexOf(q)!==-1 || norm(state.catalog[k].name).indexOf(q)!==-1; });
+    keys.sort(function(a,b){ return state.catalog[a].name.localeCompare(state.catalog[b].name,"nl"); });
+    if(!keys.length){ list.appendChild(el("div","hint","Niets gevonden.")); return; }
+    keys.slice(0,80).forEach(function(k){
+      var e=state.catalog[k]; var c=CAT_BY_ID[e.category]||CAT_BY_ID["overig"];
+      var bought=(e.purchaseDates||[]).length;
+      var row=el("div","cm-row"+(e.hidden?" hidden-entry":""));
+      row.innerHTML='<div class="cm-name"><div class="cm-title"></div><div class="cm-meta">'+escapeHtml(c.label)+(bought?' · '+bought+'× gekocht':'')+(e.hidden?' · verborgen':'')+'</div></div><button class="cm-more" type="button" aria-label="Acties" aria-expanded="false">⋯</button>';
+      row.querySelector(".cm-title").textContent=e.name;
+      var more=row.querySelector(".cm-more");
+      more.addEventListener("click",function(){ openKey = (openKey===k) ? null : k; render(); });
+      list.appendChild(row);
+      if(openKey===k){
+        more.setAttribute("aria-expanded","true");
+        var acts=el("div","cm-acts");
+        var mkA=function(label, fn, cls){ var b=el("button",cls||"",label); b.type="button"; b.addEventListener("click", fn); acts.appendChild(b); };
+        mkA("Details", function(){ openSheetForCatalog(k); });
+        mkA("Hernoem", function(){ var nn=prompt("Nieuwe naam voor "+e.name+" (bestaat de naam al, dan worden ze samengevoegd):", e.name); if(nn===null) return; if(renameCatalogEntry(k, nn)){ openKey=null; render(); renderLijst(); toast("Hernoemd"); } });
+        mkA(e.hidden?"Weer voorstellen":"Niet meer voorstellen", function(){ e.hidden=!e.hidden; save(); render(); });
+        mkA("Verwijder", function(){ if(!confirm(e.name+" uit de catalogus verwijderen? Koopgeschiedenis en ritme gaan verloren.")) return; delete state.catalog[k]; if(state.coBuy) delete state.coBuy[k]; save(); openKey=null; render(); }, "danger");
+        list.appendChild(acts);
+      }
+    });
+    if(keys.length>80) list.appendChild(el("div","hint","Nog "+(keys.length-80)+" meer — zoek om te verfijnen."));
+  };
+  inp.addEventListener("input", render);
+  render();
+  sh.querySelector("#cm-close").addEventListener("click", function(){ closeSheet(); renderVaste(); renderDueBanner(); });
+  openSheetUI();
+}
 function getRecurring(){
   var out=[];
   Object.keys(state.catalog).forEach(function(k){
-    var e=state.catalog[k]; var a=analyse(e);
+    var e=state.catalog[k]; if(e.hidden) return;
+    var a=analyse(e);
     var recurring = (a.mode==="manual") || (a.mode==="auto" && a.regular);
     if(recurring) out.push({key:k, e:e, a:a});
   });
@@ -966,9 +1046,71 @@ function openFinishSheet(entry, undoFn){
 /* Schap-volgorde voor de render: eerst de ingestelde volgorde, daarna élk schap dat wél items
    heeft maar niet in categoryOrder staat (bv. een eigen schap van een ander lid op een gedeelde
    lijst). Zonder dit vangnet verdwenen die items geruisloos uit de lijst terwijl ze wél meetelden. */
+/* ---------- Winkels: eigen looproute (schapvolgorde) per supermarkt ---------- */
+var STORE_PRESETS = {
+  ah:    ["groente-fruit","brood-banket","kaas-vleeswaren","vlees-vis","zuivel-eieren","ontbijt-beleg","houdbaar","snoep-snacks","dranken","diepvries","huishouden","verzorging","baby-kind","huisdier","tuin-planten","klussen","apotheek","kantoor-school","kleding-textiel","overig"],
+  jumbo: ["groente-fruit","vlees-vis","kaas-vleeswaren","brood-banket","zuivel-eieren","ontbijt-beleg","houdbaar","snoep-snacks","dranken","diepvries","huishouden","verzorging","baby-kind","huisdier","tuin-planten","klussen","apotheek","kantoor-school","kleding-textiel","overig"],
+  lidl:  ["brood-banket","groente-fruit","vlees-vis","kaas-vleeswaren","zuivel-eieren","ontbijt-beleg","houdbaar","snoep-snacks","dranken","diepvries","klussen","kleding-textiel","tuin-planten","huishouden","verzorging","baby-kind","huisdier","apotheek","kantoor-school","overig"]
+};
+function activeStore(){
+  var id=state && state.settings && state.settings.activeStoreId; if(!id) return null;
+  var stores=state.settings.stores||[];
+  for(var i=0;i<stores.length;i++){ if(stores[i].id===id) return stores[i]; }
+  return null;
+}
+function currentCatOrder(){ var st=activeStore(); return (st && Array.isArray(st.order)) ? st.order : (state.settings.categoryOrder||[]); }
+function addStore(name, preset){
+  var base = (STORE_PRESETS[preset] || state.settings.categoryOrder).slice();
+  state.settings.categoryOrder.forEach(function(cid){ if(base.indexOf(cid)===-1) base.push(cid); });   // eigen schappen achteraan
+  base = base.filter(function(cid){ return !!CAT_BY_ID[cid]; });
+  var s={ id:"st_"+uid(), name:name, order:base };
+  state.settings.stores=(state.settings.stores||[]).concat([s]);
+  state.settings.activeStoreId=s.id;
+  save(); renderStorePick(); if(activeTab==="lijst") renderLijst(); if(shopIsOpen()) renderShopBody();
+  return s;
+}
+function renderStorePick(){
+  var wrap=$("#store-pick"); if(!wrap) return;
+  var stores=(state.settings && state.settings.stores)||[];
+  if(!stores.length || activeTab!=="lijst"){ wrap.innerHTML=""; wrap.className="store-pick empty"; return; }
+  wrap.className="store-pick"; wrap.innerHTML="";
+  wrap.setAttribute("role","group"); wrap.setAttribute("aria-label","Winkel");
+  var mk=function(id,label){
+    var on=(state.settings.activeStoreId||null)===id;
+    var b=el("button","chip"+(on?" on":""),'<span>'+escapeHtml(label)+'</span>'); b.type="button"; b.setAttribute("aria-pressed", on?"true":"false");
+    b.addEventListener("click",function(){ state.settings.activeStoreId=id; save(); renderStorePick(); renderLijst(); if(shopIsOpen()) renderShopBody(); });
+    return b;
+  };
+  wrap.appendChild(mk(null,"Standaard"));
+  stores.forEach(function(s){ wrap.appendChild(mk(s.id, s.name)); });
+}
+function openNewStoreSheet(){
+  var sh=$("#sheet"); if(!sh) return;
+  var presets=[["ah","Albert Heijn"],["jumbo","Jumbo"],["lidl","Lidl"],["standaard","Zoals standaard"]];
+  var chosen="ah";
+  sh.innerHTML='<div class="grip"></div><h3>Nieuwe winkel</h3>'+
+    '<div class="frow"><div class="fl">Naam</div><input class="txt" id="st-name" placeholder="bijv. AH Stationsstraat" autocomplete="off"></div>'+
+    '<div class="sheet-label"><span class="lbl-cap">Begin met de looproute van</span></div><div class="cadrow" id="st-presets"></div>'+
+    '<div class="hint" style="margin:0 6px 12px">Daarna sleep je de schappen in Meer → Schappen &amp; winkels tot ze kloppen met de winkel.</div>'+
+    '<div class="sheet-actions"><button class="save" id="st-save" type="button">Opslaan</button><button class="del" id="st-cancel" type="button">Annuleren</button></div>';
+  var row=sh.querySelector("#st-presets");
+  presets.forEach(function(p){
+    var b=el("button","cadchip"+(p[0]===chosen?" on":""),p[1]); b.type="button";
+    b.addEventListener("click",function(){ chosen=p[0]; row.querySelectorAll(".cadchip").forEach(function(x){ x.classList.toggle("on", x===b); }); var nm=sh.querySelector("#st-name"); if(nm && !nm.value.trim() && p[0]!=="standaard") nm.value=p[1]; });
+    row.appendChild(b);
+  });
+  sh.querySelector("#st-cancel").addEventListener("click", closeSheet);
+  sh.querySelector("#st-save").addEventListener("click", function(){
+    var name=(sh.querySelector("#st-name").value||"").trim(); if(!name){ toast("Geef de winkel een naam"); return; }
+    addStore(name, chosen); closeSheet(); toast(name+" toegevoegd — de lijst volgt nu die looproute"); if(activeTab==="meer") renderMeer();
+  });
+  openSheetUI();
+  setTimeout(function(){ var i=sh.querySelector("#st-name"); if(i) i.focus(); }, 260);
+}
+
 function catBuckets(byCat){
   var seen={}, out=[];
-  (state.settings.categoryOrder||[]).forEach(function(cid){ seen[cid]=1; if(byCat[cid] && byCat[cid].length) out.push(cid); });
+  (currentCatOrder()||[]).forEach(function(cid){ seen[cid]=1; if(byCat[cid] && byCat[cid].length) out.push(cid); });
   Object.keys(byCat).forEach(function(cid){ if(!seen[cid] && byCat[cid].length) out.push(cid); });
   return out;
 }
@@ -1044,6 +1186,7 @@ function renderLijst(){
   updateTotals();
   updateSubhead();
   renderShopEntry();
+  renderStorePick();
 }
 
 /* FLIP: rijen die door een re-render van plek veranderen (afvinken → "In mandje") glijden naar hun nieuwe plek */
@@ -1241,8 +1384,48 @@ function updateSubhead(){
 }
 
 /* ---------- "Bijna op" banner ---------- */
+var WEEKDAYS=["zondag","maandag","dinsdag","woensdag","donderdag","vrijdag","zaterdag"];
+/* Afgeleide boodschappendag: meest voorkomende weekdag in de koopgeschiedenis (≥6 aankopen, ≥35% op één dag) */
+function shoppingWeekday(){
+  var counts=[0,0,0,0,0,0,0], total=0;
+  Object.keys(state.catalog||{}).forEach(function(k){
+    (state.catalog[k].purchaseDates||[]).forEach(function(d){ var wd=parseDay(d).getDay(); if(!isNaN(wd)){ counts[wd]++; total++; } });
+  });
+  if(total<6) return null;
+  var best=0; for(var i=1;i<7;i++){ if(counts[i]>counts[best]) best=i; }
+  return counts[best]/total >= 0.35 ? best : null;
+}
+/* "Klaar voor de week?" — op de boodschappendag, bij een (bijna) lege lijst, met de drie snelste startzetten */
+function renderWeekRitual(){
+  var wrap=$("#week-ritual"); if(!wrap) return; wrap.innerHTML="";
+  if(activeTab!=="lijst") return;
+  var wd=shoppingWeekday(); if(wd===null || wd!==new Date().getDay()) return;
+  if(state.settings.ritualDismissed===todayStr()) return;
+  if(state.list.filter(function(i){return !i.done;}).length>=4) return;
+  var due=getDueItems(), last=(state.history||[])[0], meals=(typeof mealList==="function")?mealList():[];
+  if(!due.length && !(last && last.items && last.items.length) && !meals.length) return;
+  var c=el("div","ritual");
+  c.innerHTML='<button class="r-x" type="button" aria-label="Vandaag niet meer tonen">✕</button><h4>Klaar voor de week?</h4><p>Het is '+WEEKDAYS[wd]+' — meestal je boodschappendag.</p><div class="chips"></div>';
+  var chips=c.querySelector(".chips");
+  if(due.length){
+    var b1=el("button","chip",'<span>Vaste erop</span><span class="plus">'+due.length+'</span>'); b1.type="button";
+    b1.addEventListener("click",function(){ var n=0; due.forEach(function(d){ if(addToList(d.e.name, d.e.defaultPrice, {silent:true})) n++; }); toast(n+(n===1?" vaste boodschap":" vaste boodschappen")+" toegevoegd"); });
+    chips.appendChild(b1);
+  }
+  if(last && last.items && last.items.length){
+    var b2=el("button","chip",'<span>Herhaal vorige lijst</span><span class="plus">'+last.items.length+'</span>'); b2.type="button";
+    b2.addEventListener("click", repeatLastTrip); chips.appendChild(b2);
+  }
+  if(meals.length){
+    var b3=el("button","chip",'<span>Bundels</span><span class="plus">→</span>'); b3.type="button";
+    b3.addEventListener("click",function(){ switchTab("vaste"); }); chips.appendChild(b3);
+  }
+  c.querySelector(".r-x").addEventListener("click",function(){ state.settings.ritualDismissed=todayStr(); save(); wrap.innerHTML=""; });
+  wrap.appendChild(c);
+}
 function renderDueBanner(){
   var wrap=$("#due-banner"); wrap.innerHTML="";
+  renderWeekRitual();
   if(activeTab!=="lijst") return;
   var due=getDueItems(); if(!due.length) return;
   var top=due.slice(0,6);
@@ -1320,7 +1503,7 @@ function buildShopChrome(scr){
   scr.innerHTML =
     '<div class="shop-head">'+
       '<button class="shop-close" id="shop-close" type="button" aria-label="Sluiten">'+CLOSE_SVG+'</button>'+
-      '<div class="shop-title">Winkelen</div>'+
+      '<div class="shop-title">Winkelen<small id="shop-store"></small></div>'+
       '<div class="shop-count" id="shop-count" aria-live="polite"></div>'+
     '</div>'+
     '<div class="shop-pbar" id="shop-pbar" role="progressbar" aria-label="Voortgang" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i></i></div>'+
@@ -1402,6 +1585,7 @@ function shopRefreshMeta(){
     if(state.settings.showPrices){ var cart=0; state.list.forEach(function(i){ if(i.done) cart+=(i.price||0)*(i.qty||1); }); if(cart>0) txt += " · "+euro(cart); }
     cnt.textContent = txt;
   }
+  var ss=scr.querySelector("#shop-store"); if(ss){ var st=activeStore(); ss.textContent = st ? st.name : ""; }
   var pbar=scr.querySelector("#shop-pbar"); if(pbar){ pbar.querySelector("i").style.width=pct+"%"; pbar.setAttribute("aria-valuenow", String(pct)); }
   var fin=scr.querySelector("#shop-finish"); if(fin){ fin.textContent = done ? "Afronden ✓ · "+done : "Afronden ✓"; fin.disabled = !done; fin.classList.toggle("ready", done>0); }
   var hide=scr.querySelector("#shop-hide"); if(hide){ var on=scr.classList.contains("hide-done"); hide.setAttribute("aria-pressed", on?"true":"false"); hide.textContent = on ? "Toon afgevinkte" : "Verberg afgevinkte"; hide.hidden = done===0 && !on; }
@@ -1446,6 +1630,7 @@ function renderVaste(){
   var freq=frequentItems(12);
   if(rec.length===0 && !freq.length){
     wrap.appendChild(emptyState("repeat","Nog geen vaste boodschappen","Mandje leert vanzelf wat je vaak koopt. Streep items af en tik op Afronden — na zo'n 3 à 4 keer verschijnen ze hier op jouw ritme. Liever zelf bepalen? Stel een ritme in via een product op je lijst."));
+    renderCatalogSection(wrap);
     return;
   }
   if(rec.length===0){
@@ -1463,6 +1648,7 @@ function renderVaste(){
     wrap.appendChild(sectionLabel("⭐","Vaak gekocht",freq.length));
     var fchips=el("div","chips freq-chips"); freq.forEach(function(e){ fchips.appendChild(quickChip(e)); }); wrap.appendChild(fchips);
   }
+  renderCatalogSection(wrap);
 }
 function sectionLabel(glyph,label,count){
   var s=el("div","section"); s.innerHTML='<span class="cat-emoji">'+glyph+'</span><span>'+label+'</span><span class="count">'+count+'</span>'; return s;
@@ -1715,18 +1901,38 @@ function renderMeer(){
     wrap.appendChild(secure);
   }
 
-  // ---- Schappen: volgorde + eigen schappen
-  section("Schappen", '<span class="count">'+state.settings.categoryOrder.length+'</span>');
-  wrap.appendChild(el("div","hint","Sleep om de volgorde te wijzigen waarin schappen op de Lijst-tab verschijnen. Lege schappen worden vanzelf verborgen."));
+  // ---- Schappen & winkels: looproute per winkel (of standaard), eigen schappen
+  var stores=state.settings.stores||[];
+  var st=activeStore();
+  var target = st ? st.order : state.settings.categoryOrder;
+  section("Schappen & winkels", '<span class="count">'+state.settings.categoryOrder.length+'</span>');
+  wrap.appendChild(el("div","hint", stores.length
+    ? "Kies een winkel en sleep de schappen in de looproute van die winkel. 'Standaard' geldt als er geen winkel gekozen is."
+    : "Sleep om de volgorde te wijzigen waarin schappen op de Lijst-tab verschijnen. Voeg een winkel toe voor een eigen looproute per supermarkt."));
+  if(stores.length){
+    var pick=el("div","store-pick meer");
+    var mkPick=function(id,label){
+      var on=(state.settings.activeStoreId||null)===id;
+      var b=el("button","chip"+(on?" on":""),'<span>'+escapeHtml(label)+'</span>'); b.type="button"; b.setAttribute("aria-pressed", on?"true":"false");
+      b.addEventListener("click",function(){ state.settings.activeStoreId=id; save(); renderStorePick(); renderMeer(); });
+      return b;
+    };
+    pick.appendChild(mkPick(null,"Standaard"));
+    stores.forEach(function(s){ pick.appendChild(mkPick(s.id, s.name)); });
+    wrap.appendChild(pick);
+    wrap.appendChild(el("div","qs-lbl", st ? "Looproute in "+escapeHtml(st.name) : "Standaardvolgorde"));
+  }
   var sortWrap = el("div","sort-list");
   var sortItems = [];
-  state.settings.categoryOrder.forEach(function(cid){
+  target.forEach(function(cid){
     var c = CAT_BY_ID[cid]; if(!c) return;
     var isCustom = (state.settings.customCategories||[]).some(function(cc){return cc.id===cid;});
     sortItems.push({id:cid, label:c.label, glyph:c.glyph, isCustom:isCustom});
   });
   makeSortableList(sortWrap, sortItems, function(newOrder){
-    state.settings.categoryOrder = newOrder; save();
+    var s2=activeStore();
+    if(s2) s2.order = newOrder; else state.settings.categoryOrder = newOrder;
+    save();
     if(activeTab==="lijst") renderLijst();
   });
   wrap.appendChild(sortWrap);
@@ -1734,6 +1940,25 @@ function renderMeer(){
   addCat.style.marginTop = "10px";
   addCat.addEventListener("click", openAddCategorySheet);
   wrap.appendChild(addCat);
+  if(stores.length){
+    var gS=el("div","group"); gS.style.marginTop="12px";
+    stores.forEach(function(s){
+      var row=el("div","grow"); row.innerHTML='<div class="glabel"><span class="st-name"></span><div class="gsub">Looproute · '+s.order.length+' schappen</div></div>';
+      row.querySelector(".st-name").textContent=s.name;
+      var del=el("button","mbtn inline soft","Verwijder"); del.type="button";
+      del.addEventListener("click",function(){
+        if(!confirm("Winkel '"+s.name+"' verwijderen? De looproute van deze winkel gaat verloren.")) return;
+        state.settings.stores=(state.settings.stores||[]).filter(function(x){return x.id!==s.id;});
+        if(state.settings.activeStoreId===s.id) state.settings.activeStoreId=null;
+        save(); renderStorePick(); renderMeer();
+      });
+      row.appendChild(del); gS.appendChild(row);
+    });
+    wrap.appendChild(gS);
+  }
+  var addStoreBtn = el("button","mbtn","+ Nieuwe winkel (eigen looproute)");
+  addStoreBtn.type="button"; addStoreBtn.addEventListener("click", openNewStoreSheet);
+  wrap.appendChild(addStoreBtn);
 
   // ---- Back-up & privacy
   section("Back-up & privacy");
@@ -2102,7 +2327,7 @@ function buildAC(q){
   // catalog: prefix-matches eerst, dan partial; binnen elke groep op timesAdded desc
   Object.keys(state.catalog).forEach(function(k){
     var e=state.catalog[k]; var en=norm(e.name);
-    if(en===nq) return;
+    if(e.hidden || en===nq) return;
     if(en.indexOf(nq)===0) prefix.push(e);
     else if(en.indexOf(nq)!==-1) partial.push(e);
   });
@@ -2337,6 +2562,7 @@ function openAddCategorySheet(){
     state.settings.customCategories = state.settings.customCategories || [];
     state.settings.customCategories.push({id:id, label:name, glyph:picked});
     state.settings.categoryOrder.push(id);
+    (state.settings.stores||[]).forEach(function(s){ if(s.order.indexOf(id)===-1) s.order.push(id); });
     rebuildCatIndex(); save();
     closeSheet(); renderMeer(); toast(name+" toegevoegd");
   });
@@ -2345,6 +2571,7 @@ function openAddCategorySheet(){
 function deleteCustomCategory(id){
   state.settings.customCategories = (state.settings.customCategories||[]).filter(function(c){return c.id!==id;});
   state.settings.categoryOrder = state.settings.categoryOrder.filter(function(cid){return cid!==id;});
+  (state.settings.stores||[]).forEach(function(s){ s.order = s.order.filter(function(cid){return cid!==id;}); });
   state.list.forEach(function(it){ if(it.category===id) it.category="overig"; });
   Object.keys(state.catalog).forEach(function(k){ if(state.catalog[k].category===id) state.catalog[k].category="overig"; });
   if(state.settings.customCatEmoji) delete state.settings.customCatEmoji[id];
@@ -2424,6 +2651,7 @@ function switchTab(tab){
   activeTab=tab;
   document.body.classList.toggle("tab-meer", tab==="meer");
   document.body.classList.toggle("tab-vaste", tab==="vaste");
+  if(typeof renderStorePick==="function") renderStorePick();
   document.querySelectorAll("[data-tab]").forEach(function(b){ b.classList.toggle("on",b.dataset.tab===tab); });
   $("#view-lijst").classList.toggle("active",tab==="lijst");
   $("#view-vaste").classList.toggle("active",tab==="vaste");
@@ -3144,6 +3372,15 @@ if(typeof window!=="undefined"){
   window.recordTrip = recordTrip;
   window.openFinishSheet = openFinishSheet;
   window.repeatLastTrip = repeatLastTrip;
+  window.addStore = addStore;
+  window.addToList = addToList;
+  window.toggleDone = toggleDone;
+  window.activeStore = activeStore;
+  window.currentCatOrder = currentCatOrder;
+  window.shoppingWeekday = shoppingWeekday;
+  window.renameCatalogEntry = renameCatalogEntry;
+  window.openCatalogSheet = openCatalogSheet;
+  window.renderWeekRitual = renderWeekRitual;
   window.refreshTopShareBtn = refreshTopShareBtn;
   window.getCloudRef = function(){
     if(typeof window !== "undefined" && window.__cloudRef) return window.__cloudRef;

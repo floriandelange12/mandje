@@ -654,6 +654,73 @@ const ok=(n,c)=>{ if(c){pass++;console.log("  ✓ "+n);} else {fail++;console.lo
     d32b.window.close();
   }
 
+  // 33. Fase 2c/d — afronden omkeerbaar + geschiedenis + Klaar!-blad, winkels/looproute, weekritueel, catalogusbeheer
+  {
+    const dstr=(daysAgo)=>{ const d=new Date(); d.setDate(d.getDate()-daysAgo); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); };
+    const now33=new Date().toISOString();
+    const mkItem=(id,name,cat,done)=>({id:id,name:name,category:cat,qty:1,unit:"",done:!!done,note:"",price:null,assigned_to:null,added_by_name:"",addedAt:now33});
+    const seed33=JSON.stringify({version:3,settings:{theme:"light",showPrices:false,seenIntro:true,categoryOrder:null,minPurchases:3,cvThreshold:.6,dueWindowDays:1},
+      list:[mkItem("a1","appels","groente-fruit",true), mkItem("b1","brood","brood-banket",true), mkItem("m1","melk","zuivel-eieren",false)],
+      catalog:{"appels":{name:"appels",category:"groente-fruit",defaultPrice:null,purchaseDates:[dstr(14)],timesAdded:2,lastAddedAt:now33,cadenceMode:"auto",manualIntervalDays:null}},
+      coBuy:{"appels":{"bananen":3},"bananen":{"appels":3}},meals:{}});
+    // a) afronden lokaal: Klaar!-blad, geschiedenis, undo zet alles terug (ook de aankoopdatum van vandaag)
+    const d33=new JSDOM(html,{url:"https://example.com/",runScripts:"dangerously",resources:"usable",pretendToBeVisual:true,beforeParse(w){ w.localStorage.setItem("mandje.v2", seed33); }});
+    await wait(160); const W=d33.window, D=W.document;
+    W.finishShopping(); await wait(60);
+    const st1=JSON.parse(W.localStorage.getItem("mandje.v2"));
+    ok("Fase 2c: afronden haalt afgevinkte items van de lijst en schrijft een geschiedenis-item", st1.list.length===1 && Array.isArray(st1.history) && st1.history.length===1 && st1.history[0].count===2 && st1.history[0].items.map(i=>i.name).sort().join()==="appels,brood");
+    ok("Fase 2c: aankoopdatum van vandaag geregistreerd", st1.catalog.appels.purchaseDates.indexOf(dstr(0))!==-1 && st1.catalog.brood && st1.catalog.brood.purchaseDates.indexOf(dstr(0))!==-1);
+    const sheet=D.querySelector("#sheet");
+    ok("Fase 2c: Klaar!-blad met samenvatting en 'Terug op de lijst'", sheet.classList.contains("show") && /2/.test(sheet.querySelector(".fin-sum").textContent) && !!sheet.querySelector("#fin-undo"));
+    sheet.querySelector("#fin-undo").click(); await wait(60);
+    const st2=JSON.parse(W.localStorage.getItem("mandje.v2"));
+    ok("Fase 2c: 'Terug op de lijst' zet de items terug, wist het geschiedenis-item en de nieuwe aankoopdatum", st2.list.length===3 && st2.history.length===0 && st2.catalog.appels.purchaseDates.indexOf(dstr(0))===-1 && !D.querySelector("#sheet").classList.contains("show"));
+    // b) opnieuw afronden, Klaar → geschiedenis blijft; 'Herhaal vorige lijst' zet ze terug op de lijst
+    W.finishShopping(); await wait(60);
+    D.querySelector("#fin-ok").click(); await wait(40);
+    W.repeatLastTrip(); await wait(40);
+    const st3=JSON.parse(W.localStorage.getItem("mandje.v2"));
+    ok("Fase 2c: 'Herhaal vorige lijst' zet de gekochte items terug als open items", st3.history.length===1 && st3.list.filter(i=>!i.done).map(i=>i.name).sort().join()==="appels,brood,melk");
+    // c) winkels: preset-looproute, kiezer, lijstvolgorde volgt de actieve winkel
+    W.addStore("Lidl Centrum","lidl"); await wait(40);
+    const st4=JSON.parse(W.localStorage.getItem("mandje.v2"));
+    ok("Fase 2d: winkel met Lidl-preset aangemaakt en actief (brood vóór groente)", st4.settings.stores.length===1 && st4.settings.activeStoreId===st4.settings.stores[0].id && st4.settings.stores[0].order.slice(0,2).join()==="brood-banket,groente-fruit" && st4.settings.stores[0].order.length===st4.settings.categoryOrder.length);
+    const order=[...D.querySelectorAll("#open-list .shelf")].map(s=>s.dataset.cat);
+    ok("Fase 2d: Lijst-tab volgt de looproute van de actieve winkel", order.join()==="brood-banket,groente-fruit,zuivel-eieren");
+    const pick=D.querySelector("#store-pick");
+    ok("Fase 2d: winkel-kiezer toont Standaard + winkel, winkel actief", !!pick && pick.querySelectorAll(".chip").length===2 && pick.querySelectorAll(".chip")[1].classList.contains("on"));
+    pick.querySelectorAll(".chip")[0].click(); await wait(40);
+    const order2=[...D.querySelectorAll("#open-list .shelf")].map(s=>s.dataset.cat);
+    ok("Fase 2d: 'Standaard' zet de standaardvolgorde terug", order2.join()==="groente-fruit,brood-banket,zuivel-eieren" && JSON.parse(W.localStorage.getItem("mandje.v2")).settings.activeStoreId===null);
+    // d) catalogusbeheer: hernoemen met samenvoegen, verbergen sluit uit van suggesties
+    W.addToList("Bananen"); await wait(30);
+    ok("Fase 2d: hernoemen naar bestaande naam voegt samen (datums + timesAdded) en past de lijst aan", W.renameCatalogEntry("bananen","Appels") && !JSON.parse(W.localStorage.getItem("mandje.v2")).catalog.bananen && JSON.parse(W.localStorage.getItem("mandje.v2")).catalog.appels.timesAdded>=3 && D.querySelectorAll("#open-list li.row").length>=1 && !/bananen/i.test(D.querySelector("#open-list").textContent));
+    const cat=JSON.parse(W.localStorage.getItem("mandje.v2")).catalog;
+    W.openCatalogSheet(); await wait(40);
+    const rows=[...D.querySelectorAll("#sheet .cm-row")];
+    ok("Fase 2d: catalogusblad toont alle producten met acties", rows.length===Object.keys(cat).length && !!D.querySelector("#sheet #cm-q"));
+    rows[0].querySelector(".cm-more").click(); await wait(20);
+    const hideBtn=[...D.querySelectorAll("#sheet .cm-acts button")].find(b=>/niet meer voorstellen/i.test(b.textContent));
+    ok("Fase 2d: acties Details · Hernoem · Niet meer voorstellen · Verwijder", !!hideBtn && D.querySelectorAll("#sheet .cm-acts button").length===4);
+    hideBtn.click(); await wait(20);
+    const hiddenKey=Object.keys(JSON.parse(W.localStorage.getItem("mandje.v2")).catalog).find(k=>JSON.parse(W.localStorage.getItem("mandje.v2")).catalog[k].hidden);
+    ok("Fase 2d: verborgen product komt niet meer in 'Vaak gekocht'", !!hiddenKey && !W.frequentItems(20).some(e=>e.hidden));
+    d33.window.close();
+    // e) weekritueel: koopgeschiedenis op vandaag-weekdag → kaart met startzetten
+    const wdDates=[]; for(let i=0;i<8;i++){ wdDates.push(dstr(7*i+7)); }
+    const seedR=JSON.stringify({version:3,settings:{theme:"light",showPrices:false,seenIntro:true,categoryOrder:null,minPurchases:3,cvThreshold:.6,dueWindowDays:1},list:[],
+      catalog:{"melk":{name:"Melk",category:"zuivel-eieren",defaultPrice:null,purchaseDates:wdDates.slice().sort(),timesAdded:8,lastAddedAt:now33,cadenceMode:"auto",manualIntervalDays:null}},
+      coBuy:{},meals:{},history:[{id:"h1",at:now33,count:2,total:null,paid:null,list:"local",items:[{name:"melk",qty:1,unit:"",price:null,category:"zuivel-eieren"},{name:"brood",qty:1,unit:"",price:null,category:"brood-banket"}]}]});
+    const dR=new JSDOM(html,{url:"https://example.com/",runScripts:"dangerously",resources:"usable",pretendToBeVisual:true,beforeParse(w){ w.localStorage.setItem("mandje.v2", seedR); }});
+    await wait(160); const Wr=dR.window, Dr=Wr.document;
+    ok("Fase 2d: boodschappendag afgeleid uit de koopgeschiedenis (vandaag)", Wr.shoppingWeekday()===new Date().getDay());
+    const rit=Dr.querySelector("#week-ritual .ritual");
+    ok("Fase 2d: 'Klaar voor de week?'-kaart met Vaste erop en Herhaal vorige lijst", !!rit && /Klaar voor de week/.test(rit.textContent) && /Vaste erop/.test(rit.textContent) && /Herhaal vorige lijst/.test(rit.textContent));
+    rit.querySelector(".r-x").click(); await wait(20);
+    ok("Fase 2d: kaart weggetikt voor vandaag", !Dr.querySelector("#week-ritual .ritual") && JSON.parse(Wr.localStorage.getItem("mandje.v2")).settings.ritualDismissed===dstr(0));
+    dR.window.close();
+  }
+
   console.log("\nt3: "+pass+" geslaagd, "+fail+" gefaald");
   process.exit(fail?1:0);
 })().catch(e=>{console.error("t3 TESTFOUT:",e);process.exit(2)});

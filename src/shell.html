@@ -406,6 +406,34 @@
   .qs-actions{ display:flex; flex-direction:column; gap:8px; margin-top:16px; }
   .qs-actions .mbtn{ margin:0; }
   .freq-chips{ margin:0 6px 12px; }
+  /* winkel-kiezer (looproute) */
+  .store-pick{ display:flex; flex-wrap:wrap; gap:6px; margin:10px 0 0; }
+  .store-pick.empty{ display:none; }
+  .store-pick.meer{ margin:0 6px 4px; }
+  .store-pick .chip{ padding:7px 12px; font-size:var(--fs-sm); }
+  .store-pick .chip.on{ background:var(--brand); color:var(--on-brand); }
+  body.tab-meer #store-pick, body.tab-vaste #store-pick{ display:none; }
+  .shop-title small{ display:block; font-family:var(--font); font-size:var(--fs-xs); font-weight:var(--fw-medium); letter-spacing:.04em; text-transform:uppercase; color:var(--ink-soft); margin-top:-2px; }
+  .shop-title small:empty{ display:none; }
+  .mbtn.inline.soft{ background:var(--surface-3); color:var(--danger); }
+  /* weekritueel */
+  .ritual{ position:relative; background:var(--brand-2); border-radius:var(--r-lg); padding:14px 44px 14px 16px; margin:4px 0 12px; }
+  .ritual h4{ font-family:var(--display); font-size:var(--fs-xl); font-weight:var(--fw-medium); letter-spacing:var(--ls-display); margin:0 0 2px; color:var(--brand); }
+  .ritual p{ margin:0 0 10px; color:var(--ink-soft); font-size:var(--fs-md); }
+  .ritual .chips .chip{ background:var(--surface-1); box-shadow:var(--el-1); }
+  .ritual .r-x{ position:absolute; top:10px; right:10px; width:32px; height:32px; border:0; background:transparent; color:var(--brand); border-radius:50%; font-size:var(--fs-md); }
+  /* catalogusbeheer */
+  .cm-list{ margin:0 -4px; }
+  .cm-row{ display:flex; align-items:center; gap:10px; padding:10px 6px; border-bottom:1px solid var(--line); }
+  .cm-row.hidden-entry .cm-title{ opacity:.55; text-decoration:line-through; }
+  .cm-name{ flex:1; min-width:0; }
+  .cm-title{ font-size:var(--fs-base); font-weight:var(--fw-medium); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .cm-meta{ font-size:var(--fs-xs); color:var(--ink-faint); }
+  .cm-more{ flex:0 0 auto; width:var(--tap-size-sm); height:var(--tap-size-sm); border:0; border-radius:var(--r-sm); background:var(--surface-3); color:var(--ink-soft); font-size:var(--fs-lg); }
+  .cm-more[aria-expanded="true"]{ background:var(--brand-2); color:var(--brand); }
+  .cm-acts{ display:flex; flex-wrap:wrap; gap:6px; padding:8px 6px 12px; border-bottom:1px solid var(--line); }
+  .cm-acts button{ border:0; background:var(--surface-3); color:var(--ink); border-radius:var(--r-pill); padding:8px 12px; font-size:var(--fs-sm); font-weight:var(--fw-medium); min-height:var(--tap-size-sm); }
+  .cm-acts button.danger{ color:var(--danger); }
   .banner{ background:linear-gradient(135deg, var(--accent-2), color-mix(in srgb, var(--accent-2) 60%, var(--surface-1))); border:1px solid color-mix(in srgb, var(--accent) 22%, transparent); border-radius:var(--r-lg); padding:14px; }
   .banner .b-top{ display:flex; align-items:center; gap:8px; font-weight:var(--fw-bold); font-size:var(--fs-md); color:var(--accent); margin-bottom:10px; }
   .banner .b-top svg{ width:17px; height:17px; flex:0 0 auto; }
@@ -1126,6 +1154,7 @@
         <button data-tab="vaste" type="button" role="tab">Vaste</button>
       </div>
       <div id="list-switch-wrap"></div>
+      <div id="store-pick" class="store-pick empty"></div>
     </div>
 
     <!-- LIJST -->
@@ -1149,6 +1178,7 @@
       <div class="shortcuts-row empty" id="shortcuts-row"></div>
       <div class="members-row empty" id="members-row"></div>
       <div class="presence-bar empty" id="presence-bar"></div>
+      <div id="week-ritual"></div>
       <div id="due-banner"></div>
       <div id="shop-entry"></div>
       <div id="open-list"></div>
