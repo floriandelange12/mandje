@@ -108,15 +108,9 @@
     --press:scale(.96);
 
     /* ===== Legacy-aliassen (tijdens de migratie; daarna verwijderen) ===== */
-    --surface:var(--surface-1);
-    --green:var(--brand); --green-2:var(--brand-2); --on-green:var(--on-brand);
-    --amber:var(--accent); --amber-2:var(--accent-2); --red:var(--danger);
-    --shadow-sm:var(--el-1); --shadow:var(--el-2); --shadow-lg:var(--el-3);
-    --ease:var(--ease-out);
-    --r-card:var(--r-lg);
-    --h1-size:var(--fs-3xl); --h2-size:var(--fs-2xl); --subhead-size:var(--fs-sm); --body-size:var(--fs-base);
+
     --tap-size:var(--tap); --tap-size-sm:var(--tap-sm);
-    --linepad:clamp(10px, 3.5vw, 16px); --small-gap:clamp(6px, 2vw, 10px); --tabbar-h:60px;
+
   }
   @supports (animation-timing-function: linear(0, 1)){
     :root{ --ease-spring:linear(0,.012 1.4%,.05 3%,.19 6.2%,.47 10.4%,.72 14.2%,.9 17.6%,1.03 21%,1.1 24.6%,1.13 28.4%,1.12 32.6%,1.08 38%,1.02 45%,.99 52%,.985 60%,1 100%); }
@@ -341,7 +335,7 @@
   .ac-item{ display:flex; align-items:center; gap:12px; padding:11px 14px; border-bottom:1px solid var(--line); }
   .ac-item:last-child{ border-bottom:0; }
   .ac-item:active, .ac-item.active{ background:var(--surface-3); }
-  .ac-emoji{ font-size:19px; width:24px; text-align:center; }
+  .ac-emoji{ font-size:var(--fs-xl); width:24px; text-align:center; }
   .ac-name{ flex:1; font-size:var(--fs-base); font-weight:var(--fw-medium); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .ac-qmod{ flex:0 0 auto; font-size:var(--fs-xs); font-weight:var(--fw-bold); color:var(--brand); background:var(--brand-2); padding:2px 8px; border-radius:var(--r-pill); letter-spacing:.01em; }
   .ac-tag{ font-size:var(--fs-xs); color:var(--ink-faint); font-weight:var(--fw-medium); }
@@ -403,7 +397,7 @@
 
   /* Vaste-tab card */
   .vrow{ display:flex; align-items:center; gap:13px; background:var(--surface-1); border:0; border-radius:var(--r-lg); padding:clamp(11px, 2.8vw, 13px) clamp(12px, 2.8vw, 14px); box-shadow:var(--el-1); }
-  .vrow .vemoji{ flex:0 0 auto; width:40px; height:40px; border-radius:var(--r-md); background:var(--brand-2); display:flex; align-items:center; justify-content:center; font-size:20px; }
+  .vrow .vemoji{ flex:0 0 auto; width:40px; height:40px; border-radius:var(--r-md); background:var(--brand-2); display:flex; align-items:center; justify-content:center; font-size:var(--fs-xl); }
   .vrow .vmeta{ flex:1; min-width:0; }
   .vrow .vname{ font-size:var(--fs-lg); font-weight:var(--fw-medium); }
   .vrow .vcad{ font-size:var(--fs-sm); color:var(--ink-soft); margin-top:1px; }
@@ -528,7 +522,7 @@
   .sheet-actions .save{ flex:1; border:0; background:var(--brand); color:var(--on-brand); border-radius:var(--r-md); padding:15px; font-size:var(--fs-lg); font-weight:var(--fw-bold); }
   .sheet-actions .del{ flex:0 0 auto; border:0; background:var(--surface-3); color:var(--danger); border-radius:var(--r-md); padding:15px 18px; font-size:var(--fs-lg); font-weight:var(--fw-bold); }
   .intro-pt{ display:flex; gap:13px; align-items:flex-start; margin-bottom:15px; font-size:var(--fs-md); line-height:1.45; color:var(--ink-soft); }
-  .intro-pt .ip-em{ font-size:23px; flex:0 0 auto; line-height:1.2; }
+  .intro-pt .ip-em{ font-size:var(--fs-2xl); flex:0 0 auto; line-height:1.2; }
   .intro-pt b{ color:var(--ink); font-weight:var(--fw-bold); }
 
   /* ---------- Toast ---------- */
@@ -557,7 +551,7 @@
 
   .ls-item{ display:flex; align-items:center; gap:12px; padding:13px 4px; border-bottom:1px solid var(--line); }
   .ls-item:last-child{ border-bottom:0; }
-  .ls-item .lsi-ico{ width:40px; height:40px; border-radius:var(--r-md); background:var(--brand-2); display:flex; align-items:center; justify-content:center; font-size:19px; flex:0 0 auto; }
+  .ls-item .lsi-ico{ width:40px; height:40px; border-radius:var(--r-md); background:var(--brand-2); display:flex; align-items:center; justify-content:center; font-size:var(--fs-xl); flex:0 0 auto; }
   .ls-item .lsi-name{ flex:1; font-size:var(--fs-lg); font-weight:var(--fw-medium); min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
   .ls-item .lsi-sub{ font-size:var(--fs-sm); color:var(--ink-soft); }
   .ls-item.active .lsi-name{ color:var(--brand); }
@@ -602,7 +596,7 @@
   .sa-meta{ flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; }
   .sa-ttl{ font-size:var(--fs-base); font-weight:var(--fw-medium); color:var(--ink); }
   .sa-sub{ font-size:var(--fs-sm); font-weight:var(--fw-medium); color:var(--ink-soft); line-height:1.35; }
-  .sa-chev{ flex:0 0 auto; color:var(--ink-faint); font-size:22px; font-weight:300; margin-left:4px; }
+  .sa-chev{ flex:0 0 auto; color:var(--ink-faint); font-size:var(--fs-xl); font-weight:var(--fw-regular); margin-left:4px; }
 
   .send-screen{ position:absolute; inset:0; z-index:80; background:var(--bg); display:none; flex-direction:column; padding:calc(var(--safe-t) + 24px) max(20px,env(safe-area-inset-left)) calc(var(--safe-b) + 24px) max(20px,env(safe-area-inset-right)); overflow-y:auto; }
   .send-screen.show{ display:flex; }
@@ -684,7 +678,7 @@
   /* Rij mag normaal verticaal scrollen; alleen het handvat vangt de sleep-gesture */
   .sort-row{ display:flex; align-items:center; gap:12px; padding:11px 14px; background:var(--surface-1); border:0; border-radius:var(--r-md); box-shadow:var(--el-1); touch-action:pan-y; user-select:none; -webkit-user-select:none; transition:transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-inout); }
   .sort-row.dragging{ transform:scale(1.02); box-shadow:var(--el-3); z-index:5; opacity:.95; }
-  .sort-row .sr-emoji{ font-size:20px; width:30px; text-align:center; flex:0 0 auto; }
+  .sort-row .sr-emoji{ font-size:var(--fs-xl); width:30px; text-align:center; flex:0 0 auto; }
   .sort-row .sr-label{ flex:1; font-size:var(--fs-base); font-weight:var(--fw-medium); }
   .sort-row .sr-handle{ flex:0 0 auto; color:var(--ink-faint); width:40px; height:40px; margin:-8px -6px -8px 0; display:flex; align-items:center; justify-content:center; cursor:grab; touch-action:none; }
   .sort-row .sr-handle svg{ width:18px; height:18px; }
@@ -693,7 +687,7 @@
 
   /* ---------- Emoji-picker (compact) ---------- */
   .emoji-picker{ display:grid; grid-template-columns:repeat(8, 1fr); gap:6px; margin:4px 0 8px; }
-  .emoji-picker .ep-cell{ aspect-ratio:1; display:flex; align-items:center; justify-content:center; font-size:22px; border:0; background:var(--surface-3); border-radius:var(--r-sm); padding:0; transition:transform var(--dur-instant) var(--ease-out), background var(--dur-fast) var(--ease-inout); }
+  .emoji-picker .ep-cell{ aspect-ratio:1; display:flex; align-items:center; justify-content:center; font-size:var(--fs-xl); border:0; background:var(--surface-3); border-radius:var(--r-sm); padding:0; transition:transform var(--dur-instant) var(--ease-out), background var(--dur-fast) var(--ease-inout); }
   .emoji-picker .ep-cell:active{ transform:var(--press); background:var(--surface-3); }
   .emoji-picker .ep-cell.on{ background:var(--brand-2); color:var(--brand); }
 
@@ -709,7 +703,7 @@
   /* ---------- Intro stappen (onboarding) ---------- */
   .intro-stage{ display:flex; flex-direction:column; align-items:center; padding:10px 4px 4px; min-height:280px; }
   .intro-card{ width:100%; max-width:340px; padding:28px 22px; background:var(--surface-1); border:0; border-radius:var(--r-xl); text-align:center; box-shadow:var(--el-1); margin-bottom:18px; }
-  .intro-card .ic-glyph{ font-size:46px; margin-bottom:14px; line-height:1; }
+  .intro-card .ic-glyph{ font-size:calc(var(--fs-3xl) * 1.4); margin-bottom:14px; line-height:1; }
   .intro-card h4{ font-family:var(--display); font-size:var(--fs-xl); font-weight:var(--fw-medium); letter-spacing:var(--ls-display); margin:0 0 8px; }
   .intro-card p{ font-size:var(--fs-md); line-height:1.45; color:var(--ink-soft); margin:0; }
   .intro-dots{ display:flex; gap:8px; margin:6px 0 18px; }
@@ -839,7 +833,7 @@
       --app-padding: clamp(10px, 2.2vw, 12px);
       --tap-size: clamp(38px, 13vw, 42px);
       --tap-size-sm: clamp(28px, 10vw, 31px);
-      --h1-size: clamp(25px, 8vw, 30px);
+
       --subhead-size: 12px;
       --body-size: 16px;
       --totals-space: 172px;
@@ -959,7 +953,7 @@
   .shelf-ico.shelf-bubble{ width:2.25rem; height:2.25rem; border-radius:var(--r-md); background:var(--shelf-tint, var(--surface-3)); }
   .shelf-ico.shelf-bubble svg{ width:var(--icon-md); height:var(--icon-md); }
   .shelf-ico.is-emoji .emoji{ font-size:1.05em; line-height:1; }
-  .shelf-ico.shelf-bubble.is-emoji .emoji{ font-size:1.25rem; }
+  .shelf-ico.shelf-bubble.is-emoji .emoji{ font-size:var(--fs-xl); }
   .shelf-vers{ --shelf-tint:var(--shelf-vers-tint); --shelf-ink:var(--shelf-vers-ink); }
   .shelf-graan{ --shelf-tint:var(--shelf-graan-tint); --shelf-ink:var(--shelf-graan-ink); }
   .shelf-koel{ --shelf-tint:var(--shelf-koel-tint); --shelf-ink:var(--shelf-koel-ink); }
@@ -1039,7 +1033,7 @@
   window.MANDJE_CONFIG = {
     SUPABASE_URL:      "https://yctcpxgjpmhyohbsrygy.supabase.co",   /* ingevuld ✓ */
     SUPABASE_ANON_KEY: "sb_publishable_lT77Nkcrl6VsBIx-PFuMtw_mdJ6fyNj",   /* ingevuld ✓ (publishable key) */
-    BUILD:             "68d83284", /* wordt door build.js vervangen door datum + inhoudshash (nooit handmatig ophogen) */
+    BUILD:             "740936b7", /* wordt door build.js vervangen door datum + inhoudshash (nooit handmatig ophogen) */
     EMAIL_AUTH:        false, /* zet op true zodra e-mail magic-link aan staat in Supabase → toont "Beveilig je account" */
     VAPID_PUBLIC_KEY:  "BIkVm3JYB2t37GOXQlMTwSRipLcEvjrDY8Kb2mmNOIIrRY4zmR57RznHTJ2NQ5Z9h1fkp3if2OkDGmcmItLjy54"  /* public key (veilig in frontend). Privésleutel staat alleen als Supabase-secret. */
   };
@@ -2245,7 +2239,7 @@ function flyToAvatar(fromEl, toEl, label){
       bit.style.opacity="0";
     });
     // doel-avatar even laten "poppen"
-    setTimeout(function(){ try{ toEl.style.transition="transform .2s var(--ease)"; toEl.style.transform="scale(1.18)"; setTimeout(function(){ toEl.style.transform=""; },200);}catch(e){} }, 430);
+    setTimeout(function(){ try{ toEl.style.transition="transform .2s var(--ease-out)"; toEl.style.transform="scale(1.18)"; setTimeout(function(){ toEl.style.transform=""; },200);}catch(e){} }, 430);
     setTimeout(function(){ if(bit.parentNode) bit.parentNode.removeChild(bit); }, 650);
   }catch(e){}
 }
@@ -5914,7 +5908,7 @@ function openSwitchSheet(){
     else if(iOwn) badge='Jij + '+(cnt-1)+' ander'+(cnt-1>1?'en':'');
     else badge=cnt+' leden';
     var ico = inbox
-      ? '<div class="lsi-ico" style="background:var(--green-2)">📥</div>'
+      ? '<div class="lsi-ico" style="background:var(--brand-2)">📥</div>'
       : '<div class="lsi-ico" style="background:'+col+';color:#fff;font-size:13px;font-weight:700;letter-spacing:.02em">'+escapeHtml(initials(nm))+'</div>';
     html+='<div class="ls-item'+(Cloud.active===l.id?" active":"")+'" data-act="'+l.id+'">'+
       ico+
@@ -5977,7 +5971,7 @@ function avatarHtml(name, color, emoji, size){
     // In dark mode meer kleur-mix zodat de stip niet verdwijnt
     var dark = (typeof effectiveTheme==="function" && effectiveTheme()==="dark");
     inner = '<span class="emoji" style="font-size:'+Math.round(size*0.56)+'px">'+escapeHtml(String(emoji).slice(0,8))+'</span>';
-    bg = "color-mix(in srgb, "+safeColor(color)+" "+(dark?28:18)+"%, var(--surface))";
+    bg = "color-mix(in srgb, "+safeColor(color)+" "+(dark?28:18)+"%, var(--surface-1))";
   } else {
     inner = '<span style="color:#fff;font-weight:700;font-size:'+Math.round(size*0.4)+'px;letter-spacing:.02em">'+escapeHtml(initials(name))+'</span>';
     bg = safeColor(color);
@@ -6092,11 +6086,11 @@ function openShareSheet(listId){
           addable.map(function(f){
             return '<div class="ls-item"><span style="flex:0 0 auto">'+avatarHtml(f.name,f.color,f.emoji,32)+'</span>'+
               '<div class="lsi-name" style="flex:1;min-width:0;font-size:16px">'+escapeHtml(f.name)+'</div>'+
-              '<button class="lsi-member-action add-friend-to-list" data-user="'+f.user_id+'" type="button" style="color:var(--green);font-weight:700">+ Toevoegen</button></div>';
+              '<button class="lsi-member-action add-friend-to-list" data-user="'+f.user_id+'" type="button" style="color:var(--brand);font-weight:700">+ Toevoegen</button></div>';
           }).join("");
       })()+
       (activityHtml||'')+
-      (isOwner ? '<div class="sheet-label" style="margin-top:22px"><span class="lbl-cap">Let op</span></div><button class="mbtn danger" id="sh-delete-list" type="button" style="width:100%;color:var(--red);border-color:color-mix(in srgb, var(--red) 25%, var(--line))">Lijst verwijderen</button><div class="hint" style="margin:4px 6px 0">Alle items en leden zijn dan weg voor altijd.</div>' : '');
+      (isOwner ? '<div class="sheet-label" style="margin-top:22px"><span class="lbl-cap">Let op</span></div><button class="mbtn danger" id="sh-delete-list" type="button" style="width:100%;color:var(--danger);border-color:color-mix(in srgb, var(--danger) 25%, var(--line))">Lijst verwijderen</button><div class="hint" style="margin:4px 6px 0">Alle items en leden zijn dan weg voor altijd.</div>' : '');
   }
 
   var s = openSheet2(buildHtml(''));
@@ -6237,7 +6231,7 @@ function openSendScreen(token){
   var added=[];
   function renderError(msg){
     scr.innerHTML =
-      '<div class="ss-badge" style="background:var(--amber-2)"><svg viewBox="0 0 24 24" fill="none" stroke="var(--amber)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg></div>'+
+      '<div class="ss-badge" style="background:var(--accent-2)"><svg viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg></div>'+
       '<div class="eyebrow">Niet beschikbaar</div>'+
       '<h1>Link werkt niet</h1>'+
       '<div class="ss-sub">'+escapeHtml(msg||"Deze stuur-link is verlopen of de lijst is verwijderd.")+'</div>'+

@@ -666,7 +666,7 @@ function flyToAvatar(fromEl, toEl, label){
       bit.style.opacity="0";
     });
     // doel-avatar even laten "poppen"
-    setTimeout(function(){ try{ toEl.style.transition="transform .2s var(--ease)"; toEl.style.transform="scale(1.18)"; setTimeout(function(){ toEl.style.transform=""; },200);}catch(e){} }, 430);
+    setTimeout(function(){ try{ toEl.style.transition="transform .2s var(--ease-out)"; toEl.style.transform="scale(1.18)"; setTimeout(function(){ toEl.style.transform=""; },200);}catch(e){} }, 430);
     setTimeout(function(){ if(bit.parentNode) bit.parentNode.removeChild(bit); }, 650);
   }catch(e){}
 }

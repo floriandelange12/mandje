@@ -1456,7 +1456,7 @@ function openSwitchSheet(){
     else if(iOwn) badge='Jij + '+(cnt-1)+' ander'+(cnt-1>1?'en':'');
     else badge=cnt+' leden';
     var ico = inbox
-      ? '<div class="lsi-ico" style="background:var(--green-2)">📥</div>'
+      ? '<div class="lsi-ico" style="background:var(--brand-2)">📥</div>'
       : '<div class="lsi-ico" style="background:'+col+';color:#fff;font-size:13px;font-weight:700;letter-spacing:.02em">'+escapeHtml(initials(nm))+'</div>';
     html+='<div class="ls-item'+(Cloud.active===l.id?" active":"")+'" data-act="'+l.id+'">'+
       ico+
@@ -1519,7 +1519,7 @@ function avatarHtml(name, color, emoji, size){
     // In dark mode meer kleur-mix zodat de stip niet verdwijnt
     var dark = (typeof effectiveTheme==="function" && effectiveTheme()==="dark");
     inner = '<span class="emoji" style="font-size:'+Math.round(size*0.56)+'px">'+escapeHtml(String(emoji).slice(0,8))+'</span>';
-    bg = "color-mix(in srgb, "+safeColor(color)+" "+(dark?28:18)+"%, var(--surface))";
+    bg = "color-mix(in srgb, "+safeColor(color)+" "+(dark?28:18)+"%, var(--surface-1))";
   } else {
     inner = '<span style="color:#fff;font-weight:700;font-size:'+Math.round(size*0.4)+'px;letter-spacing:.02em">'+escapeHtml(initials(name))+'</span>';
     bg = safeColor(color);
@@ -1634,11 +1634,11 @@ function openShareSheet(listId){
           addable.map(function(f){
             return '<div class="ls-item"><span style="flex:0 0 auto">'+avatarHtml(f.name,f.color,f.emoji,32)+'</span>'+
               '<div class="lsi-name" style="flex:1;min-width:0;font-size:16px">'+escapeHtml(f.name)+'</div>'+
-              '<button class="lsi-member-action add-friend-to-list" data-user="'+f.user_id+'" type="button" style="color:var(--green);font-weight:700">+ Toevoegen</button></div>';
+              '<button class="lsi-member-action add-friend-to-list" data-user="'+f.user_id+'" type="button" style="color:var(--brand);font-weight:700">+ Toevoegen</button></div>';
           }).join("");
       })()+
       (activityHtml||'')+
-      (isOwner ? '<div class="sheet-label" style="margin-top:22px"><span class="lbl-cap">Let op</span></div><button class="mbtn danger" id="sh-delete-list" type="button" style="width:100%;color:var(--red);border-color:color-mix(in srgb, var(--red) 25%, var(--line))">Lijst verwijderen</button><div class="hint" style="margin:4px 6px 0">Alle items en leden zijn dan weg voor altijd.</div>' : '');
+      (isOwner ? '<div class="sheet-label" style="margin-top:22px"><span class="lbl-cap">Let op</span></div><button class="mbtn danger" id="sh-delete-list" type="button" style="width:100%;color:var(--danger);border-color:color-mix(in srgb, var(--danger) 25%, var(--line))">Lijst verwijderen</button><div class="hint" style="margin:4px 6px 0">Alle items en leden zijn dan weg voor altijd.</div>' : '');
   }
 
   var s = openSheet2(buildHtml(''));
@@ -1779,7 +1779,7 @@ function openSendScreen(token){
   var added=[];
   function renderError(msg){
     scr.innerHTML =
-      '<div class="ss-badge" style="background:var(--amber-2)"><svg viewBox="0 0 24 24" fill="none" stroke="var(--amber)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg></div>'+
+      '<div class="ss-badge" style="background:var(--accent-2)"><svg viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg></div>'+
       '<div class="eyebrow">Niet beschikbaar</div>'+
       '<h1>Link werkt niet</h1>'+
       '<div class="ss-sub">'+escapeHtml(msg||"Deze stuur-link is verlopen of de lijst is verwijderd.")+'</div>'+

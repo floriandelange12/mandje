@@ -69,6 +69,18 @@ ok("manifest: shortcuts (≥2) en share_target (GET)", !!mf && Array.isArray(mf.
 ok("index.html: <link rel=\"manifest\" href=\"./manifest.webmanifest\"> (geen data-URI)", html.indexOf('<link rel="manifest" href="./manifest.webmanifest">')!==-1 && html.indexOf("data:application/manifest+json")===-1);
 ok("index.html: geen base64-iconen meer vóór <body", html.slice(0, Math.max(bodyIdx,0)).indexOf("data:image/png;base64")===-1);
 
+// 5b. design-systeem: geen losse pixelmaten/legacy-tokens meer in de CSS (tokens zijn de enige bron)
+{
+  const css = (html.match(/<style>([\s\S]*?)<\/style>/) || [, ""])[1];
+  const fsPx = (css.match(/font-size:\s*[0-9.]+px/g) || []).length;
+  const brPx = (css.match(/border-radius:\s*[0-9.]+px/g) || []).length;   // 1 toegestaan: confetti (2px)
+  const legacy = (html.match(/var\(--(green|amber|red|surface|shadow|shadow-sm|shadow-lg|ease|r-card|h1-size|h2-size)\)/g) || []).length;
+  ok("css: geen font-size in px (gevonden "+fsPx+")", fsPx===0);
+  ok("css: border-radius in px hooguit 1× (confetti) (gevonden "+brPx+")", brPx<=1);
+  ok("bundel: geen legacy-tokens (--green/--amber/--red/--surface/--shadow/--ease/--r-card/--h1-size) (gevonden "+legacy+")", legacy===0);
+  ok("bundel: geen #34c759 (oud iOS-groen)", !/#34c759/i.test(html));
+}
+
 // 6. sw.js precache-lijst: ./index.html erin, "./" niet als losse entry
 const pm = sw.match(/PRECACHE\s*=\s*(\[[^\]]*\])/) || sw.match(/addAll\(\s*(\[[^\]]*\])/);
 let precache = null;
