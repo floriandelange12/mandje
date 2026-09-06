@@ -544,6 +544,7 @@ var Cloud = {
   },
 
     open:async function(listId){
+      if(this._flagsPrimedFor!==listId){ this._seenFlags={}; this._flagsPrimedFor=null; }
       // Bewaar de persoonlijke lijst vóór we de cloud-items in state.list laden (alleen als we
       // nu nog op Persoonlijk staan; bij cloud→cloud houden we de bestaande snapshot).
       var refreshToken = this._nextRefreshToken();
@@ -622,9 +623,10 @@ var Cloud = {
           var fresh = {
             id:it.id, name:it.name, category:it.category||classify(it.name), qty:it.qty||1,
             price:(it.price==null?null:Number(it.price)), note:it.note||"", done:!!it.done,
-            unit:(it.unit!=null ? it.unit : ((old&&old.unit)||"")), assigned_to:it.assigned_to||null, added_by_name:it.added_by_name||"", addedAt:it.created_at
+            unit:(it.unit!=null ? it.unit : ((old&&old.unit)||"")), assigned_to:it.assigned_to||null, added_by_name:it.added_by_name||"", addedAt:it.created_at,
+            flaggedAt:it.flagged_at||null, flaggedBy:it.flagged_by_name||""
           };
-          if(old && old.name===fresh.name && old.qty===fresh.qty && old.done===fresh.done && old.price===fresh.price && (old.note||"")===(fresh.note||"") && (old.unit||"")===(fresh.unit||"") && old.assigned_to===fresh.assigned_to && (old.category||"")===(fresh.category||"")){
+          if(old && old.name===fresh.name && old.qty===fresh.qty && old.done===fresh.done && old.price===fresh.price && (old.note||"")===(fresh.note||"") && (old.unit||"")===(fresh.unit||"") && old.assigned_to===fresh.assigned_to && (old.category||"")===(fresh.category||"") && (old.flaggedAt||"")===(fresh.flaggedAt||"")){
             return old;
           }
           return fresh;
@@ -654,6 +656,7 @@ var Cloud = {
           });
         }
         state.list = mapped;
+        this._noticeFlags(listId, mapped);
         this._cacheList(listId, mapped);
         if(activeTab==="lijst"){ renderLijst(); renderDueBanner(); }
         if(typeof renderShoppingMode==="function") renderShoppingMode();
@@ -675,7 +678,7 @@ var Cloud = {
         state.cloudCache = state.cloudCache || {};
         var l=this.listById(listId);
         state.cloudCache[listId] = { name:(l && l.name) || "Gedeelde lijst", at:new Date().toISOString(),
-          items:(items||[]).slice(0,300).map(function(i){ return { id:i.id, name:i.name, category:i.category, qty:i.qty, unit:i.unit||"", note:i.note||"", done:!!i.done, added_by_name:i.added_by_name||"", flagged_at:i.flagged_at||null, flagged_by_name:i.flagged_by_name||"" }; }) };
+          items:(items||[]).slice(0,300).map(function(i){ return { id:i.id, name:i.name, category:i.category, qty:i.qty, unit:i.unit||"", note:i.note||"", done:!!i.done, added_by_name:i.added_by_name||"", flagged_at:i.flaggedAt||null, flagged_by_name:i.flaggedBy||"" }; }) };
         // hooguit 6 lijsten bewaren
         var keys=Object.keys(state.cloudCache); if(keys.length>6){ keys.sort(function(a,b){ return String(state.cloudCache[a].at).localeCompare(String(state.cloudCache[b].at)); }); delete state.cloudCache[keys[0]]; }
         if(typeof save==="function") save();
@@ -745,11 +748,12 @@ var Cloud = {
           });
         });
         self.present=others;
+        self._noticeShopping(others);
         renderPresence(); renderMembersRow();
       })
       .subscribe(function(status){
         if(status === "SUBSCRIBED"){
-          try{ self.channel.track({ user_id:self.userId, name:self.myName(), color:(self.me&&self.me.color)||"#24593F", emoji:self.myEmoji() }); }catch(e){}
+          self._track();
           self.flushPending();
         } else if(status === "CHANNEL_ERROR" || status === "TIMED_OUT"){
           console.warn("Cloud realtime channel:", status);
@@ -795,6 +799,44 @@ var Cloud = {
   _pendingInsert:function(tmpId){
     for(var i=0;i<this._pending.length;i++){ var e=this._pending[i]; if(e.op==="insert"&&e.tmpId===tmpId) return e; }
     return null;
+  },
+  /* ===== "Wat is op" + "in de winkel" (Fase 4) ===== */
+  _seenFlags:{}, _flagsPrimedFor:null, _shoppingSeen:{}, _shopping:false,
+  _presencePayload:function(){ return { user_id:this.userId, name:this.myName(), color:(this.me&&this.me.color)||"#24593F", emoji:this.myEmoji(), shopping:!!this._shopping }; },
+  _track:function(){ if(!this.channel) return; try{ var p=this.channel.track(this._presencePayload()); if(p && typeof p.catch==="function") p.catch(function(){}); }catch(e){} },
+  setShopping:function(on){ on=!!on; if(this._shopping===on) return; this._shopping=on; if(this.active) this._track(); },
+  /* Nieuwe vlag van een huisgenoot (niet je eigen, niet bij de eerste laadbeurt) → toast met de namen */
+  _noticeFlags:function(listId, mapped){
+    var self=this, me=this.myName(), fresh=[], now=Date.now();
+    var primed = (this._flagsPrimedFor===listId);
+    (mapped||[]).forEach(function(it){
+      if(!it.flaggedAt || it.done) return;
+      var key=it.id+"|"+it.flaggedAt;
+      if(self._seenFlags[key]) return;
+      self._seenFlags[key]=1;
+      var t=new Date(it.flaggedAt).getTime();
+      if(primed && (it.flaggedBy||"")!==me && !isNaN(t) && (now-t) < 6*3600000) fresh.push(it);
+    });
+    this._flagsPrimedFor=listId;
+    if(!fresh.length || typeof toast!=="function") return;
+    var who=(fresh[0].flaggedBy||"Iemand"), names=fresh.map(function(i){ return i.name; });
+    var txt = who+": "+(names.length===1 ? names[0]+" is op" : (names.slice(0,-1).join(", ")+" en "+names[names.length-1]+" zijn op"));
+    toast(txt, {duration:4000, onTap:function(){ if(typeof scrollToRow==="function") scrollToRow(fresh[0].id); }});
+    if(typeof vibe==="function") vibe("nudge");
+  },
+  _noticeShopping:function(others){
+    var self=this; if(!Array.isArray(others)) return;
+    others.forEach(function(p){
+      if(!p || !p.shopping || !p.user_id) return;
+      if(self._shoppingSeen[p.user_id]) return;
+      self._shoppingSeen[p.user_id]=Date.now();
+      if(typeof toast==="function" && !(typeof shopIsOpen==="function" && shopIsOpen())){
+        toast("🛒 "+(p.name||"Iemand")+" is in de winkel — nog iets nodig?", {duration:5000, onTap:function(){ var i=document.getElementById("add-name"); if(i) i.focus(); }});
+      }
+    });
+    // wie klaar is, mag later opnieuw gemeld worden
+    var live={}; others.forEach(function(p){ if(p && p.shopping && p.user_id) live[p.user_id]=1; });
+    Object.keys(this._shoppingSeen).forEach(function(uid2){ if(!live[uid2]) delete self._shoppingSeen[uid2]; });
   },
   /* ===== Account met e-mail (Fase 3C): code per mail, link werkt ook; zelfde user_id dus alles blijft ===== */
   authEmail:null, isAnon:true, _otpSentAt:0, _otpEmail:"", _otpMode:"", _authCheckAt:0,
@@ -1020,6 +1062,12 @@ var Cloud = {
     opts = opts || {};
     var self=this, k = norm(name), mk = (typeof matchKey==="function") ? matchKey(name) : k;
     var existing = state.list.find(function(i){ return !i.done && ((typeof matchKey==="function") ? matchKey(i.name) : norm(i.name))===mk; });
+    if(existing && opts.flag){
+      var fnow=new Date().toISOString();
+      existing.flaggedAt=fnow; existing.flaggedBy=this.myName(); renderLijst();
+      if(this._hasFlag!==false) this._writeItem("update", {flagged_at:fnow, flagged_by_name:this.myName()}, existing.id);
+      return;
+    }
     if(existing){
       existing.qty += addQty;
       if(price!=null) existing.price = price;
@@ -1036,13 +1084,23 @@ var Cloud = {
     var cat=(opts.category && CAT_BY_ID[opts.category]) ? opts.category : ((state.catalog[k]&&state.catalog[k].category)||classify(name));
     var tmpId="tmp_"+uid();
     // unit blijft lokaal (geen DB-kolom) → puur optimistische weergave op cloud-lijsten
-    state.list.unshift({ id:tmpId, name:name, category:cat, qty:addQty, price:price, note:"", unit:(opts.unit||""), done:false, assigned_to:null, added_by_name:this.myName(), addedAt:nowISO() });
+    state.list.unshift({ id:tmpId, name:name, category:cat, qty:addQty, price:price, note:"", unit:(opts.unit||""), done:false, assigned_to:null, added_by_name:this.myName(), addedAt:nowISO(), flaggedAt:(opts.flag?nowISO():null), flaggedBy:(opts.flag?this.myName():"") });
     renderLijst();
     if(!opts.silent && addQty>1) toast(name + " ×" + addQty);
     var payload={list_id:this.active, name:name, category:cat, qty:addQty, price:(price==null?null:price), added_by_name:this.myName()};
     if(opts.unit && this._hasUnit!==false) payload.unit = opts.unit;
+    if(opts.flag && this._hasFlag!==false){ payload.flagged_at=new Date().toISOString(); payload.flagged_by_name=this.myName(); }
     var fail=function(){ self._queueInsert(tmpId, payload); if(!opts.silent) toast("Offline — wordt verstuurd zodra je weer verbinding hebt"); };
-    this._writeItem("insert", payload, null, fail);
+    this._writeItem("insert", payload, null, fail, function(r){ var row=r && r.data && (Array.isArray(r.data) ? r.data[0] : r.data); if(row && row.id) self._adoptId(tmpId, row.id); });
+  },
+  /* Tijdelijk id vervangen door het echte: in de lijst, de rij-cache en de wachtrij (een update op tmp_ zou anders verloren gaan) */
+  _adoptId:function(tmpId, realId){
+    if(!tmpId || !realId || tmpId===realId) return;
+    var it=state.list.find(function(i){ return i.id===tmpId; });
+    if(it){ it.id=realId; if(typeof _rowCache!=="undefined" && _rowCache && _rowCache[tmpId]){ delete _rowCache[tmpId]; } }
+    this._pending.forEach(function(e){ if(e.op==="update" && e.id===tmpId) e.id=realId; if(e.op==="delete" && e.id===tmpId) e.id=realId; });
+    if(it && typeof renderLijst==="function" && activeTab==="lijst") renderLijst();
+    if(typeof shopIsOpen==="function" && shopIsOpen() && typeof renderShopBody==="function") renderShopBody();
   },
   /* Schrijft een item weg en valt terug zonder 'unit' als de kolom (migratie M0) nog ontbreekt —
      zo blijft de app werken vóór én na het draaien van de migratie. */
@@ -1052,8 +1110,13 @@ var Cloud = {
   _isMissingCol:function(err, col){
     if(!err) return false;
     var m=String(err.message||"")+" "+String(err.details||"")+" "+String(err.hint||"");
-    return (err.code==="42703" || err.code==="PGRST204" || /(column|schema cache)/i.test(m)) && new RegExp(col,"i").test(m);
+    if(!(err.code==="42703" || err.code==="PGRST204" || /(column|schema cache)/i.test(m))) return false;
+    // de kolomnaam uit de melding halen — anders matcht "name" ook op "flagged_by_name"
+    var mm = m.match(/'([a-z0-9_]+)' column/i) || m.match(/column "([a-z0-9_]+)"/i) || m.match(/column [a-z0-9_]+\.([a-z0-9_]+)/i);
+    if(mm) return mm[1].toLowerCase()===String(col).toLowerCase();
+    return new RegExp("\\b"+col+"\\b","i").test(m);
   },
+  _hasFlag:undefined,
   _isMissingTable:function(err){ return !!(err && (err.code==="PGRST205" || err.code==="42P01" || /could not find the table|relation .* does not exist/i.test(String(err.message||"")))); },
   _isMissingFn:function(err){ return !!(err && (err.code==="PGRST202" || /could not find the function/i.test(String(err.message||"")))); },
   _hasBoughtAt:undefined,
@@ -1063,16 +1126,21 @@ var Cloud = {
     if(!this.sb){ this._queueUpdate(id, fields); return; }
     this.sb.from("items").update(fields).eq("id",id).then(function(r){ if(r&&r.error) self._queueUpdate(id, fields); }, function(){ self._queueUpdate(id, fields); });
   },
-  _writeItem:function(op, data, id, onFail){
+  _writeItem:function(op, data, id, onFail, onOk){
     var self=this;
-    var run=function(d){ return op==="insert" ? self.sb.from("items").insert(d) : self.sb.from("items").update(d).eq("id", id); };
+    var run=function(d){ return op==="insert" ? self.sb.from("items").insert(d).select("id") : self.sb.from("items").update(d).eq("id", id); };
     var fail = onFail || function(){ self._queueUpdate(id, data); };
     if(!this.sb){ fail(); return; }
+    var okk=function(r){ if(typeof onOk==="function"){ try{ onOk(r); }catch(e){} } };
     run(data).then(function(r){
+      if(!r || !r.error) okk(r);
       if(r && r.error){
-        if("unit" in data && self._isMissingUnit(r.error)){
-          self._hasUnit=false; delete data.unit;   // in-place, zodat óók de fail-closures (offline-wachtrij) het veld kwijt zijn
-          run(data).then(function(r2){ if(r2&&r2.error) fail(); }, fail);
+        var missing=Object.keys(data).filter(function(k){ return self._isMissingCol(r.error, k); });
+        if("unit" in data && self._isMissingUnit(r.error) && missing.indexOf("unit")===-1) missing.push("unit");
+        if(missing.length){
+          // in-place, zodat óók de fail-closures (offline-wachtrij) de velden kwijt zijn
+          missing.forEach(function(k){ if(k==="unit") self._hasUnit=false; if(k==="flagged_at"||k==="flagged_by_name") self._hasFlag=false; delete data[k]; });
+          if(Object.keys(data).length) run(data).then(function(r2){ if(r2&&r2.error) fail(); else okk(r2); }, fail);
           return;
         }
         fail();
@@ -1124,7 +1192,8 @@ var Cloud = {
   },
   setFields:function(id, fields){
     var it=state.list.find(function(i){return i.id===id;});
-    if(it){ if("qty"in fields)it.qty=fields.qty; if("price"in fields)it.price=fields.price; if("note"in fields)it.note=fields.note; if("unit"in fields)it.unit=fields.unit; if("category"in fields)it.category=fields.category; if("assigned_to"in fields)it.assigned_to=fields.assigned_to; renderLijst(); }
+    if(it){ if("qty"in fields)it.qty=fields.qty; if("price"in fields)it.price=fields.price; if("note"in fields)it.note=fields.note; if("unit"in fields)it.unit=fields.unit; if("category"in fields)it.category=fields.category; if("assigned_to"in fields)it.assigned_to=fields.assigned_to; if("flagged_at"in fields)it.flaggedAt=fields.flagged_at||null; if("flagged_by_name"in fields)it.flaggedBy=fields.flagged_by_name||""; renderLijst(); if(typeof shopIsOpen==="function" && shopIsOpen() && typeof renderShopBody==="function") renderShopBody(); }
+    if(("flagged_at" in fields || "flagged_by_name" in fields) && this._hasFlag===false){ var f3={}; for(var k3 in fields){ if(k3!=="flagged_at" && k3!=="flagged_by_name") f3[k3]=fields[k3]; } fields=f3; if(!Object.keys(fields).length) return; }
     if("unit" in fields && this._hasUnit===false){ var f2={}; for(var k in fields){ if(k!=="unit") f2[k]=fields[k]; } fields=f2; }
     this._writeItem("update", fields, id);
   },
@@ -1707,11 +1776,11 @@ function renderMembersRow(){
   // toon alleen ANDERE leden (jij ben je zelf al — geen zin in een avatar van jezelf)
   var others=Cloud.members.filter(function(m){ return m.user_id !== Cloud.userId; });
   // wie is nu live aanwezig (via realtime presence)?
-  var liveIds = {}; (Cloud.present||[]).forEach(function(p){ liveIds[p.user_id]=1; });
+  var liveIds = {}, shopIds={}; (Cloud.present||[]).forEach(function(p){ liveIds[p.user_id]=1; if(p.shopping) shopIds[p.user_id]=1; });
   var avs=others.map(function(m){
-    var live = !!liveIds[m.user_id];
+    var live = !!liveIds[m.user_id], shopping=!!shopIds[m.user_id];
     var online = live || (m.last_seen && (now-new Date(m.last_seen).getTime() < 120000));
-    return '<div class="av'+(online?'':' offline')+(live?' live':'')+'" title="'+escapeHtml(m.display_name)+(live?' · kijkt nu mee':'')+'" style="background:'+safeColor(m.color)+'">'+escapeHtml(initials(m.display_name).slice(0,1))+'</div>';
+    return '<div class="av'+(online?'':' offline')+(live?' live':'')+(shopping?' shopping':'')+'" title="'+escapeHtml(m.display_name)+(shopping?' · in de winkel':(live?' · kijkt nu mee':''))+'" style="background:'+safeColor(m.color)+'">'+escapeHtml(initials(m.display_name).slice(0,1))+'</div>';
   }).join("");
   var avBlock = others.length ? '<div class="avatars" aria-label="Leden">'+avs+'</div>' : '';
   row.innerHTML = avBlock +
@@ -1726,6 +1795,16 @@ function renderPresence(){
   var bar=document.getElementById("presence-bar"); if(!bar) return;
   var present=(Cloud.present||[]);
   if(activeTab!=="lijst" || !Cloud.active || !present.length){ bar.className="presence-bar empty"; bar.innerHTML=""; return; }
+  var shoppers=present.filter(function(p){ return p && p.shopping; });
+  if(shoppers.length){
+    var sn=shoppers.map(function(p){ return p.name||"Iemand"; });
+    var st = (sn.length===1 ? sn[0]+" is" : (sn.length===2 ? sn[0]+" en "+sn[1]+" zijn" : sn.length+" mensen zijn"))+" in de winkel";
+    bar.className="presence-bar shopping";
+    bar.innerHTML='<span class="pb-dot"></span><span class="pb-txt"></span><button class="pb-act" type="button">Nog iets nodig?</button>';
+    bar.querySelector(".pb-txt").textContent="🛒 "+st;
+    bar.querySelector(".pb-act").addEventListener("click", function(){ var i=document.getElementById("add-name"); if(i){ i.focus(); try{ i.scrollIntoView({block:"nearest"}); }catch(e){} } });
+    return;
+  }
   var names=present.map(function(p){return p.name||"Iemand";});
   var txt;
   if(names.length===1) txt=names[0]+" kijkt mee";

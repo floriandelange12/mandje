@@ -202,6 +202,7 @@ const stored=(W)=>JSON.parse(W.localStorage.getItem("mandje.v2"));
             else if(o.ops[0][0]==="select"){ data=items.filter(i=>!isNull || i.bought_at==null); if(o.ops.some(x=>x[0]==="not")) data=items.filter(i=>i.bought_at); }
             else if(o.ops[0][0]==="update"){ const f=o.ops[0][1]; if(opts.noBoughtAt && "bought_at" in f){ error={code:"PGRST204", message:"Could not find the 'bought_at' column of 'items' in the schema cache"}; } else { const ids=(o.ops.find(x=>x[0]==="in")||[])[2]||[]; const id=(o.ops.find(x=>x[0]==="eq")||[])[2]; items.forEach(i=>{ if(ids.indexOf(i.id)!==-1 || i.id===id) Object.assign(i,f); }); } }
             else if(o.ops[0][0]==="delete"){ const ids=(o.ops.find(x=>x[0]==="in")||[])[2]||[]; const id=(o.ops.find(x=>x[0]==="eq")||[])[2]; items=items.filter(i=>ids.indexOf(i.id)===-1 && i.id!==id); }
+            else if(o.ops[0][0]==="insert"){ const p=o.ops[0][1]; const row=Object.assign({id:"new_"+(items.length+1), created_at:new Date().toISOString(), bought_at:null, done:false, note:"", unit:"", price:null, assigned_to:null}, p); items.push(row); if(o.ops.some(x=>x[0]==="select")) data=[{id:row.id}]; }
           }
           if(table==="members") data=[{id:"m1",list_id:"c1",user_id:"u1",display_name:"Ik",color:"#24593F"}];
           if(table==="user_state"){
@@ -222,7 +223,7 @@ const stored=(W)=>JSON.parse(W.localStorage.getItem("mandje.v2"));
         verifyOtp:async(p)=>{ authCalls.push(["verifyOtp",p]); if(p.token!=="12345678") return {data:null,error:{message:"Token has expired or is invalid"}}; authUser=(p.type==="email_change") ? Object.assign({},authUser,{email:p.email,is_anonymous:false,new_email:null}) : {id:"u2",email:p.email,is_anonymous:false}; return {data:{user:authUser,session:{access_token:"tok2",user:authUser}},error:null}; },
         signOut:async()=>{ authCalls.push(["signOut"]); authUser={id:"u3",email:null,is_anonymous:true}; return {error:null}; },
         signInAnonymously:async()=>{ authCalls.push(["signInAnonymously"]); return {data:{session:{access_token:"tok3",user:authUser}},error:null}; } };
-      const sb={ calls:calls, items:()=>items, userState:()=>userState, auth:auth, from:(t)=>q(t), removeChannel(){}, channel(){ const c={}; c.on=()=>c; c.subscribe=()=>c; c.track=()=>{}; c.presenceState=()=>({}); c.unsubscribe=()=>{}; return c; },
+      const sb={ calls:calls, items:()=>items, userState:()=>userState, auth:auth, from:(t)=>q(t), removeChannel(){}, channel(){ const c={}; c.on=()=>c; c.subscribe=(fn)=>{ c._sub=fn; return c; }; c.track=(p)=>{ (sb.tracked=sb.tracked||[]).push(p); return Promise.resolve("ok"); }; c.presenceState=()=>sb.presence||{}; c.unsubscribe=()=>{}; c.on=(ev,filter,fn)=>{ if(ev==="presence"||(filter&&filter.event==="sync")) c._presence=fn; return c; }; c.fireSync=()=>c._presence&&c._presence(); sb.chan=c; return c; },
         rpc:(name,args)=>{ const o={table:"rpc:"+name, args:args, ops:[]}; o.then=(res,rej)=>{ calls.push(o); let r={data:null,error:null};
           if(name==="item_bump_qty" && !opts.noRpc){ const it=items.find(i=>i.id===args.p_id); if(it){ it.qty=Math.max(1,it.qty+args.p_delta); r.data=it.qty; } }
           else if(name==="member_heartbeat" && !opts.noRpc){ r.data=true; }
@@ -440,6 +441,79 @@ const stored=(W)=>JSON.parse(W.localStorage.getItem("mandje.v2"));
       W.wipeDevice(); await wait(120);
       ok("3C: wipeDevice verwijdert alle mandje.*-sleutels (incl. sessie) en blokkeert verdere saves", !W.localStorage.getItem("mandje.v2") && !W.localStorage.getItem("mandje.me") && sb.auth.calls.some(c=>c[0]==="signOut"));
       dA.window.close();
+    }
+
+    // 15. Fase 4 — "Wat is op": parser, vlag lokaal en in de cloud, vooraan in het schap, item-blad, live toast, presence 'in de winkel'
+    {
+      const seedO={version:3,settings:{theme:"light",showPrices:false,seenIntro:true,categoryOrder:null,minPurchases:3,cvThreshold:.6,dueWindowDays:1},list:[item("a1","appels","groente-fruit"),item("m1","melk","zuivel-eieren"),item("y1","yoghurt","zuivel-eieren")],catalog:{},coBuy:{},meals:{},history:[],
+        localLists:[{id:"l_boodschappen",name:"Boodschappen",type:"grocery",preset:"grocery",glyph:"🧺",finish:"opruimen",items:[item("a1","appels","groente-fruit"),item("m1","melk","zuivel-eieren"),item("y1","yoghurt","zuivel-eieren")]}],activeLocalId:"l_boodschappen"};
+      const dO=mk(seedO); await wait(160); const W=dO.window, D=W.document, C=W.Cloud;
+      ok("F4: parser: 'op: melk', 'melk is op', 'eieren zijn op!' → naam; 'melk' → niets", W.parseOpCommand("op: melk").name==="melk" && W.parseOpCommand("Melk is op").name==="Melk" && W.parseOpCommand("eieren zijn op!").name==="eieren" && W.parseOpCommand("melk")===null && W.parseOpCommand("pindakaas op brood")===null);
+      const type=(t)=>{ const i=D.querySelector("#add-name"); i.value=t; i.dispatchEvent(new W.Event("input",{bubbles:true})); };
+      type("yoghurt is op"); await wait(80);
+      const acRow=D.querySelector("#ac-list .ac-item.op");
+      ok("F4: autocomplete toont één rode rij 'yoghurt is op — meld het'", D.querySelector("#ac-list").classList.contains("show") && !!acRow && /yoghurt is op/.test(acRow.textContent));
+      D.querySelector("#add-name").dispatchEvent(new W.KeyboardEvent("keydown",{key:"Enter",bubbles:true})); await wait(60);
+      let st=stored(W);
+      const yog=st.list.find(i=>i.id==="y1");
+      ok("F4: Enter op 'yoghurt is op' vlagt het bestaande item (geen dubbel, geen aantal), invoerveld leeg", !!yog.flaggedAt && st.list.filter(i=>/yoghurt/i.test(i.name)).length===1 && yog.qty===1 && D.querySelector("#add-name").value==="");
+      const zuivel=D.querySelector("#cat-zuivel-eieren");
+      ok("F4: gevlagd item staat vooraan in zijn schap, met rode rand en 'OP'-pil", !!zuivel && zuivel.querySelector("li.row").dataset.id==="y1" && zuivel.querySelector("li.row").classList.contains("urgent") && zuivel.querySelector("li.row .pill-op").textContent==="OP" && !D.querySelector('li.row[data-id="m1"]').classList.contains("urgent"));
+      type("op: eieren"); D.querySelector("#add-name").dispatchEvent(new W.KeyboardEvent("keydown",{key:"Enter",bubbles:true})); await wait(60);
+      st=stored(W);
+      const eggs=st.list.find(i=>i.name==="eieren");
+      ok("F4: 'op: eieren' voegt het item toe mét vlag en toast", !!eggs && !!eggs.flaggedAt && /eieren is op/.test(D.querySelector("#toast").textContent+D.querySelector("#toast2").textContent));
+      // item-blad: chip 'Is op' → 'Gemeld als op' en terug
+      D.querySelector('li.row[data-id="m1"] .card').click(); await wait(60);
+      const sh=D.querySelector("#sheet"), opBtn=sh.querySelector("#s-op");
+      ok("F4: item-blad heeft de knop 'Is op' (uit)", sh.classList.contains("show") && !!opBtn && opBtn.textContent==="Is op" && !opBtn.classList.contains("on"));
+      opBtn.click(); sh.querySelector("#s-save").click(); await wait(60);
+      st=stored(W);
+      ok("F4: 'Is op' + Klaar → melk gevlagd en bovenaan in Zuivel", !!st.list.find(i=>i.id==="m1").flaggedAt && D.querySelector("#cat-zuivel-eieren li.row").classList.contains("urgent"));
+      D.querySelector('li.row[data-id="m1"] .card').click(); await wait(60);
+      ok("F4: heropenen toont 'Gemeld als op'", sh.querySelector("#s-op").textContent==="Gemeld als op" && sh.querySelector("#s-op").classList.contains("on"));
+      sh.querySelector("#s-op").click(); sh.querySelector("#s-save").click(); await wait(60);
+      ok("F4: vlag weer uit via het blad", !stored(W).list.find(i=>i.id==="m1").flaggedAt);
+      // winkelmodus: OP-pil en vooraan
+      W.openShoppingMode(); await wait(60);
+      const shopRows=[...D.querySelectorAll('#shop-body .shelf[data-cat="zuivel-eieren"] .shop-row')];
+      ok("F4: winkelmodus: gevlagde items vooraan in het schap met OP-pil en rode rand", shopRows.length>=3 && shopRows[0].classList.contains("urgent") && !!shopRows[0].querySelector(".pill-op") && shopRows.findIndex(r=>r.dataset.id==="m1") > shopRows.findIndex(r=>r.dataset.id==="y1") && !shopRows[shopRows.length-1].classList.contains("urgent"));
+      W.closeShoppingMode(); await wait(40);
+      // cloud: vlag meesturen, mapping, live toast van een huisgenoot, presence 'in de winkel'
+      const sb=mkStub2(); C.sb=sb; C.enabled=true; C.ready=true; C.mode="cloud"; C.userId="u1"; C.lists=[{id:"c1",name:"Gedeeld",owner_user_id:"u1",member_count:2}];
+      C.me={display_name:"Ik", color:"#24593F"};
+      await C.open("c1").catch(()=>{}); await wait(80);
+      sb.calls.length=0;
+      W.flagByName("Cloudmelk"); await wait(60);
+      const upd=sb.calls.find(c=>c.table==="items" && c.ops[0][0]==="update");
+      ok("F4: cloud: bestaand item vlaggen = update({flagged_at, flagged_by_name})", !!upd && !!upd.ops[0][1].flagged_at && upd.ops[0][1].flagged_by_name==="Ik" && D.querySelector('li.row[data-id="c2"]').classList.contains("urgent"));
+      sb.calls.length=0;
+      W.addToList("spinazie", null, {flag:true, silent:true}); await wait(60);
+      const ins=sb.calls.find(c=>c.table==="items" && c.ops[0][0]==="insert");
+      ok("F4: cloud: nieuw item met vlag → insert met flagged_at/flagged_by_name", !!ins && !!ins.ops[0][1].flagged_at && ins.ops[0][1].flagged_by_name==="Ik");
+      const spin=stored(W).list.find(i=>i.name==="spinazie") || W.localLists()[0].items.find(i=>i.name==="spinazie");
+      const spinRow=[...D.querySelectorAll('#open-list li.row')].find(li=>/spinazie/.test(li.textContent));
+      ok("F4: na de insert krijgt het item meteen zijn echte id (geen tmp_ meer), rij blijft staan", !!spinRow && !/^tmp_/.test(spinRow.dataset.id) && /^new_/.test(spinRow.dataset.id));
+      sb.calls.length=0; W.toggleDone(spinRow.dataset.id); await wait(60);
+      ok("F4: afvinken vlak na toevoegen gaat als update op het echte id naar de cloud", sb.calls.some(c=>c.table==="items" && c.ops[0][0]==="update" && c.ops.some(x=>x[0]==="eq" && x[2]===spinRow.dataset.id)));
+      // huisgenoot vlagt iets: volgende refresh → toast "Sanne: Cloudkaas is op"
+      sb.items().find(i=>i.id==="c1").flagged_at=new Date().toISOString(); sb.items().find(i=>i.id==="c1").flagged_by_name="Sanne"; sb.items().find(i=>i.id==="c1").done=false;
+      await C.refreshItems(C._activeRefreshToken); await wait(60);
+      const toastTxt=D.querySelector("#toast").textContent+" | "+D.querySelector("#toast2").textContent;
+      ok("F4: live: nieuwe vlag van Sanne → toast 'Sanne: Cloudkaas is op' en rij urgent", /Sanne: Cloudkaas is op/.test(toastTxt) && D.querySelector('li.row[data-id="c1"]').classList.contains("urgent") && /Sanne/.test(D.querySelector('li.row[data-id="c1"] .op-by').textContent));
+      // presence: winkelmodus openen stuurt shopping:true mee; een ander in de winkel → balk + toast
+      sb.tracked=[]; W.openShoppingMode(); await wait(40);
+      ok("F4: winkelmodus open → presence track({shopping:true})", sb.tracked.some(p=>p.shopping===true && p.user_id==="u1"));
+      W.closeShoppingMode(); await wait(40);
+      ok("F4: winkelmodus dicht → track({shopping:false})", sb.tracked[sb.tracked.length-1].shopping===false);
+      sb.presence={ u9:[{user_id:"u9", name:"Florian", color:"#2F5FA8", emoji:"", shopping:true}] };
+      sb.chan.fireSync(); await wait(60);
+      const bar=D.querySelector("#presence-bar");
+      ok("F4: ander lid in de winkel → balk '🛒 Florian is in de winkel' met knop, toast, avatar-markering", bar.classList.contains("shopping") && /Florian is in de winkel/.test(bar.textContent) && !!bar.querySelector(".pb-act") && /in de winkel/.test(D.querySelector("#toast").textContent+D.querySelector("#toast2").textContent));
+      sb.presence={ u9:[{user_id:"u9", name:"Florian", color:"#2F5FA8", emoji:"", shopping:false}] };
+      sb.chan.fireSync(); await wait(30);
+      ok("F4: klaar met winkelen → gewone 'kijkt mee'-balk", !bar.classList.contains("shopping") && /Florian kijkt mee/.test(bar.textContent));
+      dO.window.close();
     }
   }
 
