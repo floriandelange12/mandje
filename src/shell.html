@@ -932,6 +932,11 @@
   .toast .toast-action{ background:transparent; border:0; color:color-mix(in srgb, var(--brand) 80%, var(--bg)); font-weight:var(--fw-bold); padding:6px 12px; margin-left:10px; border-radius:var(--r-sm); font-size:var(--fs-md); letter-spacing:.01em; }
   .toast.has-action{ padding:9px 8px 9px 18px; }
   .toast.has-tap{ cursor:pointer; }
+  .sr-live{ position:absolute; width:1px; height:1px; margin:-1px; padding:0; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0; }
+  .sr-handle{ border:0; background:transparent; padding:0; color:inherit; font:inherit; }
+  /* naam/meta als knop (opent het sheet) — geen role=button op de hele kaart */
+  button.meta{ display:block; flex:1; min-width:0; text-align:left; background:transparent; border:0; padding:0; margin:0; color:inherit; font:inherit; border-radius:var(--r-xs); }
+  button.meta:focus-visible{ outline:2px solid var(--focus); outline-offset:3px; }
   /* tweede slot: boven de actie-toast (bij top-positie: eronder) */
   .toast-2{ margin-bottom:56px; z-index:96; }
   body.sheet-open .toast-2, .shop-screen.show ~ .toast-2{ margin-bottom:0; margin-top:56px; }
@@ -1321,6 +1326,7 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
   <div class="toast toast-2" id="toast2" role="status" aria-live="polite" aria-atomic="true"></div>
+  <div id="sr-live" class="sr-live" role="status" aria-live="polite" aria-atomic="true"></div>
 </div>
 <!-- __SCRIPT__ -->
 </body>

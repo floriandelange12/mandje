@@ -670,9 +670,15 @@ function renameCatalogEntry(oldKey, newName){
     t.name=newName;
   } else { e.name=newName; state.catalog[newKey]=e; }
   delete state.catalog[oldKey];
-  if(state.coBuy && state.coBuy[oldKey]){ var co=state.coBuy[oldKey]; delete state.coBuy[oldKey]; state.coBuy[newKey]=Object.assign(state.coBuy[newKey]||{}, co); }
-  Object.keys(state.coBuy||{}).forEach(function(k){ var m=state.coBuy[k]; if(m && m[oldKey]!=null){ m[newKey]=(m[newKey]||0)+m[oldKey]; delete m[oldKey]; } });
-  state.list.forEach(function(i){ if(norm(i.name)===oldKey) i.name=newName; });
+  if(state.coBuy && state.coBuy[oldKey]){
+    var co=state.coBuy[oldKey]; delete state.coBuy[oldKey];
+    var tgt=state.coBuy[newKey]||(state.coBuy[newKey]={});
+    Object.keys(co).forEach(function(k2){ var k3=(k2===oldKey)?newKey:k2; if(k3===newKey) return; tgt[k3]=(tgt[k3]||0)+co[k2]; });
+  }
+  Object.keys(state.coBuy||{}).forEach(function(k){ var m=state.coBuy[k]; if(!m) return; if(m[oldKey]!=null){ if(k!==newKey) m[newKey]=(m[newKey]||0)+m[oldKey]; delete m[oldKey]; } if(m[k]!=null) delete m[k]; });
+  var renameIn=function(arr){ (arr||[]).forEach(function(i){ if(i && norm(i.name)===oldKey) i.name=newName; }); };
+  renameIn(state.list);
+  localLists().forEach(function(l){ if(l.id!==state.activeLocalId || (typeof Cloud!=="undefined" && Cloud && Cloud.active)) renameIn(l.items); });
   save();
   if(activeTab==="lijst") renderLijst();
   return true;
@@ -817,6 +823,8 @@ function parseQtyFromInput(s){
 }
 function $(s){ return document.querySelector(s); }
 function el(tag, cls, html){ var e=document.createElement(tag); if(cls)e.className=cls; if(html!=null)e.innerHTML=html; return e; }
+/* Schermlezer-aankondiging via één vaste live-region (rijen worden herbouwd, dus aria-live op de rij zelf werkt niet) */
+function announce(msg){ var r=document.getElementById("sr-live"); if(!r) return; r.textContent=""; setTimeout(function(){ r.textContent=msg; }, 30); }
 function vibrate(ms){ if(typeof state!=="undefined" && state && state.settings && state.settings.haptics===false) return; if(navigator.vibrate){ try{navigator.vibrate(ms);}catch(e){} } }
 /* Haptic-layers — kies semantisch ipv elke keer een getal kiezen.
    tap=micro (qty+/-), tick=hoofd-actie (afvinken/toevoegen), nudge=warning. */
@@ -924,7 +932,15 @@ function toast(msg, opts){
   schedule(duration);
 }
 function undoToast(label, restoreFn){
-  toast(label, { action:"Ongedaan", onAction:restoreFn, duration:10000 });
+  // Ongedaan maken hoort bij de lijst waarop het gebeurde — na een lijstwissel zou de herstel-closure de verkeerde lijst raken
+  var ctxLocal = state ? state.activeLocalId : null;
+  var ctxCloud = (typeof Cloud!=="undefined" && Cloud) ? (Cloud.active||null) : null;
+  toast(label, { action:"Ongedaan", duration:10000, onAction:function(){
+    var sameCloud = ((typeof Cloud!=="undefined" && Cloud) ? (Cloud.active||null) : null) === ctxCloud;
+    var sameLocal = ctxCloud ? true : (state && state.activeLocalId===ctxLocal);
+    if(!sameCloud || !sameLocal){ toast("Ongedaan maken kan alleen op de lijst waar het gebeurde", {duration:2600}); return; }
+    restoreFn();
+  }});
 }
 
 /* ============================================================
@@ -936,11 +952,12 @@ function addToList(name, price, opts){
   if(isPlainList()){
     // 'Kleding: sokken' → kopje Kleding; geen aantallen, geen catalogus, achteraan toevoegen
     var sec=(opts.section||"").trim();
-    var mm=name.match(/^([^:]{1,30}):\s*(.+)$/);
+    var mm=name.match(/^([^:]{1,30}):(?!\d)\s*(.+)$/);   // 'Kleding: sokken' wél, '10:30' / '3:1' niet
     if(mm && !/^https?$/i.test(mm[1])){ sec=mm[1].trim(); name=mm[2].trim(); }
     if(!name) return false;
     var mk0=matchKey(name);
-    if(state.list.some(function(i){ return !i.done && matchKey(i.name)===mk0; })){ if(!opts.silent) toast(name+" staat er al op"); return false; }
+    var sk=sec.trim().toLowerCase();
+    if(state.list.some(function(i){ var is=(i.section||"").trim().toLowerCase(); return !i.done && matchKey(i.name)===mk0 && (!sk || !is || is===sk); })){ if(!opts.silent) toast(name+" staat er al op"); return false; }
     state.list.push({ id:uid(), name:name, category:"overig", section:sec.slice(0,40), qty:1, price:null, note:"", unit:"", done:false, addedAt:nowISO() });
     save(); renderLijst();
     if(!opts.silent) toast(name+(sec?" → "+sec:""), {duration:1400});
@@ -950,8 +967,11 @@ function addToList(name, price, opts){
   var silent = !!opts.silent;
   var unit = opts.unit || "";
   if(Cloud.active){
-    Cloud.addItem(name, (state.settings.showPrices?price:null), addQty, {silent:silent, unit:unit});
-    touchCatalog(name, price); save();
+    Cloud.addItem(name, (state.settings.showPrices?price:null), addQty, {silent:silent, unit:unit, category:opts.category});
+    touchCatalog(name, price);
+    var kc=norm(name);
+    if(opts.category && CAT_BY_ID[opts.category] && state.catalog[kc] && !state.catalog[kc].userOverrideCat) state.catalog[kc].category = opts.category;
+    save();
     return true;
   }
   var k=norm(name), mk=matchKey(name);
@@ -1002,6 +1022,8 @@ function setQty(id,delta){
   if(Cloud.active){ Cloud.qty(id,delta); return; }
   var it=state.list.find(function(i){return i.id===id;}); if(!it) return;
   it.qty=Math.max(1,it.qty+delta); save(); renderLijst();
+  announce(it.qty+"× "+it.name);
+  var qb=document.querySelector('li.row[data-id="'+id+'"] .'+(delta>0?"q-plus":"q-minus")); if(qb){ try{ qb.focus({preventScroll:true}); }catch(e){} }
 }
 function removeFromList(id){
   if(Cloud.active){ Cloud.remove(id); return; }
@@ -1023,6 +1045,7 @@ function finishShopping(){
   // onthoud welke aankoopdatums nieuw zijn, zodat "Terug op de lijst" ze weer weghaalt
   var marks=done.map(function(it){ var k=norm(it.name), e=state.catalog[k]; return {k:k, had:!!(e && (e.purchaseDates||[]).indexOf(today)!==-1)}; });
   done.forEach(function(it){ recordPurchase(it.name, it.price); });
+  var coKeys=[]; done.forEach(function(it){ var ck=norm(it.name); if(ck && coKeys.indexOf(ck)===-1) coKeys.push(ck); });
   recordCoBuy(done.map(function(it){return it.name;}));
   var entry=recordTrip(done);
   var snapshot=done.map(function(i){ return Object.assign({}, i); });
@@ -1032,6 +1055,10 @@ function finishShopping(){
   var undo=function(){
     snapshot.forEach(function(i){ if(!state.list.some(function(x){ return x.id===i.id; })) state.list.push(i); });
     marks.forEach(function(m){ var e=state.catalog[m.k]; if(e && !m.had){ var idx=(e.purchaseDates||[]).indexOf(today); if(idx!==-1) e.purchaseDates.splice(idx,1); } });
+    // vaak-samen-tellers van deze afronding terugdraaien
+    if(state.coBuy && coKeys.length>1){
+      coKeys.forEach(function(a){ coKeys.forEach(function(b){ if(a===b || !state.coBuy[a]) return; if(state.coBuy[a][b]!=null){ state.coBuy[a][b]-=1; if(state.coBuy[a][b]<=0) delete state.coBuy[a][b]; } }); });
+    }
     state.history=(state.history||[]).filter(function(h){ return h.id!==entry.id; });
     save(); renderLijst(); renderDueBanner(); renderVaste();
     if(shopIsOpen()) renderShopBody();
@@ -1133,6 +1160,12 @@ function templateItems(key){
 function localLists(){ return (state && Array.isArray(state.localLists)) ? state.localLists : []; }
 function localListById(id){ var ls=localLists(); for(var i=0;i<ls.length;i++){ if(ls[i].id===id) return ls[i]; } return null; }
 function activeLocalList(){ return localListById(state && state.activeLocalId) || localLists()[0] || null; }
+/* Items van een lokale lijst: de geopende lijst leeft in state.list — behalve als een cloud-lijst open staat (dan zijn l.items de waarheid) */
+function localListItems(l){
+  if(!l) return [];
+  var cloudOn = !!(typeof Cloud!=="undefined" && Cloud && Cloud.active);
+  return (l.id===state.activeLocalId && !cloudOn) ? state.list : (l.items||[]);
+}
 function presetOf(key){ for(var i=0;i<LIST_PRESETS.length;i++){ if(LIST_PRESETS[i].key===key) return LIST_PRESETS[i]; } return LIST_PRESETS[0]; }
 /* Meta van de geopende lijst — een gedeelde (cloud-)lijst is voorlopig altijd 'grocery' (lists.type komt met migratie M6) */
 function currentListMeta(){
@@ -1182,7 +1215,7 @@ function switchLocalList(id){
 function renameLocalList(id, name){ var l=localListById(id); if(!l) return false; name=String(name||"").trim().slice(0,40); if(!name) return false; l.name=name; save(); if(typeof applyListHeader==="function") applyListHeader(); if(typeof renderListSwitch==="function") renderListSwitch(); return true; }
 function duplicateLocalList(id){
   var l=localListById(id); if(!l) return null;
-  var items=(l.id===state.activeLocalId ? state.list : (l.items||[])).map(function(i){ var c=Object.assign({}, i); c.id=uid(); c.done=false; return c; });
+  var items=localListItems(l).map(function(i){ var c=Object.assign({}, i); c.id=uid(); c.done=false; return c; });
   var copy=Object.assign({}, l, { id:"l_"+uid(), name:(l.name+" (kopie)").slice(0,40), items:items, createdAt:nowISO() });
   state.localLists = localLists().concat([copy]); save();
   return copy;
@@ -1196,6 +1229,7 @@ function deleteLocalList(id){
     var next=state.localLists[0];
     state.activeLocalId=next.id;
     if(wasActive) state.list=(next.items||[]).slice();
+    else _personalList=(next.items||[]).slice();   // cloud-lijst open: _saveNow bewaart _personalList als items van de actieve lokale lijst
   }
   save();
   if(wasActive){ applyListType(); if(typeof applyListHeader==="function") applyListHeader(); if(activeTab==="lijst"){ renderLijst(); renderDueBanner(); updateSubhead(); } }
@@ -1247,8 +1281,11 @@ function openNewListSheet(){
     var name=(nameInp.value||"").trim() || presetOf(chosen).name;
     closeSheet();
     if(shareOn && chosen==="grocery" && canShare){
-      if(typeof ensureIdentity==="function") ensureIdentity(function(){ Cloud.createList(name); }); else Cloud.createList(name);
-      return;
+      if(Cloud.ready){
+        if(typeof ensureIdentity==="function") ensureIdentity(function(){ Cloud.createList(name); }); else Cloud.createList(name);
+        return;
+      }
+      toast("Cloud is nog niet klaar — de lijst is lokaal aangemaakt; delen kan straks via Delen", {duration:4000});
     }
     var l=createLocalList({ name:name, preset:chosen, template:template });
     switchLocalList(l.id);
@@ -1264,7 +1301,7 @@ function openListManageSheet(id){
   var p=presetOf(l.preset);
   sh.innerHTML='<div class="grip"></div><h3></h3>'+
     '<div class="frow"><div class="fl">Naam</div><input class="txt" id="lm-name" autocapitalize="words" autocomplete="off"></div>'+
-    '<div class="hint" style="margin:0 6px 12px">'+p.glyph+' '+escapeHtml(p.name)+' · '+((l.id===state.activeLocalId?state.list:(l.items||[])).length)+' items · op dit toestel</div>'+
+    '<div class="hint" style="margin:0 6px 12px">'+p.glyph+' '+escapeHtml(p.name)+' · '+localListItems(l).length+' items · op dit toestel</div>'+
     (l.type==="plain" ? '<div class="sheet-label"><span class="lbl-cap">Na het afvinken</span></div><div class="cadrow" id="lm-finish"></div><div class="hint" style="margin:0 6px 12px" id="lm-finish-hint"></div>' : '')+
     '<div class="sheet-actions"><button class="save" id="lm-save" type="button">Opslaan</button><button class="del" id="lm-del" type="button">Verwijder</button></div>'+
     '<button class="mbtn" id="lm-dup" type="button" style="margin-top:10px">Dupliceren (kopie zonder vinkjes)</button>';
@@ -1308,7 +1345,7 @@ function openPlainSheet(listId){
   sh.querySelector("#ps-note").value=it.note||"";
   var dl=sh.querySelector("#ps-sections"); sections.forEach(function(s){ var o=document.createElement("option"); o.value=s; dl.appendChild(o); });
   var chips=sh.querySelector("#ps-secchips");
-  if(chips){ sections.forEach(function(s){ var b=el("button","cadchip"+((it.section||"")===s?" on":""),s); b.type="button"; b.addEventListener("click",function(){ sh.querySelector("#ps-section").value=s; chips.querySelectorAll(".cadchip").forEach(function(x){ x.classList.toggle("on", x===b); }); }); chips.appendChild(b); }); }
+  if(chips){ sections.forEach(function(s){ var b=el("button","cadchip"+((it.section||"")===s?" on":"")); b.textContent=s; b.type="button"; b.addEventListener("click",function(){ sh.querySelector("#ps-section").value=s; chips.querySelectorAll(".cadchip").forEach(function(x){ x.classList.toggle("on", x===b); }); }); chips.appendChild(b); }); }
   sh.querySelector("#ps-save").addEventListener("click",function(){
     var nm=(sh.querySelector("#ps-name").value||"").trim(); if(nm) it.name=nm;
     it.section=(sh.querySelector("#ps-section").value||"").trim().slice(0,40);
@@ -1364,8 +1401,8 @@ function plainItemRow(it){
   li.appendChild(el("div","behind",'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg><span>Verwijder</span>'));
   var card=el("div","card");
   card.innerHTML='<button class="check" type="button" role="checkbox" aria-checked="'+(it.done?"true":"false")+'" aria-label="'+escapeAttr(it.name)+(it.done?" — vinkje weghalen":" afvinken")+'">'+CHECK_SVG+'</button>'+
-    '<div class="meta"><div class="nm"></div>'+(it.note?'<div class="sub2"></div>':'')+'</div>'+
-    (it.done?'':'<span class="sr-handle" aria-label="Sleep om te verplaatsen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></span>')+
+    '<button class="meta" type="button" aria-label="'+escapeAttr(it.name)+' — bewerken"><div class="nm"></div>'+(it.note?'<div class="sub2"></div>':'')+'</button>'+
+    (it.done?'':'<button class="sr-handle" type="button" aria-label="Verplaats '+escapeAttr(it.name)+' (slepen of pijl omhoog/omlaag)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>')+
     ((typeof HAS_POINTER!=="undefined" && HAS_POINTER) ? '<div class="row-actions"><button class="ra-btn ra-opt" type="button" aria-label="Opties voor '+escapeAttr(it.name)+'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></svg></button><button class="ra-btn ra-del" type="button" aria-label="Verwijder '+escapeAttr(it.name)+'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg></button></div>' : '');
   card.querySelector(".nm").textContent=it.name;
   var sub=card.querySelector(".sub2"); if(sub) sub.textContent=it.note;
@@ -1375,24 +1412,47 @@ function plainItemRow(it){
   card.querySelector(".check").addEventListener("click",function(e){ e.stopPropagation(); toggleDone(it.id); });
   var h=card.querySelector(".sr-handle"); if(h){ h.addEventListener("click",function(e){ e.stopPropagation(); }); h.addEventListener("touchstart",function(e){ e.stopPropagation(); },{passive:true}); }
   card.addEventListener("click",function(){ if(card._suppressClick) return; openPlainSheet(it.id); });
-  card.setAttribute("role","button"); card.setAttribute("tabindex","0"); card.setAttribute("aria-label", it.name+" — bewerken");
-  card.addEventListener("keydown",function(e){ if(e.target!==card) return; if(e.key==="Enter" || e.key===" "){ e.preventDefault(); openPlainSheet(it.id); } });
+  card.querySelector(".meta").addEventListener("click",function(e){ e.stopPropagation(); if(card._suppressClick) return; openPlainSheet(it.id); });
   li.appendChild(card);
   attachSwipe(card, function(){ removeFromList(it.id); });
   return li;
 }
-/* Sleepgrepen op bestaande rijen (zelfde mechaniek als de schap-volgorde in Meer) */
+/* Sleepgrepen op rijen (lijsten én de schap-volgorde in Meer): listeners één keer per rij, context per render;
+   pijl omhoog/omlaag op de greep verplaatst zonder slepen. */
+var _sortFocusId=null;
+function _sortApply(rows, fromIdx, toIdx){
+  var row=rows[fromIdx]; if(!row || fromIdx===toIdx) return;
+  var parent=row.parentNode, ref=rows[toIdx];
+  if(parent && ref){ if(toIdx>fromIdx) parent.insertBefore(row, ref.nextSibling); else parent.insertBefore(row, ref); }
+  rows.splice(fromIdx,1); rows.splice(toIdx,0,row);
+}
 function attachSortHandles(rows, onReorder, gap){
   _ensureSortListeners();
   rows.forEach(function(row){
     var handle = row.querySelector(".sr-handle"); if(!handle) return;
+    row._sortCtx = { rows:rows, onReorder:onReorder, gap:gap||6 };
+    if(row._sortBound) return;
+    row._sortBound = true;
     var startDrag = function(clientY){
-      _sortState.dragging = row; _sortState.items = rows; _sortState.dragIdx = rows.indexOf(row);
-      _sortState.startY = clientY; _sortState.offset = 0; _sortState.onReorder = onReorder; _sortState.gap = gap||6;
+      var ctx=row._sortCtx;
+      _sortState.dragging = row; _sortState.items = ctx.rows; _sortState.dragIdx = ctx.rows.indexOf(row);
+      _sortState.startY = clientY; _sortState.offset = 0; _sortState.onReorder = ctx.onReorder; _sortState.gap = ctx.gap;
       row.classList.add("dragging"); vibrate(8);
     };
     handle.addEventListener("touchstart", function(e){ startDrag(e.touches[0].clientY); e.preventDefault(); }, {passive:false});
     handle.addEventListener("mousedown", function(e){ startDrag(e.clientY); e.preventDefault(); });
+    handle.addEventListener("click", function(e){ e.stopPropagation(); });
+    handle.addEventListener("keydown", function(e){
+      if(e.key!=="ArrowUp" && e.key!=="ArrowDown") return;
+      e.preventDefault(); e.stopPropagation();
+      var ctx=row._sortCtx, i=ctx.rows.indexOf(row), j=(e.key==="ArrowUp")?i-1:i+1;
+      if(i<0 || j<0 || j>=ctx.rows.length) return;
+      _sortApply(ctx.rows, i, j);
+      _sortFocusId = row.dataset.id;
+      vibrate(6);
+      ctx.onReorder(ctx.rows.map(function(r){ return r.dataset.id; }));
+      var h2=row.querySelector(".sr-handle"); if(h2 && document.contains(h2)){ try{ h2.focus({preventScroll:true}); }catch(x){} }
+    });
   });
 }
 
@@ -1580,6 +1640,7 @@ function renderLijst(){
   renderShopEntry();
   renderStorePick();
   renderAssignFilter();
+  if(_sortFocusId){ var fh=document.querySelector('li.row[data-id="'+_sortFocusId+'"] .sr-handle'); _sortFocusId=null; if(fh){ try{ fh.focus({preventScroll:true}); }catch(e){} } }
 }
 
 /* FLIP: rijen die door een re-render van plek veranderen (afvinken → "In mandje") glijden naar hun nieuwe plek */
@@ -1636,8 +1697,8 @@ function itemRow(it){
   if(!it.done && (!CAT_BY_ID[it.category] || it.category==="overig")) sub+=(sub?' · ':'')+'<button class="pick-cat" type="button">Schap kiezen</button>';
   card.innerHTML =
     '<button class="check" type="button" role="checkbox" aria-checked="'+(it.done?"true":"false")+'" aria-label="'+escapeAttr(it.name)+(it.done?" — vinkje weghalen":" afvinken")+'">'+CHECK_SVG+'</button>'+
-    '<div class="meta"><div class="nm"></div>'+(sub?'<div class="sub2">'+sub+'</div>':'')+'</div>'+asgHtml+
-    '<div class="qty"><button class="q-minus" type="button" aria-label="Minder '+escapeAttr(it.name)+'">–</button><span aria-live="polite">'+it.qty+'</span><button class="q-plus" type="button" aria-label="Meer '+escapeAttr(it.name)+'">+</button></div>'+
+    '<button class="meta" type="button" aria-label="'+escapeAttr(it.name)+' — details en opties"><div class="nm"></div>'+(sub?'<div class="sub2">'+sub+'</div>':'')+'</button>'+asgHtml+
+    '<div class="qty"><button class="q-minus" type="button" aria-label="Minder '+escapeAttr(it.name)+'">–</button><span>'+it.qty+'</span><button class="q-plus" type="button" aria-label="Meer '+escapeAttr(it.name)+'">+</button></div>'+
     (state.settings.showPrices && it.price!=null ? '<div class="price">'+euro(it.price*it.qty)+'</div>' : '')+
     ((typeof HAS_POINTER!=="undefined" && HAS_POINTER) ? '<div class="row-actions"><button class="ra-btn ra-opt" type="button" aria-label="Opties voor '+escapeAttr(it.name)+'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></svg></button><button class="ra-btn ra-del" type="button" aria-label="Verwijder '+escapeAttr(it.name)+'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg></button></div>' : '');
   card.querySelector(".nm").textContent=it.name;
@@ -1650,15 +1711,8 @@ function itemRow(it){
   card.querySelector(".q-minus").addEventListener("click",function(e){ e.stopPropagation(); setQty(it.id,-1); });
   card.querySelector(".q-plus").addEventListener("click",function(e){ e.stopPropagation(); setQty(it.id,1); });
   card.addEventListener("click",function(){ if(card._suppressClick) return; openSheet(it.id); });
-  // Toetsenbord-toegang: de kaart zelf opent het detail-sheet (Enter). Interne knoppen
-  // (afvinken/qty) hebben hun eigen focus; daarom alleen reageren als de kaart zélf de target is.
-  card.setAttribute("role","button");
-  card.setAttribute("tabindex","0");
-  card.setAttribute("aria-label", it.name+" — details en opties");
-  card.addEventListener("keydown",function(e){
-    if(e.target!==card) return;
-    if(e.key==="Enter" || e.key===" "){ e.preventDefault(); openSheet(it.id); }
-  });
+  // Toetsenbord/VoiceOver: de naam is een echte knop (geen role=button op de kaart — geneste knoppen verdwijnen anders uit de a11y-boom)
+  card.querySelector(".meta").addEventListener("click",function(e){ e.stopPropagation(); if(card._suppressClick) return; openSheet(it.id); });
 
   li.appendChild(card);
   attachSwipe(card, function(){ removeFromList(it.id); });
@@ -2997,10 +3051,8 @@ function _sortEnd(){
   var newIdx = Math.max(0, Math.min(d.items.length-1, d.dragIdx + Math.round(d.offset/rowH)));
   d.items.forEach(function(r){ r.style.transform=""; r.classList.remove("dragging"); });
   if(newIdx !== d.dragIdx){
-    var ids = d.items.map(function(r){return r.dataset.id;});
-    var moved = ids.splice(d.dragIdx, 1)[0];
-    ids.splice(newIdx, 0, moved);
-    d.onReorder(ids);
+    _sortApply(d.items, d.dragIdx, newIdx);   // DOM-volgorde meteen bijwerken (Meer rendert niet opnieuw)
+    d.onReorder(d.items.map(function(r){return r.dataset.id;}));
   }
   _sortState = { dragging:null, items:null, dragIdx:-1, startY:0, offset:0, onReorder:null };
 }
@@ -3025,7 +3077,7 @@ function makeSortableList(container, items, onReorder){
       shelfIcon(CAT_BY_ID[item.id]||item,{bubble:true})+
       '<span class="sr-label"></span>'+
       (item.isCustom?'<button class="sr-del" type="button">Verwijder</button>':'')+
-      '<span class="sr-handle" aria-label="Sleep"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></span>';
+      '<button class="sr-handle" type="button" aria-label="Verplaats '+escapeAttr(item.label)+' (slepen of pijl omhoog/omlaag)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>';
     row.querySelector(".sr-label").textContent = item.label;
     if(item.isCustom){
       row.querySelector(".sr-del").addEventListener("click", function(e){
@@ -3036,20 +3088,7 @@ function makeSortableList(container, items, onReorder){
     container.appendChild(row);
     rows.push(row);
   });
-  rows.forEach(function(row){
-    var handle = row.querySelector(".sr-handle");
-    var startDrag = function(clientY){
-      _sortState.dragging = row;
-      _sortState.items = rows;
-      _sortState.dragIdx = rows.indexOf(row);
-      _sortState.startY = clientY; _sortState.offset = 0;
-      _sortState.onReorder = onReorder;
-      row.classList.add("dragging");
-      vibrate(8);
-    };
-    handle.addEventListener("touchstart", function(e){ startDrag(e.touches[0].clientY); e.preventDefault(); }, {passive:false});
-    handle.addEventListener("mousedown", function(e){ startDrag(e.clientY); e.preventDefault(); });
-  });
+  attachSortHandles(rows, onReorder, 6);
 }
 
 function openAddCategorySheet(){
@@ -3260,7 +3299,7 @@ function emptyState(icon,h,p,actionLabel,actionFn){
   };
   if(icon==="bag" && typeof HERO_BASKET_SVG!=="undefined") icons.bag = HERO_BASKET_SVG;
   var e=el("div","empty hero");
-  e.innerHTML='<div class="ico">'+(icons[icon]||icons.bag)+'</div><h2>'+h+'</h2><p>'+p+'</p>';
+  e.innerHTML='<div class="ico">'+(icons[icon]||icons.bag)+'</div><h2>'+escapeHtml(h)+'</h2><p>'+escapeHtml(p)+'</p>';
   if(actionLabel && typeof actionFn === "function"){
     var btn = el("button","mbtn primary", actionLabel);
     btn.style.maxWidth = "260px"; btn.style.margin = "20px auto 0";
@@ -3535,7 +3574,7 @@ function onBarcodeDecoded(text){
   try{ var u=new URL(ean); joinCode=u.searchParams.get("join"); sendTok=u.searchParams.get("send"); }catch(x){}
   if(joinCode){
     closeBarcodeScanScreen();
-    if(typeof Cloud!=="undefined" && Cloud.enabled && typeof ensureIdentity==="function"){ ensureIdentity(function(){ Cloud.joinList(joinCode); }); }
+    if(typeof Cloud!=="undefined" && Cloud.enabled && typeof ensureIdentity==="function"){ ensureIdentity(function(){ whenCloudReady(function(){ Cloud.joinList(joinCode); }); }); }
     else toast("Delen staat uit op dit toestel");
     return;
   }
@@ -3898,6 +3937,8 @@ function handleLaunchParams(){
     return;
   }
   if(mode==="shop"){
+    if(!T().shop){ var gl=localLists().filter(function(l){ return l.type==="grocery"; })[0]; if(gl && !(typeof Cloud!=="undefined" && Cloud && Cloud.active)) switchLocalList(gl.id); }
+    if(!T().shop){ toast("Winkelmodus is er alleen voor boodschappenlijsten"); return; }
     if(state.list.some(function(i){ return !i.done; })){ openShoppingMode(); }
     else { toast("Je lijst is leeg — voeg eerst iets toe"); setTimeout(function(){ var i=$("#add-name"); if(i) i.focus(); }, 300); }
     return;

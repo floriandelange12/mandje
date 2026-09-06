@@ -104,6 +104,7 @@ function _isInert(node){
 /* ---------- Overlay-stack ---------- */
 function modalTop(){ return _modals.length ? _modals[_modals.length-1] : null; }
 
+var _pendingBack = null;   // overlay waarvan de history-entry nog teruggedraaid moet worden (uitgesteld naar een microtask)
 function modalOpen(el, closeFn, opts){
   if(!el || _modalIndex(el)!==-1) return null;   // dubbele registratie negeren
   opts = opts || {};
@@ -125,7 +126,12 @@ function modalOpen(el, closeFn, opts){
 
   _ensurePopstate();
   if(opts.history!==false && typeof history!=="undefined" && history && typeof history.pushState==="function"){
-    try{ history.pushState({mandje:"modal", id:entry.id, s:_modalSession}, ""); entry.hist = entry.id; }catch(e){ entry.hist=null; }
+    try{
+      // Sluit A → open B in dezelfde task: hergebruik A's entry (replaceState) i.p.v. pushState + uitgestelde back()
+      if(_pendingBack){ _pendingBack = null; history.replaceState({mandje:"modal", id:entry.id, s:_modalSession}, ""); }
+      else history.pushState({mandje:"modal", id:entry.id, s:_modalSession}, "");
+      entry.hist = entry.id;
+    }catch(e){ entry.hist=null; }
   }
 
   setTimeout(function(){
@@ -152,7 +158,14 @@ function modalClose(el){
   // History: alleen terug als de sluiting uit de UI komt (niet uit een popstate)
   // en het de bovenste overlay was (anders zou back() de overlay erboven wegpoppen).
   if(entry.hist!=null && !entry.popClosing && !_popClosing && wasTop){
-    try{ history.back(); }catch(e){}
+    // history.back() is asynchroon: een modalOpen in dezelfde task zou door de latere traversal weer
+    // dichtgaan. Daarom uitstellen; opent er intussen een overlay, dan hergebruikt die deze entry.
+    _pendingBack = entry;
+    Promise.resolve().then(function(){
+      if(_pendingBack!==entry) return;
+      _pendingBack = null;
+      try{ history.back(); }catch(e){}
+    });
   }
 
   // Focus terug naar waar we vandaan kwamen
@@ -247,9 +260,11 @@ function focusables(root){
 function trapTab(e, root){
   if(!root) return;
   var f = focusables(root);
+  // Zichtbare toast-actieknoppen (Ongedaan/Opnieuw) staan buiten de overlay maar zijn niet inert: meenemen in de cyclus
+  _qa("#toast.show .toast-action, #toast2.show .toast-action", document).forEach(function(b){ if(f.indexOf(b)===-1) f.push(b); });
   if(!f.length){ e.preventDefault(); try{ root.focus({preventScroll:true}); }catch(x){} return; }
   var first=f[0], last=f[f.length-1], a=document.activeElement;
-  var inside = a && root.contains(a);
+  var inside = a && (root.contains(a) || f.indexOf(a)!==-1);
   if(e.shiftKey){
     if(!inside || a===first){ e.preventDefault(); try{ last.focus(); }catch(x){} }
   } else {

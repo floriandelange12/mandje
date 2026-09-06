@@ -90,6 +90,7 @@ var Cloud = {
   loadMe:function(){
     try{ this.me=JSON.parse(localStorage.getItem("mandje.me")||"null"); }catch(e){}
     if(!this.me) this.me={display_name:"", color:pickColor()};
+    this.me.color = safeColor(this.me.color);   // oude palette (vóór 2026-09-06) → nieuwe kleuren
   },
   saveMe:function(){ try{ localStorage.setItem("mandje.me", JSON.stringify(this.me)); }catch(e){} },
   myName:function(){ return (this.me && this.me.display_name) || "Ik"; },
@@ -172,6 +173,7 @@ var Cloud = {
       if(typeof renderMembersRow==="function") renderMembersRow();
       if(typeof renderShortcutsRow==="function") renderShortcutsRow();
       if(wasActive){
+        if(typeof applyListType==="function") applyListType();
         if(typeof applyListHeader==="function") applyListHeader();
         if(typeof renderLijst==="function" && typeof activeTab!=="undefined" && activeTab==="lijst"){ renderLijst(); if(typeof renderDueBanner==="function") renderDueBanner(); }
         if(typeof renderShoppingMode==="function") renderShoppingMode();   // open winkelmodus toont anders nog de oude (cloud-)rijen
@@ -469,7 +471,7 @@ var Cloud = {
           if(act && act!=="local"){
           if(this.listById(act)){
             await this.open(act);
-          } else {
+          } else if(this._listsOk!==false){   // alleen 'vergeten' als de lijsten écht geladen zijn (niet bij een tijdelijke fout)
             try{ localStorage.setItem("mandje.activeList","local"); }catch(e){}
             setTimeout(function(){ toast("Vorige lijst is niet meer beschikbaar"); }, 600);
           }
@@ -496,6 +498,7 @@ var Cloud = {
 
   loadLists:async function(){
     var r=await this.sb.from("lists").select("*").order("created_at",{ascending:true});
+    this._listsOk = !r.error;
     if(r.error){
       console.warn("loadLists faalde:", r.error);
       this.lists=[];
@@ -528,6 +531,7 @@ var Cloud = {
         state._meta.lastCloudOpenAt = this._openStartedAt;
         state._meta.restoreMode = "cloud";
       }
+      if(this.active!==listId && typeof _assignFilter!=="undefined") _assignFilter=null;   // lid-filter is lijstgebonden
       this.active=listId; try{ localStorage.setItem("mandje.activeList", listId); }catch(e){}
       await this.refreshItems(refreshToken); await this.refreshMembers(refreshToken);
       this.subscribe(listId); this.startPresence();
@@ -535,6 +539,10 @@ var Cloud = {
       applyListHeader(); renderListSwitch(); renderMembersRow();
     },
     openLocal:function(){
+      // Eerst een uitgestelde save() wegschrijven zolang 'active' nog gezet is (bron = _personalList, niet de
+      // cloud-items in state.list), en de persoonlijke lijst terugzetten vóórdat load() draait.
+      if(typeof _savePending!=="undefined" && _savePending && typeof saveNow==="function") saveNow();
+      if(typeof _personalList !== "undefined" && Array.isArray(_personalList)) state.list = _personalList.slice();
       this._nextRefreshToken();
       this._openRefreshToken = 0;
       this._openLocalEpoch = 0;
@@ -582,7 +590,7 @@ var Cloud = {
             price:(it.price==null?null:Number(it.price)), note:it.note||"", done:!!it.done,
             unit:(it.unit!=null ? it.unit : ((old&&old.unit)||"")), assigned_to:it.assigned_to||null, added_by_name:it.added_by_name||"", addedAt:it.created_at
           };
-          if(old && old.name===fresh.name && old.qty===fresh.qty && old.done===fresh.done && old.price===fresh.price && (old.note||"")===(fresh.note||"") && (old.unit||"")===(fresh.unit||"") && old.assigned_to===fresh.assigned_to){
+          if(old && old.name===fresh.name && old.qty===fresh.qty && old.done===fresh.done && old.price===fresh.price && (old.note||"")===(fresh.note||"") && (old.unit||"")===(fresh.unit||"") && old.assigned_to===fresh.assigned_to && (old.category||"")===(fresh.category||"")){
             return old;
           }
           return fresh;
@@ -771,7 +779,7 @@ var Cloud = {
       this._writeItem("update", fields, eid);
       return;
     }
-    var cat=(state.catalog[k]&&state.catalog[k].category)||classify(name);
+    var cat=(opts.category && CAT_BY_ID[opts.category]) ? opts.category : ((state.catalog[k]&&state.catalog[k].category)||classify(name));
     var tmpId="tmp_"+uid();
     // unit blijft lokaal (geen DB-kolom) → puur optimistische weergave op cloud-lijsten
     state.list.unshift({ id:tmpId, name:name, category:cat, qty:addQty, price:price, note:"", unit:(opts.unit||""), done:false, assigned_to:null, added_by_name:this.myName(), addedAt:nowISO() });
@@ -1530,11 +1538,21 @@ function promptNewList(){
     Cloud.createList(nm);
   });
 }
+/* Wacht tot de cloud klaar is (SDK lazy geladen, sessie hersteld) voordat een RPC loopt */
+function whenCloudReady(fn){
+  if(Cloud.ready){ fn(); return; }
+  var tries=0;
+  var t=setInterval(function(){
+    if(Cloud.ready){ clearInterval(t); fn(); return; }
+    var busy = Cloud._initInProgress || Cloud.enabled;
+    if(++tries>60 || !busy){ clearInterval(t); toast("Cloud is nog niet klaar — probeer het zo nog eens"); }
+  }, 250);
+}
 function promptJoin(code){
   var html='<h3>Lijst joinen</h3><div class="frow"><input class="txt" id="jn-code" placeholder="6-cijferige code" autocapitalize="characters" value="'+(code?escapeAttr(code):"")+'" style="text-transform:uppercase;letter-spacing:.1em;font-weight:700"></div><div class="sheet-actions"><button class="save" id="jn-go">Meedoen</button></div>';
   var s=openSheet2(html);
   setTimeout(function(){ var i=s.querySelector("#jn-code"); if(i) i.focus(); },250);
-  s.querySelector("#jn-go").addEventListener("click",function(){ var c=(s.querySelector("#jn-code").value||"").trim(); if(!c){toast("Vul een code in");return;} closeSheet2(); Cloud.joinList(c); });
+  s.querySelector("#jn-go").addEventListener("click",function(){ var c=(s.querySelector("#jn-code").value||"").trim(); if(!c){toast("Vul een code in");return;} closeSheet2(); whenCloudReady(function(){ Cloud.joinList(c); }); });
 }
 
 /* Avatar-render: emoji indien gekozen (zelf getypt), anders initialen-cirkel in de kleur.
@@ -1643,7 +1661,7 @@ function openShareSheet(listId){
     // Join-code prettier: spaties tussen halves voor leesbaarheid
     var codePretty = l.join_code.length === 6 ? l.join_code.slice(0,3)+" "+l.join_code.slice(3) : l.join_code;
     return titleHtml +
-      '<div class="code-box"><div class="cb-lbl">Code</div><div class="cb-code">'+codePretty+'</div></div>'+
+      '<div class="code-box"><div class="cb-lbl">Code</div><div class="cb-code">'+escapeHtml(codePretty)+'</div></div>'+
       '<button class="mbtn primary" id="sh-invite">Stuur uitnodiging</button>'+
       '<button class="mbtn" id="sh-qr-toggle" type="button">Laat een QR-code scannen</button>'+
       '<div class="qr-box" id="sh-qr" hidden><div class="qr-svg"></div><div class="qr-cap">Scan met de camera of via de scanknop in Mandje — je doet dan direct mee.</div></div>'+

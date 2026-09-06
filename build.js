@@ -51,7 +51,8 @@ if (app.indexOf(MARKER) === -1) {
 }
 // Prelude-modules (iconen, overlays/toetsenbord) gaan BINNEN de IIFE vóór de app-code — function-declaraties
 // worden gehoist, dus app.js kan ze overal gebruiken; window blijft schoon.
-const PRELUDE = ["src/icons.js", "src/overlays.js", "src/qr.js"].filter(p => fs.existsSync(path.join(root, p)));
+const PRELUDE = ["src/icons.js", "src/overlays.js", "src/qr.js"];
+PRELUDE.forEach(p => { if (!fs.existsSync(path.join(root, p))) { console.error("✗ prelude-module ontbreekt: " + p + " — build gestopt."); process.exit(1); } });
 const prelude = PRELUDE.map(p => "/* ===== " + p + " ===== */\n" + readSafe(p)).join("\n");
 const IIFE_OPEN = '"use strict";\n(function(){\n';
 if (app.indexOf(IIFE_OPEN) !== 0) { console.error("✗ src/app.js begint niet met de verwachte IIFE-opener — build gestopt."); process.exit(1); }
@@ -103,25 +104,6 @@ if (!/BUILD:\s*"__BUILD__"/.test(html)) {
 // sw.js zit niet in de HTML maar bepaalt wél de cache-naam → mee in de hash. Geen datum: dezelfde bron = dezelfde BUILD (reproduceerbaar).
 const swSrcPath = path.join(root, "src/sw.js");
 const swSrc = fs.existsSync(swSrcPath) ? readSafe("src/sw.js") : "";
-const hash = crypto.createHash("sha1").update(html).update(swSrc).update(supabaseSdk).digest("hex").slice(0, 8);
-const buildId = hash;
-html = html.replace(/__BUILD__/g, buildId);
-
-["__ICON180__", "__ICON512__", "__FONT__", "__SCRIPT__", "__BUILD__"].forEach(t => {   // oude icoon-tokens mogen ook nergens meer staan
-  if (html.indexOf(t) !== -1) { console.error("✗ Token niet vervangen: " + t); process.exit(1); }
-});
-// Guard alleen over de eigen bronnen (shell + app + cloud), niet over de vendor-SDK/base64-assets
-assertClean(shell + combined, "index.html (eigen bronnen)");
-
-// Alle harde controles vóór het eerste weggeschreven artefact, zodat index.html/sw.js/icoon nooit uit fase lopen
-const PNG_SIG = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
-const iconBufs = {};
-Object.keys(ICON_FILES).forEach(k => {
-  const b = Buffer.from(icons[k], "base64");
-  if (b.length < 8 || !b.subarray(0, 8).equals(PNG_SIG)) { console.error("✗ " + k + " in assets/icon_b64.txt is geen geldige PNG — build gestopt."); process.exit(1); }
-  iconBufs[k] = b;
-});
-
 /* ---------- Web App Manifest (los bestand: als data-URI zijn start_url/scope onoplosbaar en installeert Android/desktop niet) */
 const manifest = {
   id: "./",
@@ -151,6 +133,25 @@ const manifest = {
   share_target: { action: "./", method: "GET", enctype: "application/x-www-form-urlencoded", params: { title: "title", text: "text", url: "url" } }
 };
 const manifestJson = JSON.stringify(manifest, null, 2) + "\n";
+const hash = crypto.createHash("sha1").update(html).update(swSrc).update(supabaseSdk).update(manifestJson).digest("hex").slice(0, 8);
+const buildId = hash;
+html = html.replace(/__BUILD__/g, buildId);
+
+["__ICON180__", "__ICON512__", "__FONT__", "__SCRIPT__", "__BUILD__"].forEach(t => {   // oude icoon-tokens mogen ook nergens meer staan
+  if (html.indexOf(t) !== -1) { console.error("✗ Token niet vervangen: " + t); process.exit(1); }
+});
+// Guard alleen over de eigen bronnen (shell + app + cloud), niet over de vendor-SDK/base64-assets
+assertClean(shell + combined, "index.html (eigen bronnen)");
+
+// Alle harde controles vóór het eerste weggeschreven artefact, zodat index.html/sw.js/icoon nooit uit fase lopen
+const PNG_SIG = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+const iconBufs = {};
+Object.keys(ICON_FILES).forEach(k => {
+  const b = Buffer.from(icons[k], "base64");
+  if (b.length < 8 || !b.subarray(0, 8).equals(PNG_SIG)) { console.error("✗ " + k + " in assets/icon_b64.txt is geen geldige PNG — build gestopt."); process.exit(1); }
+  iconBufs[k] = b;
+});
+
 
 fs.writeFileSync(path.join(root, "index.html"), html);
 console.log("✓ index.html gebouwd (" + Buffer.byteLength(html) + " bytes, BUILD " + buildId + ")");

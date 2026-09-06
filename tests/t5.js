@@ -120,6 +120,73 @@ const stored=(W)=>JSON.parse(W.localStorage.getItem("mandje.v2"));
   ok("Herladen met actieve paklijst: plain-modus, items en kopjes terug", D2.body.classList.contains("list-plain") && D2.querySelector("#title").textContent==="Vakantie" && rows2===packItems.length && D2.querySelectorAll("#open-list .plain-sec").length>=3);
   d2.window.close();
 
+  // 11. Review-regressies (2026-09-06): cloud-lijst open + lokale lijsten, lijstgebonden undo, overlay sluit→open, escaping, kopje-regels
+  {
+    // Supabase-stub: één cloud-item, één lid; genoeg voor Cloud.open() via het echte pad
+    const mkStub=()=>{
+      const q=(table)=>{ const o={}; ["select","eq","in","order","single","limit","update","insert","delete","upsert"].forEach(m=>{ o[m]=function(){ return o; }; });
+        o.then=(res)=>{ let data=[]; if(table==="items") data=[{id:"c1",list_id:"c1",name:"Cloudkaas",category:"kaas-vleeswaren",qty:1,price:null,note:"",unit:"",done:false,assigned_to:null,added_by_name:"Sanne",created_at:new Date().toISOString()}]; if(table==="members") data=[{id:"m1",list_id:"c1",user_id:"u1",display_name:"Ik",color:"#24593F"}]; return Promise.resolve({data:data,error:null}).then(res); };
+        return o; };
+      return { from:(t)=>q(t), rpc:()=>q("rpc"), removeChannel(){}, channel(){ const c={}; c.on=()=>c; c.subscribe=()=>c; c.track=()=>{}; c.presenceState=()=>({}); c.unsubscribe=()=>{}; return c; } };
+    };
+    const seedR={version:3,settings:{theme:"light",showPrices:false,seenIntro:true,categoryOrder:null,minPurchases:3,cvThreshold:.6,dueWindowDays:1},list:[item("a1","appels","groente-fruit"),item("m1","melk","zuivel-eieren")],catalog:{},coBuy:{},meals:{},
+      localLists:[{id:"l_boodschappen",name:"Boodschappen",type:"grocery",preset:"grocery",glyph:"🧺",finish:"opruimen",items:[item("a1","appels","groente-fruit"),item("m1","melk","zuivel-eieren")]},{id:"l_b",name:"B-lijst",type:"grocery",preset:"grocery",glyph:"🧺",finish:"opruimen",items:[item("s1","schroeven","klussen")]}],activeLocalId:"l_boodschappen"};
+    const dR=mk(seedR); await wait(160); const W=dR.window, D=W.document, C=W.Cloud;
+    C.sb=mkStub(); C.enabled=true; C.ready=true; C.mode="cloud"; C.userId="u1"; C.lists=[{id:"c1",name:"Gedeeld",owner_user_id:"u1",member_count:2}];
+    await C.open("c1").catch(()=>{}); await wait(60);
+    ok("Review: cloud-lijst open → state.list = cloud-items, persoonlijke lijst in snapshot", C.active==="c1" && stored(W).list.map(i=>i.name).join()==="appels,melk" && /Cloudkaas/.test(D.querySelector("#open-list").textContent));
+    // a) nieuwe lokale lijst vanuit een cloud-lijst: persoonlijke lijst blijft intact (was: overschreven met cloud-items)
+    const todo=W.createLocalList({name:"Klussen", preset:"todo"}); W.switchLocalList(todo.id); await wait(60);
+    let st=stored(W);
+    ok("Review: nieuwe lijst vanuit cloud-lijst laat Boodschappen intact (appels,melk)", st.localLists.find(l=>l.id==="l_boodschappen").items.map(i=>i.name).join()==="appels,melk" && st.activeLocalId===todo.id && C.active===null);
+    // b) lokale lijst verwijderen terwijl een cloud-lijst open staat: de volgende lijst houdt haar eigen items
+    W.switchLocalList("l_boodschappen"); await wait(40);
+    C.sb=mkStub(); C.enabled=true; C.ready=true; C.mode="cloud";
+    await C.open("c1").catch(()=>{}); await wait(60);
+    W.deleteLocalList("l_boodschappen"); await wait(40);
+    st=stored(W);
+    ok("Review: verwijderen van de actieve lokale lijst tijdens een open cloud-lijst laat B-lijst intact (schroeven)", st.localLists.find(l=>l.id==="l_b").items.map(i=>i.name).join()==="schroeven" && st.activeLocalId==="l_b");
+    // c) dupliceren vanuit een cloud-lijst kopieert de lokale items, niet de cloud-items
+    const copy=W.duplicateLocalList("l_b"); await wait(30);
+    ok("Review: dupliceren tijdens een open cloud-lijst kopieert de lokale items", !!copy && copy.items.map(i=>i.name).join()==="schroeven");
+    C.openLocal(); await wait(60);
+    // d) undo is lijstgebonden
+    W.addToList("bellen", null, {silent:true}); await wait(30);
+    const idBel=stored(W).list.find(i=>i.name==="bellen").id;
+    W.removeFromList(idBel); await wait(30);
+    W.switchLocalList(todo.id); await wait(40);
+    const undoBtn=[D.querySelector("#toast"),D.querySelector("#toast2")].map(t=>t&&t.classList.contains("show")&&t.querySelector(".toast-action")).find(Boolean);
+    if(undoBtn) undoBtn.click(); await wait(40);
+    st=stored(W);
+    ok("Review: 'Ongedaan' na een lijstwissel raakt de andere lijst niet", !!undoBtn && !st.list.some(i=>i.name==="bellen") && !st.localLists.find(l=>l.id===todo.id).items.some(i=>i.name==="bellen"));
+    // e) overlay sluiten en direct openen (lijstkiezer → + Nieuwe lijst) blijft open na de uitgestelde history.back()
+    D.querySelector("#list-switch-wrap .list-switch").click(); await wait(50);
+    D.querySelector("#sheet2 #ls-new").click(); await wait(150);
+    ok("Review: sluit→open in dezelfde tick: 'Nieuwe lijst'-sheet blijft open", D.querySelector("#sheet").classList.contains("show") && !!D.querySelector("#nl-name") && !D.querySelector("#sheet2").classList.contains("show"));
+    D.querySelector("#nl-cancel").click(); await wait(80);
+    // f) kopje-regels: tijden splitsen niet, dubbel per kopje toegestaan; kopje-chip is tekst
+    W.addToList("Tandarts 10:30", null, {silent:true}); W.addToList("Kind: tandenborstel", null, {silent:true}); await wait(20);
+    const okDup=W.addToList("Ik: tandenborstel", null, {silent:true}); await wait(30);
+    st=stored(W);
+    ok("Review: 'Tandarts 10:30' blijft één tekst; zelfde tekst onder een ander kopje mag", st.list.some(i=>i.name==="Tandarts 10:30" && !i.section) && okDup===true && st.list.filter(i=>i.name==="tandenborstel").length===2);
+    W.addToList("<i onerror=alert(1)>K</i>: hoed", null, {silent:true});   // kopje ≤ 30 tekens, anders is het geen kopje await wait(20);
+    const row=[...D.querySelectorAll("#open-list li.row")].find(r=>/hoed/.test(r.textContent)); row.querySelector(".card .meta").click(); await wait(40);
+    ok("Review: kopje met HTML wordt als tekst getoond in het item-sheet", !D.querySelector("#sheet #ps-secchips i") && [...D.querySelectorAll("#sheet #ps-secchips .cadchip")].some(b=>/onerror/.test(b.textContent)));
+    D.querySelector("#ps-del").click(); await wait(60);
+    // g) lege staat escapet de lijstnaam
+    W.renameLocalList(todo.id, "<img src=x onerror=window.__pwn2=1>"); await wait(10);
+    stored(W).list.length; W.finishPlain("opruimen"); await wait(20);
+    const ids=stored(W).list.map(i=>i.id); ids.forEach(id=>W.removeFromList(id)); await wait(60);
+    ok("Review: lege staat toont een lijstnaam met HTML als tekst", !W.__pwn2 && !D.querySelector("#open-list .empty img") && /onerror/.test(D.querySelector("#open-list .empty h2").textContent));
+    // h) kaart zonder role=button; naam is een knop die het sheet opent
+    W.switchLocalList("l_b"); await wait(40);
+    const card=D.querySelector("#open-list .card");
+    ok("Review: geen role=button op de kaart; de naam is een knop met label", !!card && !card.hasAttribute("role") && card.querySelector("button.meta") && /schroeven/.test(card.querySelector("button.meta").getAttribute("aria-label")));
+    card.querySelector("button.meta").click(); await wait(40);
+    ok("Review: naam-knop opent het item-sheet", D.querySelector("#sheet").classList.contains("show") && !!D.querySelector("#s-cats"));
+    dR.window.close();
+  }
+
   console.log("\nt5: "+pass+" geslaagd, "+fail+" gefaald");
   process.exit(fail?1:0);
 })().catch(e=>{ console.error("t5 TESTFOUT:", e); process.exit(2); });
