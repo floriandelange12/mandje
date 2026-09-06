@@ -220,7 +220,9 @@ function normalizeState(raw){
         done: !!it.done,
         assigned_to: it.assigned_to || null,
         added_by_name: it.added_by_name || "",
-        addedAt: it.addedAt || nowISO()
+        addedAt: it.addedAt || nowISO(),
+        flaggedAt: (it.flaggedAt ? String(it.flaggedAt) : null),
+        flaggedBy: (it.flaggedBy || "").toString().slice(0,40)
       });
     }
   }
@@ -500,9 +502,9 @@ function openAccountSheet(mode){
   var cloudLists=(Cloud.lists||[]).filter(function(l){ return !(typeof isInboxList==="function" && isInboxList(l)); }).length;
   sh.innerHTML='<div class="grip"></div><h3></h3>'+
     '<div class="hint" id="acc-intro" style="margin:0 6px 12px"></div>'+
-    '<div class="field"><input id="acc-email" type="email" inputmode="email" autocomplete="email" autocapitalize="off" spellcheck="false" placeholder="naam@voorbeeld.nl" aria-label="E-mailadres"></div>'+
+    '<div class="field"><input class="name" id="acc-email" type="email" inputmode="email" autocomplete="email" autocapitalize="off" spellcheck="false" placeholder="naam@voorbeeld.nl" aria-label="E-mailadres"></div>'+
     '<div id="acc-step2" hidden><div class="hint" id="acc-sent" style="margin:12px 6px 8px"></div>'+
-    '<div class="field"><input id="acc-code" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="Code uit de mail" aria-label="Code uit de mail"></div>'+
+    '<div class="field"><input class="name" id="acc-code" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="Code uit de mail" aria-label="Code uit de mail"></div>'+
     '<button class="linkbtn" id="acc-resend" type="button">Code opnieuw sturen</button></div>'+
     '<div class="hint warn" id="acc-warn" hidden style="margin:10px 6px 0"></div>'+
     '<div class="sheet-actions"><button class="save" id="acc-go" type="button">Stuur code</button><button class="del" id="acc-cancel" type="button">Annuleren</button></div>';
@@ -561,7 +563,7 @@ function openDeleteAccountSheet(){
   var sh=$("#sheet"); if(!sh) return;
   sh.innerHTML='<div class="grip"></div><h3>Account verwijderen</h3>'+
     '<div class="hint" style="margin:0 6px 12px">Dit verwijdert je account, je profiel, je vrienden, de gedeelde lijsten waar jij de enige van bent en de kopie van je gegevens in de cloud. Ook dit toestel wordt leeggemaakt. Dit kan niet ongedaan worden gemaakt.</div>'+
-    '<div class="field"><input id="del-acc-input" type="text" autocomplete="off" autocapitalize="characters" placeholder="Typ VERWIJDER om te bevestigen" aria-label="Typ VERWIJDER om te bevestigen"></div>'+
+    '<div class="field"><input class="name" id="del-acc-input" type="text" autocomplete="off" autocapitalize="characters" placeholder="Typ VERWIJDER om te bevestigen" aria-label="Typ VERWIJDER om te bevestigen"></div>'+
     '<div class="sheet-actions"><button class="del" id="del-acc-go" type="button" disabled>Verwijder alles</button><button class="save" id="del-acc-cancel" type="button">Annuleren</button></div>';
   var inp=sh.querySelector("#del-acc-input"), go=sh.querySelector("#del-acc-go");
   inp.addEventListener("input", function(){ go.disabled=(inp.value||"").trim().toUpperCase()!=="VERWIJDER"; });
