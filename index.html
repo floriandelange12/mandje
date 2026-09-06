@@ -998,6 +998,8 @@
   }
 
   @media (max-width:359px){
+    .shop-foot-row .shop-finish{ white-space:nowrap; font-size:var(--fs-md); padding:14px 12px; }
+    .shop-hide{ padding:9px 10px; font-size:var(--fs-xs); }
     :root{
       --app-max-width: calc(100vw - 4px);
       --app-padding: clamp(10px, 2.2vw, 12px);
@@ -1211,7 +1213,7 @@
   window.MANDJE_CONFIG = {
     SUPABASE_URL:      "https://yctcpxgjpmhyohbsrygy.supabase.co",   /* ingevuld ✓ */
     SUPABASE_ANON_KEY: "sb_publishable_lT77Nkcrl6VsBIx-PFuMtw_mdJ6fyNj",   /* ingevuld ✓ (publishable key) */
-    BUILD:             "c938485d", /* wordt door build.js vervangen door datum + inhoudshash (nooit handmatig ophogen) */
+    BUILD:             "622cc0d8", /* wordt door build.js vervangen door datum + inhoudshash (nooit handmatig ophogen) */
     EMAIL_AUTH:        false, /* zet op true zodra e-mail magic-link aan staat in Supabase → toont "Beveilig je account" */
     VAPID_PUBLIC_KEY:  "BIkVm3JYB2t37GOXQlMTwSRipLcEvjrDY8Kb2mmNOIIrRY4zmR57RznHTJ2NQ5Z9h1fkp3if2OkDGmcmItLjy54"  /* public key (veilig in frontend). Privésleutel staat alleen als Supabase-secret. */
   };
