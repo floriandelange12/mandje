@@ -393,6 +393,19 @@
   .chip .plus{ color:var(--brand); font-weight:var(--fw-bold); font-size:var(--fs-lg); margin-left:1px; }
   .chip.amber{ background:var(--accent-2); color:var(--accent); }
   .chip.amber .plus{ color:var(--accent); }
+  /* bijna-op-chip met eigen verberg-knop */
+  .chip-wrap{ display:inline-flex; align-items:stretch; }
+  .chip-wrap .chip{ border-radius:var(--r-pill) 0 0 var(--r-pill); padding-right:10px; }
+  .chip-x{ border:0; margin-left:1px; padding:0 11px 0 7px; background:var(--accent-2); color:var(--accent); border-radius:0 var(--r-pill) var(--r-pill) 0; font-size:var(--fs-sm); font-weight:var(--fw-bold); opacity:.8; }
+  .chip-x:active{ opacity:1; }
+  /* "Schap kiezen" op rijen in Overig */
+  .pick-cat{ border:0; background:var(--accent-2); color:var(--accent); border-radius:var(--r-pill); padding:2px 9px; font-size:var(--fs-xs); font-weight:var(--fw-bold); line-height:1.5; vertical-align:middle; }
+  /* Startzet bij lege lijst + Vaak gekocht */
+  .quick-start{ margin:4px 4px 0; }
+  .qs-lbl{ font-size:var(--fs-sm); font-weight:var(--fw-bold); letter-spacing:.04em; text-transform:uppercase; color:var(--ink-soft); margin:18px 2px 8px; }
+  .qs-actions{ display:flex; flex-direction:column; gap:8px; margin-top:16px; }
+  .qs-actions .mbtn{ margin:0; }
+  .freq-chips{ margin:0 6px 12px; }
   .banner{ background:linear-gradient(135deg, var(--accent-2), color-mix(in srgb, var(--accent-2) 60%, var(--surface-1))); border:1px solid color-mix(in srgb, var(--accent) 22%, transparent); border-radius:var(--r-lg); padding:14px; }
   .banner .b-top{ display:flex; align-items:center; gap:8px; font-weight:var(--fw-bold); font-size:var(--fs-md); color:var(--accent); margin-bottom:10px; }
   .banner .b-top svg{ width:17px; height:17px; flex:0 0 auto; }
@@ -812,6 +825,15 @@
   .toast .toast-action{ background:transparent; border:0; color:color-mix(in srgb, var(--brand) 80%, var(--bg)); font-weight:var(--fw-bold); padding:6px 12px; margin-left:10px; border-radius:var(--r-sm); font-size:var(--fs-md); letter-spacing:.01em; }
   .toast.has-action{ padding:9px 8px 9px 18px; }
   .toast.has-tap{ cursor:pointer; }
+  /* tweede slot: boven de actie-toast (bij top-positie: eronder) */
+  .toast-2{ margin-bottom:56px; z-index:96; }
+  body.sheet-open .toast-2, .shop-screen.show ~ .toast-2{ margin-bottom:0; margin-top:56px; }
+  /* Klaar!-blad */
+  .fin-sum{ font-size:var(--fs-lg); color:var(--ink-soft); margin:2px 0 16px; }
+  .fin-sum b{ color:var(--ink); font-weight:var(--fw-bold); }
+  .fin-paid{ display:flex; align-items:center; justify-content:space-between; gap:12px; margin:0 0 16px; font-size:var(--fs-md); }
+  .fin-paid-in{ display:inline-flex; align-items:center; gap:4px; background:var(--surface-2); border:1px solid var(--line-strong); border-radius:var(--r-sm); padding:6px 10px; color:var(--ink-soft); }
+  .fin-paid-in input{ width:7ch; border:0; background:transparent; font-size:var(--fs-input); color:var(--ink); outline:0; text-align:right; -webkit-user-select:text; user-select:text; }
   .toast .toast-action:active{ background:color-mix(in srgb, var(--brand) 22%, transparent); }
 
   /* ---------- Co-purchase suggestion (onder add-bar) ---------- */
@@ -912,7 +934,10 @@
   /* ---------- Rasters vanaf 768px (zonder hoogte-guard: ook lage desktop-vensters) ---------- */
   @media (min-width:768px){
     #open-list{ display:grid; grid-template-columns:repeat(auto-fill, minmax(380px, 1fr)); column-gap:24px; align-items:start; }
-    #open-list > .empty, #open-list > .search-empty{ grid-column:1 / -1; }
+    #open-list > .empty, #open-list > .search-empty, #open-list > .quick-start{ grid-column:1 / -1; }
+    .quick-start{ max-width:640px; margin-inline:auto; }
+    .qs-actions{ flex-direction:row; flex-wrap:wrap; }
+    .qs-actions .mbtn{ flex:1 1 220px; }
     #done-list ul.list{ display:grid; grid-template-columns:repeat(auto-fill, minmax(380px, 1fr)); gap:8px 24px; }
     .shop-body{ display:grid; grid-template-columns:repeat(auto-fill, minmax(340px, 1fr)); gap:0 20px; align-content:start; align-items:start; }
     .shop-body > .shop-empty, .shop-body > .shop-alldone{ grid-column:1 / -1; }
@@ -1181,6 +1206,7 @@
   </div>
 
   <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
+  <div class="toast toast-2" id="toast2" role="status" aria-live="polite" aria-atomic="true"></div>
 </div>
 <!-- __SCRIPT__ -->
 </body>

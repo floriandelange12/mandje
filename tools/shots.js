@@ -29,7 +29,9 @@ const STATES = {
   winkel: { seed, run: async p => { await p.click(".shop-enter-btn"); await p.waitForTimeout(450); } },
   winkel2:{ seed, run: async p => { await p.click(".shop-enter-btn"); await p.waitForTimeout(450); const rows=await p.$$(".shop-row"); for(const r of rows.slice(0,3)){ await r.click(); await p.waitForTimeout(120); } await p.waitForTimeout(400); } },
   meer:   { seed, run: async p => { await p.click(".topbar .gear"); await p.waitForTimeout(450); } },
-  vaste:  { seed, run: async p => { await p.click("text=Vaste"); await p.waitForTimeout(350); } }
+  vaste:  { seed, run: async p => { await p.click("text=Vaste"); await p.waitForTimeout(350); } },
+  klaar:  { seed, run: async p => { const checks=await p.$$("#open-list .check"); for(const c of checks.slice(0,3)){ await c.click(); await p.waitForTimeout(150); } await p.waitForTimeout(500); await p.click(".finish-inline-btn"); await p.waitForTimeout(600); } },
+  leegqs: { seed: seed.replace("\"catalog\":{}", "\"catalog\":"+JSON.stringify({melk:{name:"Melk",category:"zuivel-eieren",defaultPrice:null,purchaseDates:[],timesAdded:5,lastAddedAt:new Date().toISOString(),cadenceMode:"auto",manualIntervalDays:null},brood:{name:"Brood",category:"brood-banket",defaultPrice:null,purchaseDates:[],timesAdded:4,lastAddedAt:new Date().toISOString(),cadenceMode:"auto",manualIntervalDays:null},eieren:{name:"Eieren",category:"zuivel-eieren",defaultPrice:null,purchaseDates:[],timesAdded:3,lastAddedAt:new Date().toISOString(),cadenceMode:"auto",manualIntervalDays:null}})).replace(/"list":[[^]]*]/, "\"list\":[]"), run: async () => {} }
 };
 const STATE_ONLY = (process.env.SHOTS_STATES || "").split(",").filter(Boolean);
 

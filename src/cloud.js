@@ -737,8 +737,8 @@ var Cloud = {
     name=(name||"").trim(); if(!name||!this.active) return;
     addQty = Math.max(1, addQty||1);
     opts = opts || {};
-    var self=this, k = norm(name);
-    var existing = state.list.find(function(i){ return !i.done && norm(i.name)===k; });
+    var self=this, k = norm(name), mk = (typeof matchKey==="function") ? matchKey(name) : k;
+    var existing = state.list.find(function(i){ return !i.done && ((typeof matchKey==="function") ? matchKey(i.name) : norm(i.name))===mk; });
     if(existing){
       existing.qty += addQty;
       if(price!=null) existing.price = price;
@@ -840,8 +840,10 @@ var Cloud = {
     var clear=function(){ setTimeout(function(){ ids.forEach(function(id){ delete self._deletedIds[id]; }); }, 1500); };
     var queueAll=function(){ ids.forEach(function(id){ self._queueDelete(id); }); };
     this.sb.from("items").delete().in("id",ids).then(function(r){ if(r&&r.error) queueAll(); clear(); }, function(){ queueAll(); clear(); });
-    toast(done.length+(done.length===1?" boodschap gekocht":" boodschappen gekocht")); vibrate(12); renderVaste();
+    vibrate(12); renderVaste();
     if(typeof celebrate==="function") celebrate();
+    if(typeof finishAfterCloud==="function") finishAfterCloud(done);
+    else toast(done.length+(done.length===1?" boodschap gekocht":" boodschappen gekocht"));
   },
 
   /* ---- lijstbeheer ---- */

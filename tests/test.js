@@ -267,7 +267,8 @@ async function run(){
     ok("copyText en shareNative zijn bereikbaar", typeof window.copyText === "function" && typeof window.shareNative === "function");
 
     const copyOk = await window.copyText("https://example.com/fallback", "Kopieer deze code");
-    const copyMsg = (doc.querySelector("#toast")?.textContent || "").toLowerCase();
+    // toast-stapel: een gewone melding kan in slot 2 (#toast2) landen als slot 1 een actie-toast toont
+    const copyMsg = [doc.querySelector("#toast2"), doc.querySelector("#toast")].filter(t=>t && t.classList.contains("show")).map(t=>t.textContent).join(" ").toLowerCase();
     ok("copyText valt terug op prompt bij clipboard-fout", promptCalls > 0);
     ok("copyText toont fallback-feedback", /niet automatisch gekopieerd|handmatig|kopieer/.test(copyMsg));
     ok("copyText prompt bevat het tekstfragment", promptValue.indexOf("https://example.com/fallback") !== -1);

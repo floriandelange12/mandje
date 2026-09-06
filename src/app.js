@@ -63,19 +63,19 @@ var KW = {
   "groente-fruit":["appel","appels","banaan","bananen","peer","peren","sinaasappel","mandarijn","druif","druiven","aardbei","framboos","bes","blauwe bes","kiwi","mango","ananas","citroen","limoen","avocado","tomaat","tomaten","cherrytomaat","komkommer","paprika","sla","ijsbergsla","andijvie","spinazie","broccoli","bloemkool","wortel","wortels","peen","ui","uien","rode ui","knoflook","aardappel","aardappels","krieltjes","prei","courgette","aubergine","champignon","paddenstoel","sperziebon","erwt","mais","pompoen","radijs","biet","bleekselderij","venkel","asperge","witlof","rucola","pruim","perzik","nectarine","meloen","granaatappel","gember","verse kruiden","basilicum","peterselie"],
   "brood-banket":["brood","bruinbrood","witbrood","volkorenbrood","volkoren","stokbrood","baguette","croissant","broodje","bolletje","pistolet","krentenbol","beschuit","cracker","ontbijtkoek","cake","taart","gebak","koek","koekje","wrap","tortilla","pita","naan","muffin","donut","appeltaart"],
   "zuivel-eieren":["melk","halfvolle melk","volle melk","karnemelk","yoghurt","griekse yoghurt","kwark","vla","room","slagroom","creme fraiche","zure room","boter","roomboter","margarine","ei","eieren","sojamelk","havermelk","amandelmelk","kefir","pudding","drinkyoghurt","koffiemelk"],
-  "kaas-vleeswaren":["kaas","jong belegen","oude kaas","geraspte kaas","mozzarella","parmezaan","brie","feta","ham","kipfilet vleeswaren","achterham","salami","cervelaat","worst","rookworst","spek","bacon","pate","leverworst","rosbief","gerookte kip","smeerkaas","roomkaas"],
+  "kaas-vleeswaren":["boterhamworst","boterham worst","kruidenboter","kaas","jong belegen","oude kaas","geraspte kaas","mozzarella","parmezaan","brie","feta","ham","kipfilet vleeswaren","achterham","salami","cervelaat","worst","rookworst","spek","bacon","pate","leverworst","rosbief","gerookte kip","smeerkaas","roomkaas"],
   "vlees-vis":["vlees","gehakt","rundergehakt","biefstuk","kip","kipfilet","kipdij","kippenpoot","varkenshaas","speklap","rund","lamsvlees","worstjes","braadworst","hamburger","schnitzel","shoarma","vis","zalm","tonijn","kabeljauw","garnaal","garnalen","mossel","haring","makreel","forel","kibbeling","tilapia","pangasius","tofu","tempeh","vegaburger","gerookte zalm"],
-  "diepvries":["diepvries","ijs","ijsje","magnum","pizza","diepvriespizza","friet","frites","frikandel","kroket","bitterbal","vissticks","loempia","spinazie diepvries","doperwten","tuinbonen","bladerdeeg","ijsblokjes"],
+  "diepvries":["roomijs","diepvries","ijs","ijsje","magnum","pizza","diepvriespizza","friet","frites","frikandel","kroket","bitterbal","vissticks","loempia","spinazie diepvries","doperwten","tuinbonen","bladerdeeg","ijsblokjes"],
   "ontbijt-beleg":["hagelslag","vlokken","pindakaas","jam","aardbeienjam","honing","stroop","appelstroop","muesli","cruesli","cornflakes","havermout","granola","nutella","chocopasta","sambal","tahini","appelmoes","speculoospasta"],
   "houdbaar":["pasta","spaghetti","macaroni","penne","rijst","basmati","noedels","mie","couscous","bulgur","quinoa","meel","bloem","suiker","basterdsuiker","zout","peper","kruiden","kerrie","paprikapoeder","olie","olijfolie","zonnebloemolie","azijn","balsamico","saus","pastasaus","ketchup","mayonaise","mayo","mosterd","soep","bouillon","blik","conserven","tomatenblokjes","passata","tomatenpuree","kokosmelk","linzen","kikkererwt","kidneybonen","bruine bonen","augurk","olijf","pesto","currypasta","gist","cacao","rozijnen","noten ongezouten"],
-  "snoep-snacks":["chocola","chocolade","reep","snoep","drop","chips","naturel chips","paprikachips","nootjes","noten","pinda","cashew","popcorn","mars","snickers","twix","winegum","zoutjes","toastje","borrelnoot","koekjes","stroopwafel","pepernoten","zoute krakeling"],
+  "snoep-snacks":["tortillachips","tortilla chips","chocola","chocolade","reep","snoep","drop","chips","naturel chips","paprikachips","nootjes","noten","pinda","cashew","popcorn","mars","snickers","twix","winegum","zoutjes","toastje","borrelnoot","koekjes","stroopwafel","pepernoten","zoute krakeling"],
   "dranken":["water","spa","bruiswater","cola","fris","frisdrank","sap","sinaasappelsap","appelsap","limonade","ranja","siroop","ice tea","icetea","thee","groene thee","koffie","koffiebonen","espresso","cappuccino","oploskoffie","bier","wijn","rode wijn","witte wijn","prosecco","energiedrank","red bull","tonic","kombucha","smoothie","chocomel"],
   "huishouden":["wc papier","toiletpapier","wc-papier","keukenrol","vuilniszak","afwasmiddel","afwas","vaatwastablet","vaatwas","wasmiddel","wasverzachter","allesreiniger","schoonmaak","spons","schuurspons","vochtige doekjes","aluminiumfolie","vershoudfolie","bakpapier","kaars","theelicht","zakdoek","tissue","afwasborstel","vaatwasmiddel"],
   "verzorging":["shampoo","conditioner","zeep","handzeep","douchegel","tandpasta","tandenborstel","floss","deodorant","deo","scheermes","scheerschuim","bodylotion","handcreme","creme","maandverband","tampon","watten","wattenstaafje","mondwater","zonnebrand","make-up","makeup","mascara","foundation","lippenstift","oogschaduw","nagellak","parfum","eau de toilette"],
   "baby-kind":["luier","luiers","babyluier","trainerbroek","babyvoeding","flesvoeding","melkpoeder","fopspeen","babyflesje","babydoekjes","billendoekjes","babybillendoekjes","babyzalf","sudocrem","babyzeep","babyshampoo","babyolie","baby-olie","knijpfruit","knijpyoghurt","babyhapje","babyhap","slabbetje","spuugdoekje","spuugdoek","kindertandpasta","kindertandborstel","kinderzeep","kindershampoo","babykleding","rompertje","romper","babymutsje","speen","spenen","puzzel","kleurboek","kleurpotloden voor kinderen"],
   "huisdier":["hondenvoer","hondenbrokken","hondensnacks","kauwbot","kauwbotje","hondensnoep","kattenvoer","kattenbrokken","kattenpaté","kattenpate","kattennat","kattenbakvulling","kattengrit","vogelvoer","muizenvoer","konijnenvoer","caviavoer","hamstervoer","vissenvoer","aquariumvoer","dierenvoer","dierenshampoo","dierenkam","kattenkam","vlooienband","wormenkuur","tekenspray","kattenbakje","hondenriem","halsband","hondenpoepzakje","poepzakje","poepzakjes","kattenspeeltje","hondenspeeltje","krabpaal"],
   "klussen":["schroef","schroeven","spijker","spijkers","moeren","bouten","tieraps","tie-rap","schroefje","secondelijm","montagelijm","houtlijm","behangerslijm","siliconenkit","silicone","alleslijm","plakband","duct tape","ducttape","masking tape","schilderstape","isolatietape","batterij","batterijen","aa batterij","aaa batterij","aa-batterij","9v batterij","knoopcel","knoopbatterij","gloeilamp","ledlamp","spaarlamp","fitting","stekker","verlengsnoer","stekkerdoos","schuurpapier","staalwol","kwast","verfrol","verfemmer","verf","grondverf","beits","schroevendraaier","hamer","tang","boormachine","accuboor","sleutelset","steeksleutel","ijzerdraad","nylondraad","houten plank","latje","mdf","piepschuim","isolatie","tochtstrip","stofzuigerzak","stofzuigerfilter"],
-  "tuin-planten":["potgrond","tuinaarde","compost","plantengrond","substraat","zaden","zaadjes","bloembol","bloembollen","stekken","plantenvoeding","plantenmest","kunstmest","koemest","groeikorrels","snijbloemen","boeket","kamerplant","hangplant","cactus","vetplant","orchidee","perkplant","perkplantjes","balkonplant","viooltjes","geranium","plantenpot","bloempot","onderschotel","hangmand","tuinslang","gieter","sproeier","graszaad","grassemen","gazonmest","tuinhandschoenen","snoeischaar","schoffel","spade","tuinbezem","plantensteun","plantenstok","bamboestok","plantentouw","vogelhuisje","vogelzaad","strooizout","strooizand"],
+  "tuin-planten":["bloemen","boeket","bos bloemen","tuinkruiden","potgrond","tuinaarde","compost","plantengrond","substraat","zaden","zaadjes","bloembol","bloembollen","stekken","plantenvoeding","plantenmest","kunstmest","koemest","groeikorrels","snijbloemen","boeket","kamerplant","hangplant","cactus","vetplant","orchidee","perkplant","perkplantjes","balkonplant","viooltjes","geranium","plantenpot","bloempot","onderschotel","hangmand","tuinslang","gieter","sproeier","graszaad","grassemen","gazonmest","tuinhandschoenen","snoeischaar","schoffel","spade","tuinbezem","plantensteun","plantenstok","bamboestok","plantentouw","vogelhuisje","vogelzaad","strooizout","strooizand"],
   "apotheek":["paracetamol","ibuprofen","aspirine","brufen","advil","neusspray","neusdruppels","oogdruppels","keelpastilles","keelpastille","hoestdrank","hoeststroop","slijmoplosser","multivitamine","vitamine c","vitamine d","vitamine b","ijzertabletten","magnesium","calcium","zink","vitaminen","vitamine","ehbo","ehbo-doos","jodium","betadine","desinfecterend","kompres","steriel kompres","pleister","pleisters","blarenpleister","wondpleister","verband","zwachtel","koortsthermometer","thermometer","bloeddrukmeter","antihistaminicum","loratadine","cetirizine","neusspoeling","zoutoplossing","ibuprofengel","spierzalf","arnica","tijgerbalsem","biotine"],
   "kantoor-school":["balpen","bic","viltstift","stift","markeerstift","fineliner","potlood","kleurpotlood","kleurpotloden","puntenslijper","liniaal","passer","geodriehoek","gradenboog","schrift","schriftje","ringband","ordner","tabbladen","insteekhoes","post-it","plakbriefje","plakbriefjes","memoblok","notitieblok","notitieboekje","paperclip","paperclips","nietmachine","nietjes","perforator","schaar","schaartje","prittstift","lijmstift","lijmstaaf","etiketten","etiket","printerinkt","cartridge","tonercartridge","printerpapier","kopieerpapier","a4-papier","papier a4","a4 papier","rekenmachine","calculator","agenda","planner","prikbord","punaise","punaises","rugzak","schooltas","etui","pennenbakje","pen","pennen","stickers"],
   "kleding-textiel":["sok","sokken","sportsok","damessok","ondergoed","onderbroek","beha","slipje","string","boxer","panty","panty's","kous","kousen","t-shirt","tshirt","hemd","blouse","topje","spijkerbroek","joggingbroek","jeans","short","winterjas","regenjas","trui","sweater","hoodie","schoenen","laarzen","sneakers","sandalen","slippers","riem","handschoen","handschoenen","muts","sjaal","das","zwemkleding","zwembroek","badpak","bikini","theedoek","theedoeken","vaatdoek","vaatdoeken","dweil","dweilen","sponsdoek","washandje","washand","washandjes","badhanddoek","gastendoekje","handdoek","handdoeken","hoeslaken","laken","kussensloop","sloop","dekbedovertrek","overtrek","plaid"]
@@ -86,6 +86,8 @@ Object.keys(KW).forEach(function(cat){ KW[cat].forEach(function(w){ FLAT_KW.push
 FLAT_KW.sort(function(a,b){ return b.w.length - a.w.length; });
 
 function norm(s){ return (s||"").toString().trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,""); }
+/* Vergelijkingssleutel voor dubbele regels: koppeltekens/underscores → spatie, meervoudige spaties → één */
+function matchKey(s){ return norm(s).replace(/[-_\/]+/g," ").replace(/\s+/g," ").trim(); }
 
 function lev(a,b){
   var m=a.length,n=b.length; if(Math.abs(m-n)>1) return 2;
@@ -110,14 +112,24 @@ function classify(name){
     if(ce && ce.userOverrideCat && ce.category) return ce.category;
   }
   var words = n.split(/\s+/);
+  // Score elke treffer: exact +200, aan het einde van de naam +100 ("boterhamworst" → worst, "melkchocolade" → chocolade),
+  // op een woordgrens +50, lengte als tiebreak. Korte woorden (<4) tellen alleen als heel woord.
+  var best=null, bestScore=0;
   for(var i=0;i<FLAT_KW.length;i++){
     var w = FLAT_KW[i].w;
-    if(w.length >= 4){
-      if(n.indexOf(w) !== -1) return FLAT_KW[i].cat;
-    } else {
-      if(words.indexOf(w) !== -1) return FLAT_KW[i].cat;
-    }
+    var idx = n.indexOf(w); if(idx===-1) continue;
+    var isWord = words.indexOf(w) !== -1;
+    if(w.length < 4 && !isWord) continue;
+    var endsAt = idx + w.length;
+    var bStart = idx===0 || /[\s-]/.test(n.charAt(idx-1));
+    var bEnd = endsAt===n.length || /[\s-]/.test(n.charAt(endsAt));
+    var score = w.length;
+    if(n===w) score += 200;
+    if(endsAt===n.length) score += 100;
+    if(bStart && bEnd) score += 50;
+    if(score > bestScore){ bestScore=score; best=FLAT_KW[i].cat; }
   }
+  if(best) return best;
   // typefout-tolerant: 1 teken verschil op een heel woord (min. 5 tekens)
   for(var wi=0;wi<words.length;wi++){
     var word=words[wi]; if(word.length<5) continue;
@@ -141,6 +153,7 @@ var CURRENT_STATE_VERSION = 3;
 var DEFAULTS = {
   version: CURRENT_STATE_VERSION,
   settings:{ theme:"auto", textScale:1, shopHideDone:false, showPrices:false, seenIntro:false, categoryOrder:CATS.map(function(c){return c.id;}), minPurchases:3, cvThreshold:0.6, dueWindowDays:1, customCategories:[], customCatEmoji:{}, collapsedCats:{}, seenQtyHint:false, seenBulkHint:false, seenPriceNudge:false, pushOn:null },
+  history:[],
   syncQueue:[],
   lastSyncState:{ mode:"local", status:"not_started", ready:false, pendingMutations:0, offline:false, reason:null, lastError:null, lastUpdated:0 },
   offlinePendingFlags:{},
@@ -173,7 +186,8 @@ function normalizeState(raw){
     list: [],
     catalog: isPlainObject(inState.catalog) ? inState.catalog : {},
     coBuy: isPlainObject(inState.coBuy) ? inState.coBuy : {},
-    meals: isPlainObject(inState.meals) ? inState.meals : {}
+    meals: isPlainObject(inState.meals) ? inState.meals : {},
+    history: Array.isArray(inState.history) ? inState.history.filter(isPlainObject).slice(0, 200) : []
   });
   out.localMutationEpoch = Number(inState.localMutationEpoch) || 0;
   out._cloudOpenEpoch = Number(inState._cloudOpenEpoch) || 0;
@@ -479,11 +493,25 @@ function getDueItems(){
   Object.keys(state.catalog).forEach(function(k){
     if(openKeys[k]) return;
     if(dismissed[k] === today) return; // vandaag weggetikt → niet tonen, morgen weer
-    var e=state.catalog[k]; var a=analyse(e);
+    var e=state.catalog[k];
+    if(e.snoozeUntil && e.snoozeUntil >= today) return;   // uitgesteld (lang indrukken op de chip)
+    var a=analyse(e);
     if(isDue(a)) out.push({key:k, e:e, a:a});
   });
   out.sort(function(x,y){ return y.a.overdue - x.a.overdue; });
   return out;
+}
+function dismissDueItem(k){
+  if(!state.settings.dismissedDueItems) state.settings.dismissedDueItems = {};
+  state.settings.dismissedDueItems[k] = todayStr();
+  save(); renderDueBanner();
+}
+function snoozeDue(k, days){
+  var e=state.catalog[k]; if(!e) return;
+  var d=addDays(parseDay(todayStr()), days||7);
+  e.snoozeUntil = d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());
+  save(); renderDueBanner(); if(activeTab==="vaste") renderVaste();
+  toast(e.name+" uitgesteld — "+(days===7?"volgende week":days+" dagen")+" niet meer vragen", {duration:2600, action:"Ongedaan", onAction:function(){ delete e.snoozeUntil; save(); renderDueBanner(); if(activeTab==="vaste") renderVaste(); }});
 }
 function dismissDueBanner(){
   var due = getDueItems(); if(!due.length) return;
@@ -528,6 +556,56 @@ function runAutoAddDueItems(){
 }
 
 // alle "vaste" producten (handmatig of automatisch herkend als regelmatig)
+/* Vaak gekocht: catalog-items op timesAdded × recency (laatst toegevoegd < 30 dagen weegt zwaarder), niet al open op de lijst */
+function frequentItems(limit){
+  var open={}; state.list.forEach(function(i){ if(!i.done) open[norm(i.name)]=1; });
+  var now=Date.now(), out=[];
+  Object.keys(state.catalog||{}).forEach(function(k){
+    var e=state.catalog[k]; if(!e || open[k]) return;
+    var times=(e.timesAdded||0) + (e.purchaseDates||[]).length;
+    if(times < 2) return;
+    var days = e.lastAddedAt ? (now - new Date(e.lastAddedAt).getTime())/86400000 : 365;
+    var score = times * (1 / (1 + Math.max(0,days)/30));
+    out.push({key:k, e:e, score:score});
+  });
+  out.sort(function(a,b){ return b.score - a.score; });
+  return out.slice(0, limit||8).map(function(x){ return x.e; });
+}
+function quickChip(e){
+  var c=CAT_BY_ID[e.category]||CAT_BY_ID["overig"];
+  var b=el("button","chip",shelfIcon(c)+'<span>'+escapeHtml(e.name)+'</span><span class="plus">+</span>'); b.type="button";
+  b.addEventListener("click",function(){ addToList(e.name, e.defaultPrice); if(activeTab==="vaste") renderVaste(); });
+  return b;
+}
+/* Startzet bij een lege lijst: vaak gekocht, vorige lijst herhalen, bundels kiezen */
+function renderQuickStart(wrap){
+  var freq=frequentItems(8);
+  var last=(state.history||[])[0];
+  var meals=(typeof mealList==="function") ? mealList() : [];
+  if(!freq.length && !last && !meals.length) return;
+  var q=el("div","quick-start");
+  if(freq.length){
+    q.appendChild(el("div","qs-lbl","Vaak gekocht"));
+    var chips=el("div","chips"); freq.forEach(function(e){ chips.appendChild(quickChip(e)); }); q.appendChild(chips);
+  }
+  var acts=el("div","qs-actions");
+  if(last && last.items && last.items.length){
+    var rb=el("button","mbtn","Herhaal vorige lijst ("+last.items.length+")"); rb.type="button";
+    rb.addEventListener("click", repeatLastTrip); acts.appendChild(rb);
+  }
+  if(meals.length){
+    var mb=el("button","mbtn","Kies een bundel"); mb.type="button";
+    mb.addEventListener("click", function(){ switchTab("vaste"); }); acts.appendChild(mb);
+  }
+  if(acts.children.length) q.appendChild(acts);
+  wrap.appendChild(q);
+}
+function repeatLastTrip(){
+  var last=(state.history||[])[0]; if(!last || !last.items) return;
+  var n=0;
+  last.items.forEach(function(i){ if(i && i.name && addToList(i.name, null, {qty:i.qty||1, unit:i.unit||"", silent:true})) n++; });
+  toast(n+" items van je vorige lijst teruggezet");
+}
 function getRecurring(){
   var out=[];
   Object.keys(state.catalog).forEach(function(k){
@@ -676,58 +754,51 @@ var CHECK_SVG='<svg viewBox="0 0 24 24" fill="none" stroke="var(--on-brand)" str
 /* ============================================================
    TOAST
    ============================================================ */
-var toastT;
+/* Toast-stapel: #toast is de hoofdplek (actie-toasts zoals "Ongedaan" hebben daar voorrang), #toast2 vangt een
+   gewone melding op zolang een actie-toast zichtbaar is. Per slot een eigen timer; pauze-listeners worden één keer gebonden. */
+var _toastSlots = {};
+function _toastEl(opts){
+  var t1 = $("#toast"), t2 = $("#toast2");
+  if(!t2 || opts.action) return t1;
+  var primaryBusy = t1.classList.contains("show") && t1.classList.contains("has-action");
+  return primaryBusy ? t2 : t1;
+}
 function toast(msg, opts){
   opts = opts || {};
-  var t = $("#toast");
-  t.className = "toast";
+  var t = _toastEl(opts); if(!t) return;
+  var slot = _toastSlots[t.id] || (_toastSlots[t.id] = {});
+  clearTimeout(slot.timer);
+  t.className = "toast" + (t.id === "toast2" ? " toast-2" : "");
   t.innerHTML = "";
   var span = document.createElement("span");
   span.className = "toast-msg";
   span.textContent = msg;
   t.appendChild(span);
   var duration = opts.duration || 1500;
-  // Pause-on-hover/touch zodat user 'm niet mist tijdens lezen
   var paused = false, remaining = duration, startedAt = 0;
-  var hide = function(){ t.classList.remove("show"); };
-  var schedule = function(ms){
-    clearTimeout(toastT);
-    startedAt = Date.now();
-    toastT = setTimeout(hide, ms);
-  };
+  var hide = function(){ t.classList.remove("show"); t._pause = null; t._resume = null; };
+  var schedule = function(ms){ clearTimeout(slot.timer); startedAt = Date.now(); slot.timer = setTimeout(hide, ms); };
   if(typeof opts.onTap === "function"){
     t.classList.add("has-tap");
-    t.onclick = function(e){ if(e.target && e.target.closest && e.target.closest(".toast-action")) return; try{ opts.onTap(); }catch(x){} hide(); clearTimeout(toastT); };
+    t.onclick = function(e){ if(e.target && e.target.closest && e.target.closest(".toast-action")) return; try{ opts.onTap(); }catch(x){} hide(); clearTimeout(slot.timer); };
   } else { t.onclick = null; }
   if(opts.action && typeof opts.onAction === "function"){
     t.classList.add("has-action");
     var btn = document.createElement("button");
-    btn.className = "toast-action";
-    btn.type = "button";
-    btn.textContent = opts.action;
-    btn.addEventListener("click", function(){
-      try{ opts.onAction(); }catch(e){}
-      hide(); clearTimeout(toastT);
-    });
+    btn.className = "toast-action"; btn.type = "button"; btn.textContent = opts.action;
+    btn.addEventListener("click", function(){ try{ opts.onAction(); }catch(e){} hide(); clearTimeout(slot.timer); });
     t.appendChild(btn);
-    // Pauze auto-hide bij hover/touch
-    var pause = function(){
-      if(paused) return;
-      paused = true;
-      var elapsed = Date.now() - startedAt;
-      remaining = Math.max(800, remaining - elapsed);
-      clearTimeout(toastT);
-    };
-    var resume = function(){
-      if(!paused) return;
-      paused = false;
-      schedule(remaining);
-    };
-    t.addEventListener("mouseenter", pause);
-    t.addEventListener("mouseleave", resume);
-    t.addEventListener("touchstart", pause, {passive:true});
-    t.addEventListener("touchend", resume);
-  }
+    // Pauze bij hover/aanraken zodat je 'm niet mist tijdens het lezen — listeners één keer per slot
+    t._pause = function(){ if(paused) return; paused = true; remaining = Math.max(600, remaining - (Date.now() - startedAt)); clearTimeout(slot.timer); };
+    t._resume = function(){ if(!paused) return; paused = false; schedule(remaining); };
+    if(!t._pauseBound){
+      t._pauseBound = true;
+      t.addEventListener("mouseenter", function(){ if(t._pause) t._pause(); });
+      t.addEventListener("mouseleave", function(){ if(t._resume) t._resume(); });
+      t.addEventListener("touchstart", function(){ if(t._pause) t._pause(); }, {passive:true});
+      t.addEventListener("touchend", function(){ if(t._resume) t._resume(); });
+    }
+  } else { t._pause = null; t._resume = null; }
   t.classList.add("show");
   schedule(duration);
 }
@@ -749,8 +820,8 @@ function addToList(name, price, opts){
     touchCatalog(name, price); save();
     return true;
   }
-  var k=norm(name);
-  var existing = state.list.find(function(i){ return !i.done && norm(i.name)===k; });
+  var k=norm(name), mk=matchKey(name);
+  var existing = state.list.find(function(i){ return !i.done && matchKey(i.name)===mk; });
   if(existing){
     existing.qty += addQty;
     if(price!=null) existing.price=price;
@@ -812,12 +883,81 @@ function finishShopping(){
   if(Cloud.active){ Cloud.finish(); return; }
   var done=state.list.filter(function(i){return i.done;});
   if(!done.length) return;
+  var today=todayStr();
+  // onthoud welke aankoopdatums nieuw zijn, zodat "Terug op de lijst" ze weer weghaalt
+  var marks=done.map(function(it){ var k=norm(it.name), e=state.catalog[k]; return {k:k, had:!!(e && (e.purchaseDates||[]).indexOf(today)!==-1)}; });
   done.forEach(function(it){ recordPurchase(it.name, it.price); });
   recordCoBuy(done.map(function(it){return it.name;}));
+  var entry=recordTrip(done);
+  var snapshot=done.map(function(i){ return Object.assign({}, i); });
   state.list=state.list.filter(function(i){return !i.done;});
   save(); renderLijst(); renderDueBanner(); renderVaste();
-  toast(done.length+(done.length===1?" boodschap gekocht":" boodschappen gekocht"));
   vibe("nudge"); celebrate();
+  var undo=function(){
+    snapshot.forEach(function(i){ if(!state.list.some(function(x){ return x.id===i.id; })) state.list.push(i); });
+    marks.forEach(function(m){ var e=state.catalog[m.k]; if(e && !m.had){ var idx=(e.purchaseDates||[]).indexOf(today); if(idx!==-1) e.purchaseDates.splice(idx,1); } });
+    state.history=(state.history||[]).filter(function(h){ return h.id!==entry.id; });
+    save(); renderLijst(); renderDueBanner(); renderVaste();
+    if(shopIsOpen()) renderShopBody();
+    toast("Teruggezet op je lijst");
+  };
+  afterFinish(entry, undo, done.length);
+}
+/* Na afronden: in de winkel met resterende items → undo-toast en verder; anders (of alles klaar) → "Klaar!"-blad */
+function afterFinish(entry, undoFn, n){
+  var label=n+(n===1?" boodschap gekocht":" boodschappen gekocht");
+  var remaining=state.list.filter(function(i){return !i.done;}).length;
+  if(shopIsOpen()){
+    if(remaining>0){ renderShopBody(); if(undoFn) undoToast(label, undoFn); else toast(label); return; }
+    closeShoppingMode();
+  }
+  openFinishSheet(entry, undoFn);
+}
+/* Cloud.finish roept dit aan i.p.v. zelf te toasten (undo op cloud-lijsten komt in Fase 3 met soft-delete) */
+function finishAfterCloud(done){
+  var entry=recordTrip(done); save();
+  afterFinish(entry, null, done.length);
+}
+/* Geschiedenis: laatste 200 afrondingen (datum, aantal, totaal, items) — bron voor "Herhaal vorige lijst" en uitgaven-inzicht */
+function recordTrip(done){
+  var total=0, has=false;
+  done.forEach(function(i){ if(i.price!=null){ has=true; total+=(i.price||0)*(i.qty||1); } });
+  var entry={ id:uid(), at:nowISO(), count:done.length, total:(has?Math.round(total*100)/100:null), paid:null,
+    list:(typeof Cloud!=="undefined" && Cloud.active) ? Cloud.active : "local",
+    items:done.map(function(i){ return {name:i.name, qty:i.qty||1, unit:i.unit||"", price:(i.price==null?null:i.price), category:i.category||"overig"}; }) };
+  state.history=Array.isArray(state.history)?state.history:[];
+  state.history.unshift(entry);
+  if(state.history.length>200) state.history.length=200;
+  return entry;
+}
+/* "Nog iets vergeten?" — co-buy-suggesties over alle gekochte items, niet al op de lijst */
+function forgottenSuggestions(items, limit){
+  var scores={}, listKeys={}, boughtKeys={};
+  state.list.forEach(function(i){ if(!i.done) listKeys[norm(i.name)]=1; });
+  items.forEach(function(i){ boughtKeys[norm(i.name)]=1; });
+  items.forEach(function(it){
+    getCoSuggestions(norm(it.name), 5).forEach(function(s){ if(listKeys[s.key]||boughtKeys[s.key]) return; scores[s.key]=(scores[s.key]||0)+s.count; });
+  });
+  return Object.keys(scores).sort(function(a,b){ return scores[b]-scores[a]; }).slice(0, limit||3).map(function(k){ return state.catalog[k]; }).filter(Boolean);
+}
+function openFinishSheet(entry, undoFn){
+  var sh=$("#sheet"); if(!sh || !entry) return;
+  var n=entry.count, total=entry.total;
+  var forgot=forgottenSuggestions(entry.items||[], 3);
+  sh.innerHTML='<div class="grip"></div><h3>Klaar!</h3>'+
+    '<div class="fin-sum"><b>'+n+'</b> '+(n===1?"boodschap":"boodschappen")+' gekocht'+((total!=null && total>0)?' · <b>'+euro(total)+'</b>':'')+'</div>'+
+    (state.settings.showPrices ? '<label class="fin-paid" for="fin-paid"><span>Wat heb je betaald?</span><span class="fin-paid-in"><span>€</span><input id="fin-paid" type="text" inputmode="decimal" placeholder="'+(total?euro(total).replace("€",""):"0,00")+'" autocomplete="off"></span></label>' : '')+
+    (forgot.length ? '<div class="sheet-label"><span class="lbl-cap">Nog iets vergeten?</span></div><div class="chips" id="fin-forgot"></div>' : '')+
+    '<div class="sheet-actions"><button class="save" id="fin-ok" type="button">Klaar</button>'+(undoFn?'<button class="del" id="fin-undo" type="button">Terug op de lijst</button>':'')+'</div>';
+  var fc=sh.querySelector("#fin-forgot");
+  if(fc){ forgot.forEach(function(e){ var b=quickChip(e); b.addEventListener("click", function(){ b.disabled=true; b.style.opacity=".5"; }); fc.appendChild(b); }); }
+  var savePaid=function(){
+    var inp=sh.querySelector("#fin-paid"); if(!inp || !inp.value.trim()) return;
+    var v=parseFloat(inp.value.replace(",", ".")); if(isFinite(v) && v>=0){ entry.paid=Math.round(v*100)/100; save(); }
+  };
+  sh.querySelector("#fin-ok").addEventListener("click", function(){ savePaid(); closeSheet(); });
+  var ub=sh.querySelector("#fin-undo"); if(ub) ub.addEventListener("click", function(){ closeSheet(); undoFn(); });
+  openSheetUI();
 }
 
 /* ============================================================
@@ -854,6 +994,7 @@ function renderLijst(){
     } else {
       openFrag.appendChild(emptyState("bag","Begin je lijst","Typ hieronder wat je nodig hebt. Producten landen vanzelf in het juiste schap."));
     }
+    renderQuickStart(openFrag);
   } else {
     // groepeer open per categorie volgens categoryOrder
     var byCat={}; open.forEach(function(it){ var cid = CAT_BY_ID[it.category] ? it.category : "overig"; (byCat[cid]=byCat[cid]||[]).push(it); });
@@ -954,6 +1095,7 @@ function itemRow(it){
     else if(it.added_by_name) sub+=(sub?' · ':'')+'<span style="color:var(--ink-faint)">+ '+escapeHtml(it.added_by_name)+'</span>';
   }
 
+  if(!it.done && (!CAT_BY_ID[it.category] || it.category==="overig")) sub+=(sub?' · ':'')+'<button class="pick-cat" type="button">Schap kiezen</button>';
   card.innerHTML =
     '<button class="check" type="button" aria-label="'+(it.done?"Vinkje weghalen":"Afvinken")+'" aria-pressed="'+(it.done?"true":"false")+'">'+CHECK_SVG+'</button>'+
     '<div class="meta"><div class="nm"></div>'+(sub?'<div class="sub2">'+sub+'</div>':'')+'</div>'+
@@ -961,6 +1103,7 @@ function itemRow(it){
     (state.settings.showPrices && it.price!=null ? '<div class="price">'+euro(it.price*it.qty)+'</div>' : '')+
     ((typeof HAS_POINTER!=="undefined" && HAS_POINTER) ? '<div class="row-actions"><button class="ra-btn ra-opt" type="button" aria-label="Opties voor '+escapeAttr(it.name)+'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></svg></button><button class="ra-btn ra-del" type="button" aria-label="Verwijder '+escapeAttr(it.name)+'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg></button></div>' : '');
   card.querySelector(".nm").textContent=it.name;
+  var pickCat=card.querySelector(".pick-cat"); if(pickCat) pickCat.addEventListener("click",function(e){ e.stopPropagation(); openSheet(it.id); });
   var raOpt=card.querySelector(".ra-opt"), raDel=card.querySelector(".ra-del");
   if(raOpt) raOpt.addEventListener("click",function(e){ e.stopPropagation(); openSheet(it.id); });
   if(raDel) raDel.addEventListener("click",function(e){ e.stopPropagation(); removeFromList(it.id); });
@@ -1110,9 +1253,14 @@ function renderDueBanner(){
   var chips=el("div","chips");
   top.forEach(function(d){
     var c=CAT_BY_ID[d.e.category]||CAT_BY_ID["overig"];
+    var wrapC=el("div","chip-wrap");
     var chip=el("button","chip amber",shelfIcon(c)+'<span>'+escapeHtml(d.e.name)+'</span><span class="plus">+</span>');
-    chip.addEventListener("click",function(){ addToList(d.e.name, d.e.defaultPrice); toast(d.e.name+" toegevoegd"); });
-    chips.appendChild(chip);
+    chip.type="button"; chip.setAttribute("aria-label", d.e.name+" toevoegen (lang indrukken: een week uitstellen)");
+    chip.addEventListener("click",function(){ if(chip._lp){ chip._lp=false; return; } addToList(d.e.name, d.e.defaultPrice); });
+    attachLongPress(chip, function(){ chip._lp=true; snoozeDue(d.key, 7); });
+    var x=el("button","chip-x","✕"); x.type="button"; x.setAttribute("aria-label", d.e.name+" verbergen tot morgen");
+    x.addEventListener("click",function(e){ e.stopPropagation(); dismissDueItem(d.key); });
+    wrapC.appendChild(chip); wrapC.appendChild(x); chips.appendChild(wrapC);
   });
   if(due.length > 6){
     var more = el("button","chip",'<span>Toon alles ('+due.length+')</span><span class="plus">→</span>');
@@ -1209,11 +1357,7 @@ function buildShopChrome(scr){
     this.textContent = on ? "Toon afgevinkte" : "Verberg afgevinkte";
     state.settings.shopHideDone = on; save();
   });
-  scr.querySelector("#shop-finish").addEventListener("click", function(){
-    finishShopping();
-    if(state.list.filter(function(i){return !i.done;}).length===0) closeShoppingMode();
-    else renderShopBody();
-  });
+  scr.querySelector("#shop-finish").addEventListener("click", function(){ finishShopping(); });
 }
 function shopRow(it){
   var row=el("button","shop-row"+(it.done?" done":"")); row.type="button";
@@ -1299,9 +1443,13 @@ function renderVaste(){
   var due=rec.filter(function(r){return isDue(r.a);});
   var rest=rec.filter(function(r){return !isDue(r.a);});
 
-  if(rec.length===0){
+  var freq=frequentItems(12);
+  if(rec.length===0 && !freq.length){
     wrap.appendChild(emptyState("repeat","Nog geen vaste boodschappen","Mandje leert vanzelf wat je vaak koopt. Streep items af en tik op Afronden — na zo'n 3 à 4 keer verschijnen ze hier op jouw ritme. Liever zelf bepalen? Stel een ritme in via een product op je lijst."));
     return;
+  }
+  if(rec.length===0){
+    wrap.appendChild(el("div","hint","Mandje leert vanzelf wat je vaak koopt — na zo'n 3 à 4 keer afronden verschijnen producten hier op hun ritme."));
   }
   if(due.length){
     wrap.appendChild(sectionLabel("🔔","Bijna op",due.length));
@@ -1310,6 +1458,10 @@ function renderVaste(){
   if(rest.length){
     wrap.appendChild(sectionLabel("🔁","Jouw vaste boodschappen",rest.length));
     var u2=el("ul","list"); rest.forEach(function(r){ u2.appendChild(vasteRow(r)); }); wrap.appendChild(u2);
+  }
+  if(freq.length){
+    wrap.appendChild(sectionLabel("⭐","Vaak gekocht",freq.length));
+    var fchips=el("div","chips freq-chips"); freq.forEach(function(e){ fchips.appendChild(quickChip(e)); }); wrap.appendChild(fchips);
   }
 }
 function sectionLabel(glyph,label,count){
@@ -2984,6 +3136,14 @@ if(typeof window!=="undefined"){
   window.renderShopBody = renderShopBody;
   window.flipList = flipList;
   window.scrollToRow = scrollToRow;
+  window.classify = classify;
+  window.matchKey = matchKey;
+  window.snoozeDue = snoozeDue;
+  window.finishShopping = finishShopping;
+  window.frequentItems = frequentItems;
+  window.recordTrip = recordTrip;
+  window.openFinishSheet = openFinishSheet;
+  window.repeatLastTrip = repeatLastTrip;
   window.refreshTopShareBtn = refreshTopShareBtn;
   window.getCloudRef = function(){
     if(typeof window !== "undefined" && window.__cloudRef) return window.__cloudRef;

@@ -599,9 +599,59 @@ const ok=(n,c)=>{ if(c){pass++;console.log("  ✓ "+n);} else {fail++;console.lo
     ok("Fase 2a: na sluiten staan de 2 afgevinkte items in 'In mandje' en 2 open", D.querySelectorAll("#done-list li.row").length===2 && D.querySelectorAll("#open-list li.row").length===2);
     // toast bij toevoegen op de Lijst-tab is informatief en tikbaar
     D.querySelector("#add-name").value="wc papier"; D.querySelector("#add-name").dispatchEvent(new W.KeyboardEvent("keydown",{key:"Enter",bubbles:true})); await wait(40);
-    const toastEl=D.querySelector("#toast");
-    ok("Fase 2a: toast bij toevoegen noemt het schap en is tikbaar", toastEl.classList.contains("show") && /wc papier → Huishouden/.test(toastEl.textContent) && toastEl.classList.contains("has-tap"));
+    const toastEl=[D.querySelector("#toast2"), D.querySelector("#toast")].find(t=>t && t.classList.contains("show") && /wc papier/.test(t.textContent));
+    ok("Fase 2a: toast bij toevoegen noemt het schap en is tikbaar", !!toastEl && /wc papier → Huishouden/.test(toastEl.textContent) && toastEl.classList.contains("has-tap"));
     d31.window.close();
+  }
+
+  // 32. Fase 2b — classificatie-scoring, dubbele regels (matchKey), Schap kiezen, bijna-op per chip, Vaak gekocht
+  {
+    const dstr=(daysAgo)=>{ const d=new Date(); d.setDate(d.getDate()-daysAgo); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); };
+    const catalog32={
+      "melk":{name:"Melk",category:"zuivel-eieren",defaultPrice:null,purchaseDates:[dstr(29),dstr(22),dstr(15),dstr(8)],timesAdded:6,lastAddedAt:new Date(Date.now()-8*86400000).toISOString(),cadenceMode:"auto",manualIntervalDays:null},
+      "brood":{name:"Brood",category:"brood-banket",defaultPrice:null,purchaseDates:[dstr(20),dstr(10)],timesAdded:4,lastAddedAt:new Date(Date.now()-3*86400000).toISOString(),cadenceMode:"auto",manualIntervalDays:null},
+      "kaas":{name:"Kaas",category:"kaas-vleeswaren",defaultPrice:null,purchaseDates:[],timesAdded:3,lastAddedAt:new Date(Date.now()-5*86400000).toISOString(),cadenceMode:"auto",manualIntervalDays:null},
+      "eenmalig":{name:"Eenmalig",category:"overig",defaultPrice:null,purchaseDates:[],timesAdded:1,lastAddedAt:new Date().toISOString(),cadenceMode:"auto",manualIntervalDays:null}
+    };
+    const seed32=(list)=>JSON.stringify({version:3,settings:{theme:"light",showPrices:false,seenIntro:true,categoryOrder:null,minPurchases:3,cvThreshold:.6,dueWindowDays:1},list:list||[],catalog:catalog32,coBuy:{},meals:{}});
+    const d32=new JSDOM(html,{url:"https://example.com/",runScripts:"dangerously",resources:"usable",pretendToBeVisual:true,beforeParse(w){ w.localStorage.setItem("mandje.v2", seed32([])); }});
+    await wait(160); const W=d32.window, D=W.document;
+    // a) classificatie
+    const cls=(n)=>W.classify ? W.classify(n) : null;
+    ok("Fase 2b: classify scoort op einde/woordgrens (boterhamworst → kaas & vleeswaren, melkchocolade → snoep)", cls("boterhamworst")==="kaas-vleeswaren" && cls("melkchocolade")==="snoep-snacks" && cls("halfvolle melk")==="zuivel-eieren");
+    ok("Fase 2b: nieuwe keywords (snijbloemen, tortillachips, kruidenboter, roomijs)", cls("snijbloemen")==="tuin-planten" && cls("tortillachips")==="snoep-snacks" && cls("kruidenboter")==="kaas-vleeswaren" && cls("roomijs")==="diepvries");
+    ok("Fase 2b: bestaande classificaties intact (bloemkool, kipfilet, wc papier, hondenvoer)", cls("bloemkool")==="groente-fruit" && cls("kipfilet")==="vlees-vis" && cls("wc papier")==="huishouden" && cls("hondenvoer")==="huisdier");
+    // b) lege staat: Vaak gekocht (timesAdded ≥ 2, niet op de lijst)
+    const qs=D.querySelector("#open-list .quick-start");
+    const chipNames=qs ? [...qs.querySelectorAll(".chip span:not(.plus)")].map(x=>x.textContent) : [];
+    ok("Fase 2b: lege staat toont 'Vaak gekocht'-chips uit de catalogus (zonder eenmalige items)", !!qs && chipNames.indexOf("Melk")!==-1 && chipNames.indexOf("Brood")!==-1 && chipNames.indexOf("Eenmalig")===-1);
+    // c) bijna-op-banner: chip met verberg-knop; verbergen werkt vandaag; snooze via lang indrukken (functie)
+    const banner=D.querySelector("#due-banner .banner");
+    ok("Fase 2b: bijna-op-banner toont melk met een eigen verberg-knop", !!banner && !!banner.querySelector(".chip-wrap .chip") && !!banner.querySelector(".chip-wrap .chip-x"));
+    if(banner){ banner.querySelector(".chip-x").click(); await wait(30); }
+    ok("Fase 2b: verbergen per chip haalt alleen dat product weg (vandaag)", !D.querySelector("#due-banner .chip-wrap") && JSON.parse(W.localStorage.getItem("mandje.v2")).settings.dismissedDueItems.melk===dstr(0));
+    W.snoozeDue("melk", 7); await wait(20);
+    const snoozed=JSON.parse(W.localStorage.getItem("mandje.v2")).catalog.melk.snoozeUntil;
+    ok("Fase 2b: snooze zet snoozeUntil een week vooruit", snoozed===dstr(-7));
+    // d) dubbele regels: "wc-papier" + "wc papier" → één regel met 2
+    const add=(n)=>{ D.querySelector("#add-name").value=n; D.querySelector("#add-name").dispatchEvent(new W.KeyboardEvent("keydown",{key:"Enter",bubbles:true})); };
+    add("wc-papier"); await wait(30); add("wc papier"); await wait(30);
+    const rows=[...D.querySelectorAll("#open-list li.row")];
+    ok("Fase 2b: 'wc-papier' en 'wc papier' worden één regel met aantal 2", rows.length===1 && rows[0].querySelector(".qty span").textContent==="2");
+    // e) Overig-rij krijgt 'Schap kiezen'
+    add("zqxblorp"); await wait(30);
+    const overigRow=[...D.querySelectorAll("#open-list li.row")].find(r=>/zqxblorp/.test(r.textContent));
+    ok("Fase 2b: item in Overig toont een 'Schap kiezen'-chip; bekende items niet", !!overigRow && !!overigRow.querySelector(".pick-cat") && !rows[0].querySelector(".pick-cat"));
+    overigRow.querySelector(".pick-cat").click(); await wait(40);
+    ok("Fase 2b: 'Schap kiezen' opent het item-sheet met schap-keuze", D.querySelector("#sheet").classList.contains("show") && !!D.querySelector("#sheet .catchip"));
+    d32.window.close();
+    // f) Vaste-tab: 'Vaak gekocht' vanaf dag één, ook zonder vaste boodschappen
+    const d32b=new JSDOM(html,{url:"https://example.com/",runScripts:"dangerously",resources:"usable",pretendToBeVisual:true,beforeParse(w){ w.localStorage.setItem("mandje.v2", JSON.stringify({version:3,settings:{theme:"light",showPrices:false,seenIntro:true,categoryOrder:null,minPurchases:3,cvThreshold:.6,dueWindowDays:1},list:[],catalog:{"kaas":catalog32.kaas,"brood":catalog32.brood},coBuy:{},meals:{}})); }});
+    await wait(160); const Db=d32b.window.document;
+    [...Db.querySelectorAll("[data-tab]")].find(b=>b.dataset.tab==="vaste").click(); await wait(40);
+    const vasteTxt=Db.querySelector("#vaste-content").textContent;
+    ok("Fase 2b: Vaste-tab toont 'Vaak gekocht' zonder vaste boodschappen (geen lege staat)", /Vaak gekocht/.test(vasteTxt) && Db.querySelectorAll("#vaste-content .freq-chips .chip").length===2 && !Db.querySelector("#vaste-content .empty"));
+    d32b.window.close();
   }
 
   console.log("\nt3: "+pass+" geslaagd, "+fail+" gefaald");
